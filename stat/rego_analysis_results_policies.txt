@@ -1,0 +1,947 @@
+Analyzing: ../policy-library/policies/RabbitMQEnforceSSLFailNoPeerEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoDBEnforceRootPasswordFileEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerMissingNamespace/tests/missing_namespace_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingNamespace/tests/existing_namespace_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingNamespace/tests/missing_namespace_exclude_label_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/InfluxDBEnforceOrgEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoDBEnforceDatabaseEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ServiceProhibitPortsRange/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceMysqlDatabaseEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/PostgresEnforcePasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoDBEnforceRootUsernameEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceAuthUsernameEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/PersistentVolumeReclaimPolicy/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/PostgresEnforceInitDBWaldirEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RBACClusterRoleClusterAdmin/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MongoDBEnforceRootUsernameFileEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/FluxHelmChartValuesFormat/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxHelmChartValuesFormat/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceSSLVerifyEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/InfluxDBEnforceAdminTokenEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MariaDBProhibitMysqlEmptyPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i, j; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env[j]); equal(envs.name, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' should not be set, but has been detected here '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].securityContext.allowPrivilegeEscalation", [i])} }
+
+
+Analyzing: ../policy-library/policies/PostgresEnforceDBEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppLabel/tests/app_k8s_io_name_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MYSQLEnforcePasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceDefaultPassEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MYSQLEnforceSkipTzinfoEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/FluxHelmReleasePostRenderer/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxHelmReleasePostRenderer/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceMysqlRandomRootPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceEnabledPluginsEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/InfluxDBEnforcePasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MYSQLEnforceDatabaseEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/NamespaceProhibitName/policy.rego
+----------------------------------------
+violation[result] { assign(name, namespace_input.metadata.name); startswith(name, namespace_name); result = {"issue_detected": true, "msg": sprintf("Namespaces should not start with '%v'; you have specified '%v'", [namespace_name, name]), "violating_key": "metadata.name"} }
+
+
+Analyzing: ../policy-library/policies/PostgresEnforcePGDataEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceAdminPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/FluxHelmReleaseRollback/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxHelmReleaseRollback/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceMongoPortEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceMysqlRootPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/FluxHelmChartCosignVerification/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxHelmChartCosignVerification/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceDefaultUserEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceMysqlPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceAuthPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceSSLCertFileEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppPartOfLabel/tests/app_k8s_io_part-of_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppPartOfLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceSchemaDirEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerReadOnlyFileSystem/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceCookieSecretEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerMissingStartupProbe/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceSessionSecretEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerShareProcessNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/KubernetesProhibitNakedPods/policy.rego
+----------------------------------------
+violation[result] { assign(kind, "Pod"); assign(lower_kind, lower(kind)); assign(specified_kind, input.review.object.kind); assign(lower_specified_kind, lower(specified_kind)); equal(lower_kind, lower_specified_kind); result = {"issue_detected": true, "msg": sprintf("Naked Pods are prohibited", []), "violating_key": "kind"} }
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsUser/tests/pod_compliant_runAsUser_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsUser/tests/container_violating_runAsUser_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsUser/tests/exclude_label_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsUser/tests/exclude_namespace_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsUser/tests/pod_violating_runAsUser_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsUser/tests/missing_runAsUser_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsUser/tests/container_compliant_runAsUser_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsUser/policy.rego
+----------------------------------------
+controller_spec = controller_input.spec.template.spec { contains(controller_input.kind, {"DaemonSet", "Deployment", "Job", "ReplicaSet", "StatefulSet"}) } else = controller_input.spec { equal(controller_input.kind, "Pod") } else = controller_input.spec.jobTemplate.spec.template.spec { equal(controller_input.kind, "CronJob") }
+
+
+Analyzing: ../policy-library/policies/FluxKustomizationVarSubstitution/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxKustomizationVarSubstitution/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/InfluxDBEnforceRetentionEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerImagePullPolicy/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceEnableAdminEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceSSLEnabledEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceDefaultVHostEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerMissingOwnerLabel/tests/owner_exists_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingOwnerLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MongoDBEnforceRootPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not contains(containers.image, exclude_app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforcePasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MYSQLProhibitEmptyPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RBACProhibitWildcardOnSecrets/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RBACProhibitWildcardOnSecrets/policy.rego
+----------------------------------------
+cr_input = input.review.object { contains(input.review.object.kind, "Role") }
+
+
+Analyzing: ../policy-library/policies/FluxBucketInsecure/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxBucketInsecure/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforcePluginsDirEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ServiceRestrictProtocols/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppCreatedByLabel/tests/app_k8s_io_created-by_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppCreatedByLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceDatabaseEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceGeneratedConfigDirEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerProhibitNamespace/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerProhibitNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceEditorThemeEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceMnesiaBaseEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/InfluxDBEnforceUsernameEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceSSLDepthEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RBACProhibitWildcardsOnPolicyRuleVerbs/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RBACProhibitWildcardsOnPolicyRuleVerbs/policy.rego
+----------------------------------------
+cr_input = input.review.object { contains(input.review.object.kind, "Role") }
+
+
+Analyzing: ../policy-library/policies/RBACProhibitWildcardsOnPolicyRuleResources/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RBACProhibitWildcardsOnPolicyRuleResources/policy.rego
+----------------------------------------
+cr_input = input.review.object { contains(input.review.object.kind, "Role") }
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceUserEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ServiceProhibitType/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningPrivilegedMode/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppManagedByLabel/tests/app_k8s_io_managed-by_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppManagedByLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/NetworkPolicyDefaultRulesBlockAllIngress/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); not equal(np_spec[lower(policy_type)], []); result = {"issue_detected": true, "msg": sprintf("spec.'%v' should be '[]'; %v was detected", [lower(policy_type), np_spec[lower(policy_type)]]), "violating_key": "spec"} }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceAdminUsernameEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceLogsEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsRoot/tests/pod_runAsNonRoot_true_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsRoot/tests/container_runAsNonRoot_true_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsRoot/tests/exclude_label_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsRoot/tests/exclude_namespace_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsRoot/tests/container_runAsNonRoot_false_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsRoot/tests/missing_runAsNonRoot_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsRoot/tests/pod_runAsNonRoot_false_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerRunningAsRoot/policy.rego
+----------------------------------------
+controller_spec = controller_input.spec.template.spec { contains(controller_input.kind, {"DaemonSet", "Deployment", "Job", "ReplicaSet", "StatefulSet"}) } else = controller_input.spec { equal(controller_input.kind, "Pod") } else = controller_input.spec.jobTemplate.spec.template.spec { equal(controller_input.kind, "CronJob") }
+
+
+Analyzing: ../policy-library/policies/MYSQLEnforceRandomRootPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceRequestSizeEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/FluxKustomizationImageTagStandards/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxKustomizationImageTagStandards/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceERLArgsEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/PostgresEnforceUserEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/NetworkPolicyDefaultRulesBlockAllEgress/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); not equal(np_spec[lower(policy_type)], []); result = {"issue_detected": true, "msg": sprintf("spec.'%v' should be '[]'; %v was detected", [lower(policy_type), np_spec[lower(policy_type)]]), "violating_key": "spec"} }
+
+
+Analyzing: ../policy-library/policies/ControllerShareHostNetwork/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceSSLKeyFileEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerSeccompRuntimeDefault/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceConfigFileEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceMnesiaDirEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforcePluginsExpandDirEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceVMMemoryEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerTolerations/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSysctls_CVE-2022-0811/tests/container_block.systctl.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSysctls_CVE-2022-0811/policy.rego
+----------------------------------------
+checkSysctls(sysctls) = true { contains(sysctls.value, "+"); contains(sysctls.value, "=") }
+
+
+Analyzing: ../policy-library/policies/ControllerMissingSecurityContext/tests/missing_securityContext_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingSecurityContext/tests/existing_securityContext_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingSecurityContext/policy.rego
+----------------------------------------
+controller_spec = controller_input.spec.template.spec { contains(controller_input.kind, {"DaemonSet", "Deployment", "Job", "ReplicaSet", "StatefulSet"}) } else = controller_input.spec { equal(controller_input.kind, "Pod") } else = controller_input.spec.jobTemplate.spec.template.spec { equal(controller_input.kind, "CronJob") }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceMongoServerEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerContainerServiceAccountTokenAutomount/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxHelmReleaseNameSpaceMatch/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxHelmReleaseNameSpaceMatch/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxHelmRepositoryType/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxHelmRepositoryType/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerImageTag/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i, container in controller_spec.containers; splittedUrl = split(container.image, "/"); image = splittedUrl[minus(count(splittedUrl), 1)]; not contains(image, ":"); result = {"issue_detected": true, "msg": sprintf("Container %s image is not tagged", container.name), "violating_key": sprintf("spec.template.spec.containers[%v].image", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i, container in controller_spec.containers; splittedUrl = split(container.image, "/"); image = splittedUrl[minus(count(splittedUrl), 1)]; equal(count(split(image, ":")), 2); [image_name, tag] = split(image, ":"); equal(tag, image_tag); result = {"image": image, "issue_detected": true, "msg": sprintf("Container %s image contains unapproved tag '%v'", [container.name, image_tag]), "violating_key": sprintf("spec.template.spec.containers[%v].image", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i, container in controller_spec.containers; splittedUrl = split(container.image, "/"); image = splittedUrl[minus(count(splittedUrl), 1)]; equal(count(split(image, ":")), 3); [image_name, port, tag] = split(image, ":"); equal(tag, image_tag); result = {"image": image, "issue_detected": true, "msg": sprintf("Container %s image contains unapproved tag:'%v'", [container.name, image_tag]), "violating_key": sprintf("spec.template.spec.containers[%v].image", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerDockerSocketMount/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i, j; assign(sock, controller_spec.containers[i]); assign(vmounts, sock.volumeMounts[j]); assign(sock_path, vmounts.hostPath.path); contains(sock_path, docker_socket_name); result = {"issue_detected": true, "msg": sprintf("'%v' is being mounted. The hostPath we found was '%v'", [docker_socket_name, sock_path]), "violating_key": sprintf("spec.template.spec.containers[%v].volumeMonuts[%v].hostPath.path", [i, j])} }
+
+
+Analyzing: ../policy-library/policies/ControllerRestartPolicy/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceRootPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforcePidFileEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerContainerLinuxCapabilities/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/InfluxDBEnforceBucketEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerMissingReadinessProbe/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingLivenessProbe/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockHostPath/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MariaDBProhibitEmptyPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i, j; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env[j]); equal(envs.name, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' should not be set, but has been detected here '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].securityContext.allowPrivilegeEscalation", [i])} }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceSSLCrtPathEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MYSQLEnforceUserEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerShareHostIPC/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceRandomRootPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/PostgresEnforceInitDBArgsEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerContainerAllowingPrivilegeEscalation/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceSkipTzinfoEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RBACProhibitListOnSecrets/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RBACProhibitListOnSecrets/policy.rego
+----------------------------------------
+cr_input = input.review.object { contains(input.review.object.kind, "Role") }
+
+
+Analyzing: ../policy-library/policies/MYSQLEnforceRootPasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/RBACProhibitWatchOnSecrets/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RBACProhibitWatchOnSecrets/policy.rego
+----------------------------------------
+cr_input = input.review.object { contains(input.review.object.kind, "Role") }
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceMysqlSkipTzinfoEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/PostgresEnforceAuthMethodEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/MYSQLEnforceOnetimePasswordEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/FluxOCIRepositoryNotLatest/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxOCIRepositoryNotLatest/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceLogBaseEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/PrometheusRBACClusterRole/policy.rego
+----------------------------------------
+violation[result] { not equal(exclude_label_value, cr_input.metadata.labels[exclude_label_key]); contains(cr_input.metadata.name, "prometheus"); some i, j; assign(rules, cr_input.rules[i]); assign(verbs, rules.verbs[j]); contains(verbs, verb); result = {"issue_detected": true, "msg": sprintf("Found unapproved verb '%v'", [verb]), "violating_key": sprintf("rules[%v].verbs[%v]", [i, j])} }
+
+
+Analyzing: ../policy-library/policies/RabbitMQEnforceSSLCACertFileEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerShareHostPID/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMinimumReplicaCount/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppInstanceLabel/tests/app_k8s_io_instance_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppInstanceLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppComponentLabel/tests/app_k8s_io_component_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppComponentLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ServiceAccountDisableTokenAutomount/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MariaDBEnforceMysqlUserEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerContainerUsingHostPort/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSSHPort/tests/allowed_port_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSSHPort/tests/exclude_label_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSSHPort/tests/exclude_namespace_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSSHPort/tests/prohibited_port_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSSHPort/policy.rego
+----------------------------------------
+controller_spec = controller_input.spec.template.spec { contains(controller_input.kind, {"DaemonSet", "Deployment", "Job", "StatefulSet"}) } else = controller_input.spec { equal(controller_input.kind, "Pod") } else = controller_input.spec.jobTemplate.spec.template.spec { equal(controller_input.kind, "CronJob") }
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceBaseURLEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSysctls/tests/container_block.systctl.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockSysctls/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppVersionLabel/tests/app_k8s_io_version_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerMissingKubernetesAppVersionLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/ControllerContainerBlockPortsRange/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/MongoExpressEnforceSSLKeyPathEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/policies/PrometheusRBACClusterRoleBinding/policy.rego
+----------------------------------------
+vviolation[result] { not equal(exclude_label_value, crb_input.metadata.labels[exclude_label_key]); contains(crb_input.metadata.name, "prometheus"); some i; subjects = crb_input.subjects[i]; not equal(subjects.kind, "ServiceAccount"); result = {"issue_detected": true, "msg": sprintf("subject kind must be ServiceAccount; found '%v'", [subjects.kind]), "violating_key": sprintf("subjects[%v].kind", [i])} }
+violation[result] { not equal(exclude_label_value, crb_input.metadata.labels[exclude_label_key]); contains(crb_input.metadata.name, "prometheus"); some i; subjects = crb_input.subjects[i]; not contains(subjects.name, subject_name); result = {"issue_detected": true, "msg": sprintf("subject name must contain '%v'; found '%v'", [subject_name, subjects.name]), "recommended_value": subject_name, "violating_key": sprintf("subjects[%v].name", [i])} }
+violation[result] { not equal(exclude_label_value, crb_input.metadata.labels[exclude_label_key]); contains(crb_input.metadata.name, "prometheus"); contains(crb_input.metadata.name, "prometheus"); not contains(crb_input.roleRef.kind, "ClusterRole"); result = {"issue_detected": true, "msg": sprintf("roleRef kind must contain be a Role or ClusterRole; found '%v'", [crb_input.roleRef.kind]), "violating_key": "roleRef.kind"} }
+violation[result] { not equal(exclude_label_value, crb_input.metadata.labels[exclude_label_key]); contains(crb_input.metadata.name, "prometheus"); contains(crb_input.metadata.name, "prometheus"); not contains(crb_input.roleRef.name, "prometheus"); result = {"issue_detected": true, "msg": sprintf("roleRef name must contain prometheus; found '%v'", [crb_input.roleRef.name]), "violating_key": "roleRef.name"} }
+
+
+Analyzing: ../policy-library/policies/FluxOCIRepositoryCosignVerification/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/policies/FluxOCIRepositoryCosignVerification/policy.rego
+----------------------------------------
+
+

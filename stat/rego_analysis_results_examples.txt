@@ -1,0 +1,591 @@
+Analyzing: ../policy-library/examples/NetworkPolicyBlockEgressAllFromNamespaceToCIDR/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowEgressAllFromNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxResourceReconcileInterval/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxResourceReconcileInterval/policy.rego
+----------------------------------------
+get_seconds_from_part(part) = seconds { endswith(part, "h"); assign(no_suffix, trim_suffix(part, "h")); assign(seconds, mul(to_number(no_suffix), 3600)) } else = seconds { endswith(part, "m"); assign(no_suffix, trim_suffix(part, "m")); assign(seconds, mul(to_number(no_suffix), 60)) } else = seconds { endswith(part, "s"); assign(no_suffix, trim_suffix(part, "s")); assign(seconds, to_number(no_suffix)) } else = seconds { assign(seconds, 0) }
+
+
+Analyzing: ../policy-library/examples/ControllerResourcesMinCPULimits/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizationPaths/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizationPaths/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizeImagesRequirement/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizeImagesRequirement/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizePrune/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizePrune/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/KubernetesResourceLabelsAnnotations/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/KubernetesResourceLabelsAnnotations/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/KubernetesProhibitKind/policy.rego
+----------------------------------------
+violation[result] { assign(lower_kind, lower(kind)); assign(specified_kind, input.review.object.kind); assign(lower_specified_kind, lower(specified_kind)); equal(lower_kind, lower_specified_kind); result = {"issue_detected": true, "msg": sprintf("Unapproved kind '%v'; found '%v'", [kind, specified_kind]), "violating_key": "kind"} }
+
+
+Analyzing: ../policy-library/examples/NodeCustomLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerContainerProhibitEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i, j; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env[j]); equal(envs.name, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' should not be set, but has been detected here '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].securityContext.allowPrivilegeEscalation", [i])} }
+
+
+Analyzing: ../policy-library/examples/ControllerResourcesMaxCPURequests/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizePatchesRequirement/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizePatchesRequirement/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/PersistentVolumeAccessModes/tests/pv_access_mode_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/PersistentVolumeAccessModes/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerProbesNamedPort/policy.rego
+----------------------------------------
+violation[result] { assign(named_port, controller_container[_][p][_].port); contains(p, "Probe"); not equal(named_port, healthcheck_name); result = {"issue_detected": true, "msg": sprintf("Liveness Probe port must be '%v', found '%v'", [healthcheck_name, named_port]), "violating_key": "spec.template.spec.containers"} }
+
+
+Analyzing: ../policy-library/examples/ControllerAffinityNode/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/PrometheusAnnotationKey/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/IngressClass/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseMaxHistory/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseMaxHistory/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerAntiAffinityPods/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerContainerEnforceEnvVar/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); not containers.env; result = {"issue_detected": true, "msg": "environment variables needs to be set", "violating_key": sprintf("spec.template.spec.containers[%v]", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; assign(containers, controller_spec.containers[i]); contains(containers.image, app_name); assign(envs, containers.env); not array_contains(envs, env_name); result = {"issue_detected": true, "msg": sprintf("'%v' is missing'; detected '%v'", [env_name, envs]), "violating_key": sprintf("spec.template.spec.containers[%v].env.name", [i])} }
+
+
+Analyzing: ../policy-library/examples/FluxOCIRepositoryPatchAnnotation/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxOCIRepositoryPatchAnnotation/policy.rego
+----------------------------------------
+patch_exists(patch_key) = true { some i; assign(patch, controller_input.spec.patches[i].patch); contains(patch, patch_key) }
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowEgressAllFromNamespaceToCIDR/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizationTargetNamespace/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizationTargetNamespace/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, kustomization_input.metadata.labels[exclude_label_key]); not internal.member_2(kustomization_input.spec.targetNamespace, target_namespaces); assign(target_namespace_list, concat(", ", target_namespaces)); result = {"issue_detected": true, "msg": sprintf("The Kustomization '%s' targetNamespace must be one of the allowed target namespaces: %v; found '%s'", [kustomization_input.metadata.name, target_namespace_list, kustomization_input.spec.targetNamespace]), "violating_key": "spec.targetNamespace"} }
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyBlockIngressAllToNamespaceFromCIDR/tests/blocked_ingress_rule_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyBlockIngressAllToNamespaceFromCIDR/tests/allowed_ingress_rule_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyBlockIngressAllToNamespaceFromCIDR/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerMissingMatchLabelKey/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NodeKernelVersion/policy.rego
+----------------------------------------
+kernel_version := regex.split("[-|+]", input.review.object.status.nodeInfo.kernelVersion)[0] { true }
+kernel_version_list := regex.split("[.]", kernel_version) { true }
+major_version := concat(".", [kernel_version_list[0], kernel_version_list[1]]) { true }
+violation[result] { assign(verify, semver.compare(kernel_version, latest_kernel)); lt(verify, 0); result = {"issue_detected": true, "kernel_version": kernel_version, "latest_kernel": latest_kernel, "msg": "You are running an older version of the Linux kernel", "osImage": osImage, "violating_key": "status.nodeInfo.kernelVersion"} }
+
+
+Analyzing: ../policy-library/examples/PrometheusServiceAnnontationKey/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxResourceWaiverList/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxResourceWaiverList/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerAffinityNodeSelector/tests/node_selector_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerAffinityNodeSelector/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxGitRepositoryIgonreSuffixes/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxGitRepositoryIgonreSuffixes/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); assign(ignore, split(controller_spec.ignore, "\n")); not all_lines_have_allowed_suffixes(ignore, suffixes); result = {"issue_detected": true, "msg": sprintf("The GitRepository '%s' must only include allowed suffixes in the ignore field. Allowed suffixes: %v", [controller_input.metadata.name, suffixes]), "violating_key": "spec.ignore"} }
+line_has_allowed_suffix(line, suffixes) = true { assign(suffix, suffixes[_]); endswith(line, suffix) }
+
+
+Analyzing: ../policy-library/examples/FluxGitRepositoryOrganizationDomains/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxGitRepositoryOrganizationDomains/policy.rego
+----------------------------------------
+domain_matches(url, domains) = true { startswith(url, "https://"); assign(parts, split(url, "/")); gt(count(parts), 2); assign(domain, parts[2]); internal.member_2(domain, domains) }
+domain_matches(url, domains) = true { startswith(url, "http://"); assign(parts, split(url, "/")); gt(count(parts), 2); assign(domain, parts[2]); internal.member_2(domain, domains) }
+
+
+Analyzing: ../policy-library/examples/ControllerResourcesMaxCPULimits/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/IstioNamespaceLabelInjection/tests/istio_label_injection_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/IstioNamespaceLabelInjection/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/RBACProhibitEditingConfigMaps/policy.rego
+----------------------------------------
+cr_input = input.review.object { contains(input.review.object.kind, "Role") }
+
+
+Analyzing: ../policy-library/examples/KubernetesKubeletVersion/policy.rego
+----------------------------------------
+violation[result] { assign(kubelet_version, node_input.status.nodeInfo.kubeletVersion); assign(semantic_version, split_version(kubelet_version)); assign(your_version, split_version(version)); assign(verify, semver.compare(semantic_version, your_version)); lt(verify, 0); result = {"issue_detected": true, "msg": sprintf("Minimum version must be '%v'; found version 'v%v'", [version, semantic_version]), "violating_key": "status.nodeInfo.kubeletVersion"} }
+split_version(k_ver) = ver { assign(split_vers, split(k_ver, "-")); assign(ver, trim_left(split_vers[0], "v")) }
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowEgressFromNamespaceToNamespace/tests/violation_different_ns_test .rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowEgressFromNamespaceToNamespace/tests/allowed_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowEgressFromNamespaceToNamespace/tests/violation_allow_all_egress_test .rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowEgressFromNamespaceToNamespace/tests/allowed_exclude_label_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowEgressFromNamespaceToNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/PersistentVolumeClaimMaxSize/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerAffinityPods/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerResourcesMaxMemoryLimits/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowIngressAllToNamespaceFromCIDR/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerImageApprovedRegistry/policy.rego
+----------------------------------------
+get_registry(str) = registry { contains(str, "/"); assign(path, split(str, "/")); assign(registry, path[0]) }
+get_registry(str) = registry { not contains(str, "/"); assign(registry, "") }
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyBlockEgressAllFromNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxBucketApprovedRegion/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxBucketApprovedRegion/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespacePodQuota/tests/pod_quota_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespacePodQuota/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerImageName/tests/prohibited_image_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerImageName/tests/allowed_image_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerImageName/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; containers = controller_spec.containers[i]; splittedUrl = split(containers.image, "/"); image = splittedUrl[minus(count(splittedUrl), 1)]; not contains(image, ":"); array_contains(restricted_image_names, image); result = {"image": image, "issue_detected": true, "msg": sprintf("These images should be blocked: '%v'; found '%v'", [restricted_image_names, image]), "violating_key": sprintf("spec.template.spec.containers[%v].image", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; containers = controller_spec.containers[i]; splittedUrl = split(containers.image, "/"); image = splittedUrl[minus(count(splittedUrl), 1)]; equal(count(split(image, ":")), 2); [image_name, tag] = split(image, ":"); array_contains(restricted_image_names, image_name); result = {"image": image_name, "issue_detected": true, "msg": sprintf("These images should be blocked: '%v'; found '%v'", [restricted_image_names, image]), "violating_key": sprintf("spec.template.spec.containers[%v].image", [i])} }
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); some i; containers = controller_spec.containers[i]; splittedUrl = split(containers.image, "/"); image = splittedUrl[minus(count(splittedUrl), 1)]; equal(count(split(image, ":")), 3); [image_name, tag] = split(image, ":"); array_contains(restricted_image_names, image_name); result = {"image": image_name, "issue_detected": true, "msg": sprintf("These images should be blocked: '%v'; found '%v'", [restricted_image_names, image]), "violating_key": sprintf("spec.template.spec.containers[%v].image", [i])} }
+
+
+Analyzing: ../policy-library/examples/IngressHostname/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowIngressFromNamespaceToNamespace/tests/violation_allow_all_ingress_test .rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowIngressFromNamespaceToNamespace/tests/violation_different_ns_test .rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowIngressFromNamespaceToNamespace/tests/allowed_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowIngressFromNamespaceToNamespace/tests/allowed_exclude_label_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowIngressFromNamespaceToNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/PersistentVolumeMaxSize/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/RBACProhibitVerbsOnResources/policy.rego
+----------------------------------------
+cr_input = input.review.object { contains(input.review.object.kind, "Role") }
+
+
+Analyzing: ../policy-library/examples/FluxOCIRepositoryOrganizationDomains/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxOCIRepositoryOrganizationDomains/policy.rego
+----------------------------------------
+domain_matches(url, domains) = true { startswith(url, "oci://"); assign(parts, split(url, "/")); gt(count(parts), 2); assign(domain, parts[2]); internal.member_2(domain, domains) }
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/tests/namespace_limit_range_cpu_default_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/tests/namespace_limit_range_memory_max_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/tests/namespace_limit_range_cpu_max_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/tests/namespace_limit_range_cpu_defaultrequest_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/tests/namespace_limit_range_memory_min_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/tests/namespace_limit_range_cpu_min_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/tests/namespace_limit_range_memory_default_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/tests/namespace_limit_range_memory_defaultrequest_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceLimitRangeMinMax/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxBucketEndpointDomain/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxBucketEndpointDomain/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerResourcesMinCPURequests/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerResourcesMinMemoryRequests/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NodeOSVersion/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseValuesFromConfigMaps/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseValuesFromConfigMaps/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerSpecTemplateLabels/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowEgressDNSFromNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NodeMissingLabel/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/IstioGatewayHosts/tests/istio_gateway_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/IstioGatewayHosts/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerResourcesMaxMemoryRequests/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceResourceQuotas/tests/resource_quota_requests_cpu_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceResourceQuotas/tests/resource_quota_limits_cpu_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceResourceQuotas/tests/resource_quota_limits_memory_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceResourceQuotas/tests/resource_quota_requests_memory_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NamespaceResourceQuotas/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerSpecGeneric/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyBlockIngressAllToNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseStorageNamespace/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseStorageNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizationDecryptionProvider/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxKustomizationDecryptionProvider/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/PersistentVolumeClaimSnapshot/tests/pvcsnapshot_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/PersistentVolumeClaimSnapshot/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseRemediationRetries/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseRemediationRetries/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxOCIRepositoryLayerSelector/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxOCIRepositoryLayerSelector/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/PrometheusAnnotationValue/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxGitRepositoryUntrustedDomains/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxGitRepositoryUntrustedDomains/policy.rego
+----------------------------------------
+domain_matches(url, domains) = true { startswith(url, "https://"); assign(parts, split(url, "/")); gt(count(parts), 2); assign(domain, parts[2]); internal.member_2(domain, domains) }
+domain_matches(url, domains) = true { startswith(url, "http://"); assign(parts, split(url, "/")); gt(count(parts), 2); assign(domain, parts[2]); internal.member_2(domain, domains) }
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseTargetNameSpace/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseTargetNameSpace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/RBACProhibitWildcards/policy.rego
+----------------------------------------
+cr_input = input.review.object { contains(input.review.object.kind, "Role") }
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseServiceAccountName/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmReleaseServiceAccountName/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerResourcesMinMemoryLimits/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerProbesCustom/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/NetworkPolicyAllowIngressAllToNamespace/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxGitRepositorySpecificBranch/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxGitRepositorySpecificBranch/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxOCIRepositoryIgonreSuffixes/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxOCIRepositoryIgonreSuffixes/policy.rego
+----------------------------------------
+violation[result] { equal(isExcludedNamespace, false); not equal(exclude_label_value, controller_input.metadata.labels[exclude_label_key]); assign(ignore, split(controller_spec.ignore, "\n")); not all_lines_have_allowed_suffixes(ignore, suffixes); result = {"issue_detected": true, "msg": sprintf("The OCIRepository '%s' must only include allowed suffixes in the ignore field. Allowed suffixes: %v", [controller_input.metadata.name, suffixes]), "violating_key": "spec.ignore"} }
+line_has_allowed_suffix(line, suffixes) = true { assign(suffix, suffixes[_]); endswith(line, suffix) }
+
+
+Analyzing: ../policy-library/examples/ControllerMissingLabelValue/tests/key_value_exists_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/ControllerMissingLabelValue/policy.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmRepositoryURL/tests/policy_test.rego
+----------------------------------------
+
+
+Analyzing: ../policy-library/examples/FluxHelmRepositoryURL/policy.rego
+----------------------------------------
+domain_matches(url, domains) = true { is_http_or_https(url); assign(parts, split(url, "/")); gt(count(parts), 2); assign(domain, parts[2]); valid_domain(domain, domains) } else = true { is_oci(url); assign(parts, split(trim(url, "oci://"), "/")); assign(domain, parts[0]); valid_domain(domain, domains) }
+is_http_or_https(url) = true { startswith(url, "https://") } else = true { startswith(url, "http://") }
+is_oci(url) = true { startswith(url, "oci://") }
+valid_domain(domain, domains) = true { some d; equal(domain, domains[d]) } else = true { some d; assign(concat_domain, concat(".", ["www", domains[d]])); endswith(domain, concat_domain) }
+
+
