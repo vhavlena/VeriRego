@@ -256,7 +256,14 @@ func TestReferenceTypeInference2(t *testing.T) {
 		{
 			name: "input string reference array",
 			rule: `package test
-		test { x := input.test[i] }`,
+		test { x := y.test[i] }`,
+			varName:  "i",
+			expected: TypeIndex,
+		},
+		{
+			name: "input string equality array",
+			rule: `package test
+		test { x = input.test[i] }`,
 			varName:  "i",
 			expected: TypeIndex,
 		},
@@ -264,6 +271,13 @@ func TestReferenceTypeInference2(t *testing.T) {
 			name: "input string reference array with int index",
 			rule: `package test
 		test { i = 5; x := input.test[i] }`,
+			varName:  "i",
+			expected: TypeInt,
+		},
+		{
+			name: "else branch",
+			rule: `package test
+		test { true } else = "default" { i = 5 } `,
 			varName:  "i",
 			expected: TypeInt,
 		},

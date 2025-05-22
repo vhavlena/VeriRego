@@ -117,22 +117,7 @@ func (v *TypeVisitor) processVariableTerms(terms []*ast.Term) {
 	for _, term := range terms {
 		if variable, ok := term.Value.(ast.Var); ok {
 			varName := string(variable)
-			v.updateVariableType(varName, variable)
-		}
-	}
-}
-
-/**
- * updateVariableType updates the type of a variable if needed.
- * Only updates if the variable has no type or is currently unknown.
- * @param {string} varName - The name of the variable to update
- * @param {ast.Value} value - The value to infer the type from
- */
-func (v *TypeVisitor) updateVariableType(varName string, value ast.Value) {
-	existingType, exists := v.typeInfo.types[varName]
-	if !exists || existingType == TypeUnknown {
-		if newType := v.inferType(value); newType != TypeUnknown {
-			v.typeInfo.types[varName] = newType
+			v.promoteType(varName, v.inferType(variable))
 		}
 	}
 }
@@ -244,7 +229,6 @@ func (v *TypeVisitor) inferFunctionTypes(funcName string, args []*ast.Term) {
 		"contains":   true,
 		"startswith": true,
 		"endswith":   true,
-		"sprintf":    true,
 		"trim":       true,
 		"replace":    true,
 		"concat":     true,
@@ -280,6 +264,8 @@ func (v *TypeVisitor) inferFunctionTypes(funcName string, args []*ast.Term) {
 		v.assignArgsType(args, TypeInt)
 	case booleanOps[funcName]:
 		v.assignArgsType(args, TypeBoolean)
+	default:
+		v.processVariableTerms(args)
 	}
 }
 
@@ -306,13 +292,11 @@ func (v *TypeVisitor) inferRefType(ref ast.Ref) RegoType {
 	// Common reference patterns
 	head := ref[0].Value.String()
 	switch head {
-	case "input":
-		return v.inferInputRefType(ref[1:])
 	case "data":
 		return v.inferDataRefType(ref[1:])
+	default:
+		return v.inferInputRefType(ref[1:])
 	}
-
-	return TypeUnknown
 }
 
 /**
@@ -417,7 +401,7 @@ func (v *TypeVisitor) GetTypes() map[string]RegoType {
 
 /**
  * AnalyzeTypes performs complete type analysis on a Rego policy rule.
- * It analyzes both the rule head and body to infer types of all variables.
+ * It analyzes the rule head, body, and else branches to infer types of all variables.
  * @param {*ast.Rule} rule - The Rego rule to analyze
  * @return {map[string]RegoType} A map of variable names to their inferred types
  */
@@ -434,6 +418,15 @@ func AnalyzeTypes(rule *ast.Rule) map[string]RegoType {
 	// Process rule body
 	for _, expr := range rule.Body {
 		visitor.VisitExpr(expr)
+	}
+
+	// Process else branch
+	if rule.Else != nil {
+		// Analyze the else branch recursively
+		elseTypes := AnalyzeTypes(rule.Else)
+		for varName, typ := range elseTypes {
+			visitor.promoteType(varName, typ)
+		}
 	}
 
 	return visitor.GetTypes()
