@@ -1,4 +1,4 @@
-module main
+module github.com/vhavlena/verirego
 
 go 1.24.3
 

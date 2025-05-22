@@ -1,7 +1,6 @@
-package main
+package analysis
 
 import (
-	// "fmt"
 	"github.com/open-policy-agent/opa/ast"
 )
 
@@ -12,13 +11,13 @@ type PropagatedValue interface {
 	// Join combines values from sibling nodes in the AST.
 	// The method should be commutative and associative.
 	Join(other PropagatedValue) PropagatedValue
-	
+
 	// FromBasicTerm creates a value from a basic term (leaf term or function call).
 	// It extracts relevant information from the term for analysis.
 	FromBasicTerm(term *ast.Term) PropagatedValue
 
 	// FromPredicate(pred *ast.Expr) PropagatedValue
-	
+
 	// IsEmpty checks if the propagated value contains any meaningful information.
 	IsEmpty() bool
 }
@@ -47,6 +46,7 @@ type ValueConstructor func() PropagatedValue
 //   - node: The AST node to traverse
 //   - visitor: The visitor implementing node-specific processing logic
 //   - constructor: A function to create new PropagatedValue instances
+//
 // Returns a PropagatedValue containing the combined results of the traversal
 func TraverseAST(node interface{}, visitor ASTVisitor, constructor ValueConstructor) PropagatedValue {
 	switch n := node.(type) {
@@ -85,26 +85,27 @@ func NewASTValueVisitor(bottom PropagatedValue) *ASTValueVisitor {
 // It recursively processes the rule's head, body expressions, and else clause if present.
 // Parameters:
 //   - rule: The Rule node to process
+//
 // Returns the combined PropagatedValue from all rule components
 func (v *ASTValueVisitor) VisitRule(rule *ast.Rule) PropagatedValue {
 	if rule == nil {
 		return v.newValue
 	}
-	
+
 	headValue := v.VisitHead(rule.Head)
 	bodyValue := v.newValue
-	
+
 	for _, expr := range rule.Body {
 		exprValue := v.VisitExpr(expr)
 		bodyValue = bodyValue.Join(exprValue)
 	}
-	
+
 	result := headValue.Join(bodyValue)
 	if rule.Else != nil {
 		elseValue := v.VisitRule(rule.Else)
 		result = result.Join(elseValue)
 	}
-	
+
 	return result
 }
 
@@ -113,6 +114,7 @@ func (v *ASTValueVisitor) VisitRule(rule *ast.Rule) PropagatedValue {
 // and expressions with 'with' modifiers.
 // Parameters:
 //   - expr: The expression node to process
+//
 // Returns the combined PropagatedValue from all expression components
 func (v *ASTValueVisitor) VisitExpr(expr *ast.Expr) PropagatedValue {
 	if expr == nil {
@@ -122,7 +124,7 @@ func (v *ASTValueVisitor) VisitExpr(expr *ast.Expr) PropagatedValue {
 	result := v.newValue
 
 	// fmt.Printf("Debug: Visiting expression: %v\n", expr)
-	
+
 	if expr.IsAssignment() {
 		op0 := v.VisitTerm(expr.Operand(0))
 		op1 := v.VisitTerm(expr.Operand(1))
@@ -165,6 +167,7 @@ func (v *ASTValueVisitor) VisitExpr(expr *ast.Expr) PropagatedValue {
 // VisitHead processes a rule head node by analyzing its value and key components.
 // Parameters:
 //   - head: The head node to process
+//
 // Returns the combined PropagatedValue from the head's components
 func (v *ASTValueVisitor) VisitHead(head *ast.Head) PropagatedValue {
 	if head == nil {
@@ -172,12 +175,12 @@ func (v *ASTValueVisitor) VisitHead(head *ast.Head) PropagatedValue {
 	}
 
 	result := v.newValue
-	
+
 	if head.Value != nil {
 		valueResult := v.VisitTerm(head.Value)
 		result = result.Join(valueResult)
 	}
-	
+
 	if head.Key != nil {
 		keyResult := v.VisitTerm(head.Key)
 		result = result.Join(keyResult)
@@ -191,6 +194,7 @@ func (v *ASTValueVisitor) VisitHead(head *ast.Head) PropagatedValue {
 // function calls, references, arrays, and objects.
 // Parameters:
 //   - term: The term node to process
+//
 // Returns the PropagatedValue derived from the term's contents
 func (v *ASTValueVisitor) VisitTerm(term *ast.Term) PropagatedValue {
 	if term == nil {
@@ -200,7 +204,7 @@ func (v *ASTValueVisitor) VisitTerm(term *ast.Term) PropagatedValue {
 	// fmt.Printf("Debug: Visiting term: %v\n", term)
 
 	result := v.newValue
-	
+
 	switch val := term.Value.(type) {
 	case ast.String, ast.Number, ast.Boolean, ast.Null:
 		return result.FromBasicTerm(term)

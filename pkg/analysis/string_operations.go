@@ -1,17 +1,16 @@
-package main
+package analysis
 
 import (
 	"strings"
+
 	"github.com/open-policy-agent/opa/ast"
-	// "fmt"
-	// "reflect"
 )
 
 // StringOperations represents a collection of string operations found during AST traversal.
 // It implements the PropagatedValue interface and keeps track of all string manipulation
 // operations encountered in the Rego policy.
 type StringOperations struct {
-	operations []string
+	Operations []string
 }
 
 // NewStringOperations creates a new StringOperations instance with an empty
@@ -19,7 +18,7 @@ type StringOperations struct {
 // track string operations.
 func NewStringOperations() *StringOperations {
 	return &StringOperations{
-		operations: make([]string, 0),
+		Operations: make([]string, 0),
 	}
 }
 
@@ -32,10 +31,10 @@ func (s *StringOperations) Join(other PropagatedValue) PropagatedValue {
 	}
 	otherOps := other.(*StringOperations)
 	joined := &StringOperations{
-		operations: make([]string, len(s.operations)+len(otherOps.operations)),
+		Operations: make([]string, len(s.Operations)+len(otherOps.Operations)),
 	}
-	copy(joined.operations, s.operations)
-	copy(joined.operations[len(s.operations):], otherOps.operations)
+	copy(joined.Operations, s.Operations)
+	copy(joined.Operations[len(s.Operations):], otherOps.Operations)
 	return joined
 }
 
@@ -53,7 +52,7 @@ func (s *StringOperations) FromBasicTerm(term *ast.Term) PropagatedValue {
 	case ast.Ref:
 		if isStringOperation(val.String()) {
 			return &StringOperations{
-				operations: []string{val[0].String()},
+				Operations: []string{val[0].String()},
 			}
 		}
 	case ast.Call:
@@ -62,19 +61,19 @@ func (s *StringOperations) FromBasicTerm(term *ast.Term) PropagatedValue {
 			firstTerm := val[0].String()
 			if isStringOperation(firstTerm) {
 				return &StringOperations{
-					operations: []string{firstTerm},
+					Operations: []string{firstTerm},
 				}
 			}
 		}
 	}
-	
+
 	return NewStringOperations()
 }
 
 // IsEmpty returns true if there are no string operations recorded in this instance.
 // It checks if the internal operations slice is empty.
 func (s *StringOperations) IsEmpty() bool {
-	return len(s.operations) == 0
+	return len(s.Operations) == 0
 }
 
 // stringOperationsList contains all recognized Rego string operations that the analyzer
@@ -106,7 +105,7 @@ func isStringOperation(name string) bool {
 	if idx := strings.LastIndex(name, "."); idx != -1 {
 		cleanName = name[idx+1:]
 	}
-	
+
 	for _, op := range stringOperationsList {
 		if idx := strings.LastIndex(op, "."); idx != -1 {
 			op = op[idx+1:]
