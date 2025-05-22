@@ -17,6 +17,7 @@ const (
 	TypeSet      RegoType = "set"
 	TypeUnknown  RegoType = "unknown"
 	TypeFunction RegoType = "function"
+	TypeIndex    RegoType = "index" // For variables used as array indices
 
 	// Minimum reference length for array indexing.
 	minRefLength = 2
@@ -91,7 +92,7 @@ func (v *TypeVisitor) handleDirectAssignment(expr *ast.Expr) {
 
 	// Handle LHS variable
 	if variable, ok := expr.Operand(0).Value.(ast.Var); ok {
-		v.typeInfo.types[string(variable)] = valueType
+		v.promoteType(string(variable), valueType)
 	}
 }
 
@@ -160,7 +161,7 @@ func (v *TypeVisitor) handleReference(ref ast.Ref) {
 				// If the previous segment is an array type, this variable is an index
 				prevType := v.inferRefType(ref[:i])
 				if prevType == TypeArray {
-					v.typeInfo.types[string(variable)] = TypeInt
+					v.promoteType(string(variable), TypeIndex)
 				}
 			}
 		}
@@ -170,7 +171,7 @@ func (v *TypeVisitor) handleReference(ref ast.Ref) {
 	if refType := v.inferRefType(ref); refType != TypeUnknown {
 		if lastTerm := ref[len(ref)-1]; lastTerm != nil {
 			if variable, ok := lastTerm.Value.(ast.Var); ok {
-				v.typeInfo.types[string(variable)] = refType
+				v.promoteType(string(variable), refType)
 			}
 		}
 	}
@@ -217,7 +218,7 @@ func (v *TypeVisitor) processArrayComprehension(arrayComp *ast.ArrayComprehensio
 		v.VisitExpr(e)
 	}
 	if variable, ok := expr.Operand(0).Value.(ast.Var); ok {
-		v.typeInfo.types[string(variable)] = TypeArray
+		v.promoteType(string(variable), TypeArray)
 	}
 }
 
@@ -227,7 +228,7 @@ func (v *TypeVisitor) processSetComprehension(setComp *ast.SetComprehension, exp
 		v.VisitExpr(e)
 	}
 	if variable, ok := expr.Operand(0).Value.(ast.Var); ok {
-		v.typeInfo.types[string(variable)] = TypeSet
+		v.promoteType(string(variable), TypeSet)
 	}
 }
 
@@ -286,7 +287,7 @@ func (v *TypeVisitor) inferFunctionTypes(funcName string, args []*ast.Term) {
 func (v *TypeVisitor) assignArgsType(args []*ast.Term, typ RegoType) {
 	for _, arg := range args {
 		if variable, ok := arg.Value.(ast.Var); ok {
-			v.typeInfo.types[variable.String()] = typ
+			v.promoteType(variable.String(), typ)
 		}
 	}
 }
@@ -324,29 +325,13 @@ func (v *TypeVisitor) inferInputRefType(ref ast.Ref) RegoType {
 		return TypeObject
 	}
 
-	// Common input field types
-	if field, ok := ref[0].Value.(ast.String); ok {
-		switch field {
-		case "roles":
-			// If this is an array index access, return string (element type)
-			if len(ref) > 1 {
-				// Check if the next term is a number or variable
-				_, isNumber := ref[1].Value.(ast.Number)
-				_, isVar := ref[1].Value.(ast.Var)
-				if isNumber || isVar {
-					return TypeString
-				}
-			}
-
-			return TypeArray
-		case "parameters":
-			return TypeObject
-		case "test":
-			return TypeString
+	for _, term := range ref {
+		if variable, ok := term.Value.(ast.Var); ok {
+			v.promoteType(variable.String(), TypeIndex)
 		}
 	}
 
-	return TypeUnknown
+	return TypeObject
 }
 
 /**
@@ -357,6 +342,42 @@ func (v *TypeVisitor) inferInputRefType(ref ast.Ref) RegoType {
  */
 func (v *TypeVisitor) inferDataRefType(ref ast.Ref) RegoType {
 	return TypeUnknown // Implement based on your data structure
+}
+
+/**
+ * isMorePrecise determines if newType is more precise than existingType.
+ * Precision hierarchy: {Int, String} > Index > Array > Object > Unknown
+ * @param {RegoType} newType - The new type to compare
+ * @param {RegoType} existingType - The existing type to compare against
+ * @return {bool} True if newType is more precise than existingType
+ */
+func (v *TypeVisitor) isMorePrecise(newType, existingType RegoType) bool {
+	if existingType == TypeUnknown {
+		return true
+	}
+
+	if existingType == TypeIndex {
+		return newType == TypeInt || newType == TypeString
+	}
+
+	if existingType == TypeObject {
+		return newType == TypeArray
+	}
+
+	return false
+}
+
+/**
+ * promoteType sets the type information for a given variable name.
+ * Only updates the type if the new type is more precise than the existing one.
+ * @param {string} varName - The name of the variable to set the type for
+ * @param {RegoType} typ - The type to set for the variable
+ */
+func (v *TypeVisitor) promoteType(varName string, typ RegoType) {
+	existingType, exists := v.typeInfo.types[varName]
+	if !exists || v.isMorePrecise(typ, existingType) {
+		v.typeInfo.types[varName] = typ
+	}
 }
 
 /**
@@ -406,7 +427,7 @@ func AnalyzeTypes(rule *ast.Rule) map[string]RegoType {
 	// Analyze rule head
 	if rule.Head.Key != nil {
 		if v, ok := rule.Head.Key.Value.(ast.Var); ok {
-			visitor.typeInfo.types[string(v)] = visitor.inferType(rule.Head.Key.Value)
+			visitor.promoteType(string(v), visitor.inferType(rule.Head.Key.Value))
 		}
 	}
 

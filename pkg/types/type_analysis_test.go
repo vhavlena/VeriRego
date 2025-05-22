@@ -87,7 +87,7 @@ func TestReferenceTypeInference(t *testing.T) {
 			rule: `package test
 test { x := input.roles }`,
 			varName:  "x",
-			expected: TypeArray,
+			expected: TypeObject,
 		},
 		{
 			name: "input object reference",
@@ -101,7 +101,14 @@ test { x := input.parameters }`,
 			rule: `package test
 test { x := input.test }`,
 			varName:  "x",
-			expected: TypeString,
+			expected: TypeObject,
+		},
+		{
+			name: "input string reference array",
+			rule: `package test
+test { x := input.test[i] }`,
+			varName:  "i",
+			expected: TypeIndex,
 		},
 		{
 			name: "array index variable 2",
@@ -122,7 +129,7 @@ test { x := input.parameters.user.profile }`,
 			rule: `package test
 test { x := input.roles[0] }`,
 			varName:  "x",
-			expected: TypeString,
+			expected: TypeObject,
 		},
 		{
 			name: "input reference itself",
@@ -219,6 +226,46 @@ import future.keywords.in
 test { x := {i | some i in input.roles} }`,
 			varName:  "x",
 			expected: TypeSet,
+		},
+	}
+
+	for _, ttinst := range tests {
+		t.Run(ttinst.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", ttinst.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+
+			types := AnalyzeTypes(module.Rules[0])
+			if actual := types[ttinst.varName]; actual != ttinst.expected {
+				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
+			}
+		})
+	}
+}
+
+func TestReferenceTypeInference2(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoType
+	}{
+		{
+			name: "input string reference array",
+			rule: `package test
+		test { x := input.test[i] }`,
+			varName:  "i",
+			expected: TypeIndex,
+		},
+		{
+			name: "input string reference array with int index",
+			rule: `package test
+		test { i = 5; x := input.test[i] }`,
+			varName:  "i",
+			expected: TypeInt,
 		},
 	}
 
