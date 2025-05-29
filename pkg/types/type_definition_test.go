@@ -142,61 +142,6 @@ func TestRegoTypeDefFieldAccess(t *testing.T) {
 	}
 }
 
-func TestRegoTypeConversion(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		regoType    RegoType
-		expectedDef RegoTypeDef
-	}{
-		{
-			name:        "string type",
-			regoType:    TypeString,
-			expectedDef: NewAtomicType(AtomicString),
-		},
-		{
-			name:        "int type",
-			regoType:    TypeInt,
-			expectedDef: NewAtomicType(AtomicInt),
-		},
-		{
-			name:        "boolean type",
-			regoType:    TypeBoolean,
-			expectedDef: NewAtomicType(AtomicBoolean),
-		},
-		{
-			name:        "array type",
-			regoType:    TypeArray,
-			expectedDef: NewArrayType(NewUnknownType()),
-		},
-		{
-			name:        "object type",
-			regoType:    TypeObject,
-			expectedDef: NewObjectType(make(map[string]RegoTypeDef)),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			typeDef := FromRegoType(tt.regoType)
-			if typeDef.Kind != tt.expectedDef.Kind {
-				t.Errorf("expected kind %v, got %v", tt.expectedDef.Kind, typeDef.Kind)
-			}
-			if typeDef.Kind == KindAtomic && typeDef.AtomicType != tt.expectedDef.AtomicType {
-				t.Errorf("expected atomic type %v, got %v", tt.expectedDef.AtomicType, typeDef.AtomicType)
-			}
-
-			// Test conversion back to RegoType
-			convertedType := typeDef.ToRegoType()
-			if convertedType != tt.regoType {
-				t.Errorf("expected RegoType %v, got %v", tt.regoType, convertedType)
-			}
-		})
-	}
-}
-
 func TestGetTypeFromPath(t *testing.T) {
 	t.Parallel()
 

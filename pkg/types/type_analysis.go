@@ -7,28 +7,15 @@ import (
 	"github.com/open-policy-agent/opa/ast"
 )
 
-// RegoType represents the possible types in Rego.
-type RegoType string
-
+// Constants for reference handling
 const (
-	TypeString   RegoType = "string"
-	TypeInt      RegoType = "int"
-	TypeObject   RegoType = "object"
-	TypeArray    RegoType = "array"
-	TypeBoolean  RegoType = "boolean"
-	TypeSet      RegoType = "set"
-	TypeUnknown  RegoType = "unknown"
-	TypeFunction RegoType = "function"
-	TypeIndex    RegoType = "index" // For variables used as array indices
-
-	// Minimum reference length for array indexing.
-	minRefLength = 2
+	minRefLength = 2 // Minimum reference length for array indexing
 )
 
 // TypeInfo stores type information for variables and expressions.
 type TypeInfo struct {
-	types       map[string]RegoType
-	ruleTypes   map[string]RegoType // Store types for rules
+	types       map[string]RegoTypeDef
+	ruleTypes   map[string]RegoTypeDef // Store types for rules
 	InputSchema *InputSchema
 	// Track which input path each variable represents
 	varPaths map[string]string
@@ -49,8 +36,8 @@ func NewTypeVisitor() *TypeVisitor {
 // NewTypeInfo creates a new TypeInfo instance
 func NewTypeInfo() *TypeInfo {
 	return &TypeInfo{
-		types:       make(map[string]RegoType),
-		ruleTypes:   make(map[string]RegoType),
+		types:       make(map[string]RegoTypeDef),
+		ruleTypes:   make(map[string]RegoTypeDef),
 		InputSchema: NewInputSchema(),
 		varPaths:    make(map[string]string),
 	}
@@ -73,31 +60,24 @@ func (v *TypeVisitor) buildInputPath(ref ast.Ref) (string, []ast.Var) {
 	return strings.Join(pathParts, "."), variables
 }
 
-// handleArrayVariables marks variables as indices for array access
-func (v *TypeVisitor) handleArrayVariables(variables []ast.Var) {
-	for _, variable := range variables {
-		v.promoteType(string(variable), TypeIndex)
-	}
-}
-
-func (v *TypeVisitor) inferInputRefType(ref ast.Ref) RegoType {
+func (v *TypeVisitor) inferInputRefType(ref ast.Ref) RegoTypeDef {
 	if len(ref) == 0 {
-		return TypeObject
+		return NewObjectType(make(map[string]RegoTypeDef))
 	}
 
 	path, variables := v.buildInputPath(ref)
 
 	// Check if we have schema information for this path
-	if schemaType, exists := v.typeInfo.InputSchema.types[path]; exists {
-		if schemaType == TypeArray {
+	if schemaType, exists := v.typeInfo.InputSchema.GetType([]string{path}); exists && schemaType != nil {
+		if schemaType.IsArray() {
 			v.handleArrayVariables(variables)
 		}
-		return schemaType
+		return *schemaType
 	}
 
 	// Default behavior for unknown paths
 	v.handleArrayVariables(variables)
-	return TypeObject
+	return NewObjectType(make(map[string]RegoTypeDef))
 }
 
 /**
@@ -217,15 +197,15 @@ func (v *TypeVisitor) handleReference(ref ast.Ref) {
 			if variable, ok := term.Value.(ast.Var); ok {
 				// If the previous segment is an array type, this variable is an index
 				prevType := v.inferRefType(ref[:i])
-				if prevType == TypeArray {
-					v.promoteType(string(variable), TypeIndex)
+				if prevType.IsArray() {
+					v.promoteType(string(variable), NewAtomicType(AtomicInt))
 				}
 			}
 		}
 	}
 
 	// Infer type from reference path
-	if refType := v.inferRefType(ref); refType != TypeUnknown {
+	if refType := v.inferRefType(ref); !refType.IsUnknown() {
 		if lastTerm := ref[len(ref)-1]; lastTerm != nil {
 			if variable, ok := lastTerm.Value.(ast.Var); ok {
 				v.promoteType(string(variable), refType)
@@ -275,7 +255,7 @@ func (v *TypeVisitor) processArrayComprehension(arrayComp *ast.ArrayComprehensio
 		v.VisitExpr(e)
 	}
 	if variable, ok := expr.Operand(0).Value.(ast.Var); ok {
-		v.promoteType(string(variable), TypeArray)
+		v.promoteType(string(variable), NewArrayType(NewUnknownType()))
 	}
 }
 
@@ -285,7 +265,7 @@ func (v *TypeVisitor) processSetComprehension(setComp *ast.SetComprehension, exp
 		v.VisitExpr(e)
 	}
 	if variable, ok := expr.Operand(0).Value.(ast.Var); ok {
-		v.promoteType(string(variable), TypeSet)
+		v.promoteType(string(variable), NewAtomicType(AtomicSet))
 	}
 }
 
@@ -298,71 +278,57 @@ func (v *TypeVisitor) processSetComprehension(setComp *ast.SetComprehension, exp
  */
 func (v *TypeVisitor) inferFunctionTypes(funcName string, args []*ast.Term) {
 	stringOps := map[string]bool{
-		"contains":   true,
-		"startswith": true,
-		"endswith":   true,
-		"trim":       true,
-		"replace":    true,
-		"concat":     true,
-		"format":     true,
-		"lower":      true,
-		"upper":      true,
-		"split":      true,
+		"contains": true, "startswith": true, "endswith": true,
+		"trim": true, "replace": true, "concat": true,
+		"format": true, "lower": true, "upper": true,
+		"split": true,
 	}
 
 	numericOps := map[string]bool{
-		"plus":  true,
-		"minus": true,
-		"mul":   true,
-		"div":   true,
-		"gt":    true,
-		"lt":    true,
-		"gte":   true,
-		"lte":   true,
+		"plus": true, "minus": true, "mul": true,
+		"div": true, "gt": true, "lt": true,
+		"gte": true, "lte": true,
 	}
 
 	booleanOps := map[string]bool{
-		"equal": true,
-		"neq":   true,
-		"and":   true,
-		"or":    true,
-		"not":   true,
+		"equal": true, "neq": true, "and": true,
+		"or": true, "not": true,
 	}
 
 	switch {
 	case stringOps[funcName]:
-		v.assignArgsType(args, TypeString)
+		v.assignArgsType(args, NewAtomicType(AtomicString))
 	case numericOps[funcName]:
-		v.assignArgsType(args, TypeInt)
+		v.assignArgsType(args, NewAtomicType(AtomicInt))
 	case booleanOps[funcName]:
-		v.assignArgsType(args, TypeBoolean)
+		v.assignArgsType(args, NewAtomicType(AtomicBoolean))
 	default:
 		v.processVariableTerms(args)
 	}
 }
 
 // assignArgsType assigns types to function arguments.
-func (v *TypeVisitor) assignArgsType(args []*ast.Term, typ RegoType) {
+func (v *TypeVisitor) assignArgsType(args []*ast.Term, typ RegoTypeDef) {
 	for _, arg := range args {
 		if variable, ok := arg.Value.(ast.Var); ok {
-			v.promoteType(variable.String(), typ)
+			v.promoteType(string(variable), typ)
 		}
 	}
 }
 
 /**
- * inferRefType infers the type of a reference path in Rego.
+ * inferRefType infers the type of a reference path in Rego
  * Handles both input.* and data.* references according to common patterns.
  * @param {ast.Ref} ref - The reference path to analyze
  * @return {RegoType} The inferred type of the reference
  */
-func (v *TypeVisitor) inferRefType(ref ast.Ref) RegoType {
+func (v *TypeVisitor) inferRefType(ref ast.Ref) RegoTypeDef {
 	if len(ref) == 0 {
-		return TypeUnknown
+		return NewUnknownType()
 	}
 
 	// Check for variable-based path
-	if typ := v.inferVarRefType(ref); typ != TypeUnknown {
+	if typ := v.inferVarRefType(ref); !typ.IsUnknown() {
 		return typ
 	}
 
@@ -371,42 +337,46 @@ func (v *TypeVisitor) inferRefType(ref ast.Ref) RegoType {
 	switch head {
 	case "data":
 		return v.inferDataRefType(ref[1:])
-	default:
+	case "input":
 		return v.inferInputRefType(ref[1:])
+	default:
+		return NewUnknownType()
 	}
 }
 
 // inferVarRefType handles type inference for variable-based references
-func (v *TypeVisitor) inferVarRefType(ref ast.Ref) RegoType {
+func (v *TypeVisitor) inferVarRefType(ref ast.Ref) RegoTypeDef {
 	if len(ref) == 0 {
-		return TypeUnknown
+		return NewUnknownType()
 	}
 
 	variable, ok := ref[0].Value.(ast.Var)
 	if !ok {
-		return TypeUnknown
+		return NewUnknownType()
 	}
 
 	storedPath, exists := v.typeInfo.varPaths[string(variable)]
 	if !exists {
-		return TypeUnknown
+		return NewUnknownType()
 	}
 
 	// Combine stored path with remaining reference parts
 	remainingPath := v.buildRefPath(ref[1:])
 	if remainingPath != "" {
 		fullPath := storedPath + "." + remainingPath
-		if typ, exists := v.typeInfo.InputSchema.types[fullPath]; exists {
-			return typ
+		pathParts := strings.Split(fullPath, ".")
+		if typ, exists := v.typeInfo.InputSchema.GetType(pathParts); exists && typ != nil {
+			return *typ
 		}
 	}
 
 	// Return the type of the stored path if we have it
-	if typ, exists := v.typeInfo.InputSchema.types[storedPath]; exists {
-		return typ
+	pathParts := strings.Split(storedPath, ".")
+	if typ, exists := v.typeInfo.InputSchema.GetType(pathParts); exists && typ != nil {
+		return *typ
 	}
 
-	return TypeUnknown
+	return NewUnknownType()
 }
 
 /**
@@ -415,60 +385,14 @@ func (v *TypeVisitor) inferVarRefType(ref ast.Ref) RegoType {
  * @param {ast.Ref} ref - The reference to analyze
  * @return {RegoType} The inferred type for the data reference
  */
-func (v *TypeVisitor) inferDataRefType(ref ast.Ref) RegoType {
-	return TypeUnknown // Implement based on your data structure
+func (v *TypeVisitor) inferDataRefType(ref ast.Ref) RegoTypeDef {
+	// For now, return unknown type. This can be enhanced based on data structure
+	return NewUnknownType()
 }
 
 /**
- * isMorePrecise determines if newType is more precise than existingType.
- * Precision hierarchy: {Int, String} > Index > Array > Object > Unknown
- * @param {RegoType} newType - The new type to compare
- * @param {RegoType} existingType - The existing type to compare against
- * @return {bool} True if newType is more precise than existingType
+ * processRuleHead analyzes the head of a rule and sets appropriate types
  */
-func (v *TypeVisitor) isMorePrecise(newType, existingType RegoType) bool {
-	if existingType == TypeUnknown {
-		return true
-	}
-
-	if existingType == TypeIndex {
-		return newType == TypeInt || newType == TypeString
-	}
-
-	if existingType == TypeObject {
-		return newType == TypeArray
-	}
-
-	return false
-}
-
-/**
- * promoteType sets the type information for a given variable name.
- * Only updates the type if the new type is more precise than the existing one.
- * @param {string} varName - The name of the variable to set the type for
- * @param {RegoType} typ - The type to set for the variable
- */
-func (v *TypeVisitor) promoteType(varName string, typ RegoType) {
-	existingType, exists := v.typeInfo.types[varName]
-	if !exists || v.isMorePrecise(typ, existingType) {
-		v.typeInfo.types[varName] = typ
-	}
-}
-
-/**
- * promoteRuleType sets the type information for a given rule name.
- * Only updates the type if the new type is more precise than the existing one.
- * @param {string} ruleName - The name of the rule to set the type for
- * @param {RegoType} typ - The type to set for the rule
- */
-func (v *TypeVisitor) promoteRuleType(ruleName string, typ RegoType) {
-	existingType, exists := v.typeInfo.ruleTypes[ruleName]
-	if !exists || v.isMorePrecise(typ, existingType) {
-		v.typeInfo.ruleTypes[ruleName] = typ
-	}
-}
-
-// processRuleHead analyzes the head of a rule and sets appropriate types
 func (v *TypeVisitor) processRuleHead(ruleName string, head *ast.Head) {
 	if head.Value == nil {
 		return
@@ -477,7 +401,7 @@ func (v *TypeVisitor) processRuleHead(ruleName string, head *ast.Head) {
 	if ref, ok := head.Value.Value.(ast.Ref); ok {
 		headPath := v.buildRefPath(ref)
 		v.typeInfo.varPaths[ruleName] = headPath
-		if typ := v.inferRefType(ref); typ != TypeUnknown {
+		if typ := v.inferRefType(ref); !typ.IsUnknown() {
 			v.promoteRuleType(ruleName, typ)
 		}
 	} else {
@@ -509,7 +433,7 @@ func (v *TypeVisitor) processRuleAssignment(lhs, rhs ast.Value, ruleName string)
 	}
 
 	typ := v.inferType(rhs)
-	if typ == TypeUnknown {
+	if typ.IsUnknown() {
 		return
 	}
 
@@ -568,27 +492,27 @@ func AnalyzeTypes(rule *ast.Rule) *TypeVisitor {
 }
 
 // inferPrimitiveType handles primitive value type inference
-func (v *TypeVisitor) inferPrimitiveType(val ast.Value) (RegoType, bool) {
+func (v *TypeVisitor) inferPrimitiveType(val ast.Value) (RegoTypeDef, bool) {
 	switch val.(type) {
 	case ast.String:
-		return TypeString, true
+		return NewAtomicType(AtomicString), true
 	case ast.Number:
-		return TypeInt, true
+		return NewAtomicType(AtomicInt), true
 	case ast.Boolean:
-		return TypeBoolean, true
+		return NewAtomicType(AtomicBoolean), true
 	case *ast.Array:
-		return TypeArray, true
+		return NewArrayType(NewUnknownType()), true
 	case ast.Object:
-		return TypeObject, true
+		return NewObjectType(make(map[string]RegoTypeDef)), true
 	case ast.Set:
-		return TypeSet, true
+		return NewAtomicType(AtomicSet), true
 	default:
-		return TypeUnknown, false
+		return NewUnknownType(), false
 	}
 }
 
 // inferVarType handles variable type inference
-func (v *TypeVisitor) inferVarType(varName string) (RegoType, bool) {
+func (v *TypeVisitor) inferVarType(varName string) (RegoTypeDef, bool) {
 	// Check regular variable types
 	if typ, exists := v.typeInfo.types[varName]; exists {
 		return typ, true
@@ -599,15 +523,16 @@ func (v *TypeVisitor) inferVarType(varName string) (RegoType, bool) {
 	}
 	// Check stored path types
 	if path, exists := v.typeInfo.varPaths[varName]; exists {
-		if typ, exists := v.typeInfo.InputSchema.types[path]; exists {
-			return typ, true
+		pathParts := strings.Split(path, ".")
+		if typ, exists := v.typeInfo.InputSchema.GetType(pathParts); exists && typ != nil {
+			return *typ, true
 		}
 	}
-	return TypeUnknown, false
+	return NewUnknownType(), false
 }
 
 // inferType determines the type of a Rego value.
-func (v *TypeVisitor) inferType(val ast.Value) RegoType {
+func (v *TypeVisitor) inferType(val ast.Value) RegoTypeDef {
 	// Try primitive types first
 	if typ, ok := v.inferPrimitiveType(val); ok {
 		return typ
@@ -618,7 +543,7 @@ func (v *TypeVisitor) inferType(val ast.Value) RegoType {
 		if typ, ok := v.inferVarType(string(varVal)); ok {
 			return typ
 		}
-		return TypeUnknown
+		return NewUnknownType()
 	}
 
 	// Handle references
@@ -626,16 +551,60 @@ func (v *TypeVisitor) inferType(val ast.Value) RegoType {
 		return v.inferRefType(ref)
 	}
 
-	return TypeUnknown
+	return NewUnknownType()
+}
+
+// handleArrayVariables marks variables as indices for array access
+func (v *TypeVisitor) handleArrayVariables(variables []ast.Var) {
+	for _, variable := range variables {
+		// For array indices, we allow both string and int types
+		v.promoteType(string(variable), NewAtomicType(AtomicInt))
+	}
+}
+
+// isMorePrecise determines if newType is more precise than existingType.
+// Precision hierarchy: Atomic > Array > Object > Unknown
+func (v *TypeVisitor) isMorePrecise(newType, existingType RegoTypeDef) bool {
+	if existingType.IsUnknown() {
+		return true
+	}
+
+	if existingType.IsObject() {
+		return newType.IsArray() || newType.IsAtomic()
+	}
+
+	if existingType.IsArray() {
+		return newType.IsAtomic()
+	}
+
+	return false
+}
+
+// promoteType sets the type information for a given variable name.
+// Only updates the type if the new type is more precise than the existing one.
+func (v *TypeVisitor) promoteType(varName string, typ RegoTypeDef) {
+	existingType, exists := v.typeInfo.types[varName]
+	if !exists || v.isMorePrecise(typ, existingType) {
+		v.typeInfo.types[varName] = typ
+	}
+}
+
+// promoteRuleType sets the type information for a given rule name.
+// Only updates the type if the new type is more precise than the existing one.
+func (v *TypeVisitor) promoteRuleType(ruleName string, typ RegoTypeDef) {
+	existingType, exists := v.typeInfo.ruleTypes[ruleName]
+	if !exists || v.isMorePrecise(typ, existingType) {
+		v.typeInfo.ruleTypes[ruleName] = typ
+	}
 }
 
 // GetTypes returns the collected type information
-func (v *TypeVisitor) GetTypes() map[string]RegoType {
+func (v *TypeVisitor) GetTypes() map[string]RegoTypeDef {
 	return v.typeInfo.types
 }
 
 // GetRuleTypes returns the collected rule type information
-func (v *TypeVisitor) GetRuleTypes() map[string]RegoType {
+func (v *TypeVisitor) GetRuleTypes() map[string]RegoTypeDef {
 	return v.typeInfo.ruleTypes
 }
 

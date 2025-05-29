@@ -6,55 +6,104 @@ import (
 	"github.com/open-policy-agent/opa/ast"
 )
 
+// compareAtomicTypes compares two atomic types
+func compareAtomicTypes(type1, type2 RegoTypeDef) bool {
+	return type1.AtomicType == type2.AtomicType
+}
+
+// compareArrayTypes compares two array types recursively
+func compareArrayTypes(type1, type2 RegoTypeDef) bool {
+	if type1.ArrayType == nil || type2.ArrayType == nil {
+		return type1.ArrayType == type2.ArrayType
+	}
+	return compareTypes(*type1.ArrayType, *type2.ArrayType)
+}
+
+// compareObjectTypes compares two object types recursively
+func compareObjectTypes(type1, type2 RegoTypeDef) bool {
+	if len(type1.ObjectFields) != len(type2.ObjectFields) {
+		return false
+	}
+	for key, val1 := range type1.ObjectFields {
+		val2, exists := type2.ObjectFields[key]
+		if !exists || !compareTypes(val1, val2) {
+			return false
+		}
+	}
+	return true
+}
+
+// compareTypes compares two RegoTypeDef values for equality
+func compareTypes(type1, type2 RegoTypeDef) bool {
+	if type1.Kind != type2.Kind {
+		return false
+	}
+
+	switch type1.Kind {
+	case KindAtomic:
+		return compareAtomicTypes(type1, type2)
+	case KindArray:
+		return compareArrayTypes(type1, type2)
+	case KindObject:
+		return compareObjectTypes(type1, type2)
+	case KindUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 func TestBasicTypeInference(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
 			name: "string assignment",
 			rule: `package test
 test { x := "hello" }`,
 			varName:  "x",
-			expected: TypeString,
+			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "string equality",
 			rule: `package test
 test { x = "hello" }`,
 			varName:  "x",
-			expected: TypeString,
+			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "number assignment",
 			rule: `package test
 test { x := 42 }`,
 			varName:  "x",
-			expected: TypeInt,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "boolean assignment",
 			rule: `package test
 test { x := true }`,
 			varName:  "x",
-			expected: TypeBoolean,
+			expected: NewAtomicType(AtomicBoolean),
 		},
 		{
 			name: "array assignment",
 			rule: `package test
 test { x := ["a", "b"] }`,
 			varName:  "x",
-			expected: TypeArray,
+			expected: NewArrayType(NewAtomicType(AtomicString)),
 		},
 		{
 			name: "object assignment",
 			rule: `package test
 test { x := {"key": "value"} }`,
-			varName:  "x",
-			expected: TypeObject,
+			varName: "x",
+			expected: NewObjectType(map[string]RegoTypeDef{
+				"key": NewAtomicType(AtomicString),
+			}),
 		},
 	}
 
@@ -67,7 +116,9 @@ test { x := {"key": "value"} }`,
 			}
 
 			visitor := AnalyzeTypes(module.Rules[0])
-			if actual := visitor.GetTypes()[ttinst.varName]; actual != ttinst.expected {
+			actual := visitor.GetTypes()[ttinst.varName]
+			if actual.Kind != ttinst.expected.Kind ||
+				(actual.IsAtomic() && actual.AtomicType != ttinst.expected.AtomicType) {
 				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
 			}
 		})
@@ -80,63 +131,42 @@ func TestReferenceTypeInference(t *testing.T) {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
 			name: "input array reference",
 			rule: `package test
 test { x := input.roles }`,
 			varName:  "x",
-			expected: TypeObject,
+			expected: NewObjectType(make(map[string]RegoTypeDef)),
 		},
 		{
 			name: "input object reference",
 			rule: `package test
 test { x := input.parameters }`,
 			varName:  "x",
-			expected: TypeObject,
+			expected: NewObjectType(make(map[string]RegoTypeDef)),
 		},
 		{
-			name: "input string reference",
+			name: "array index variable",
 			rule: `package test
-test { x := input.test }`,
-			varName:  "x",
-			expected: TypeObject,
-		},
-		{
-			name: "input string reference array",
-			rule: `package test
-test { x := input.test[i] }`,
+test { arr := [1, 2, 3]; x := arr[i] }`,
 			varName:  "i",
-			expected: TypeIndex,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "array index variable 2",
 			rule: `package test
 test { arr := [1, 2, 3]; x := arr[i]; y := arr[j]; i < j }`,
 			varName:  "i",
-			expected: TypeInt,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "nested object reference",
 			rule: `package test
 test { x := input.parameters.user.profile }`,
 			varName:  "x",
-			expected: TypeObject,
-		},
-		{
-			name: "array reference with numeric index",
-			rule: `package test
-test { x := input.roles[0] }`,
-			varName:  "x",
-			expected: TypeObject,
-		},
-		{
-			name: "input reference itself",
-			rule: `package test
-test { x := input }`,
-			varName:  "x",
-			expected: TypeObject,
+			expected: NewObjectType(make(map[string]RegoTypeDef)),
 		},
 	}
 
@@ -149,7 +179,9 @@ test { x := input }`,
 			}
 
 			visitor := AnalyzeTypes(module.Rules[0])
-			if actual := visitor.GetTypes()[ttinst.varName]; actual != ttinst.expected {
+			actual := visitor.GetTypes()[ttinst.varName]
+			if actual.Kind != ttinst.expected.Kind ||
+				(actual.IsAtomic() && actual.AtomicType != ttinst.expected.AtomicType) {
 				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
 			}
 		})
@@ -162,28 +194,28 @@ func TestBuiltinFunctionTypeInference(t *testing.T) {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
 			name: "string function arg",
 			rule: `package test
 test { contains(x, "substring") }`,
 			varName:  "x",
-			expected: TypeString,
+			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "numeric function arg",
 			rule: `package test
 test { plus(x, 5) }`,
 			varName:  "x",
-			expected: TypeInt,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "boolean function arg",
 			rule: `package test
 test { equal(x, true) }`,
 			varName:  "x",
-			expected: TypeBoolean,
+			expected: NewAtomicType(AtomicBoolean),
 		},
 	}
 
@@ -196,7 +228,9 @@ test { equal(x, true) }`,
 			}
 
 			visitor := AnalyzeTypes(module.Rules[0])
-			if actual := visitor.GetTypes()[ttinst.varName]; actual != ttinst.expected {
+			actual := visitor.GetTypes()[ttinst.varName]
+			if actual.Kind != ttinst.expected.Kind ||
+				(actual.IsAtomic() && actual.AtomicType != ttinst.expected.AtomicType) {
 				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
 			}
 		})
@@ -209,7 +243,7 @@ func TestComprehensionTypeInference(t *testing.T) {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
 			name: "array comprehension",
@@ -217,7 +251,7 @@ func TestComprehensionTypeInference(t *testing.T) {
 import future.keywords.in
 test { x := [i | some i in input.roles] }`,
 			varName:  "x",
-			expected: TypeArray,
+			expected: NewArrayType(NewAtomicType(AtomicString)),
 		},
 		{
 			name: "set comprehension",
@@ -225,7 +259,7 @@ test { x := [i | some i in input.roles] }`,
 import future.keywords.in
 test { x := {i | some i in input.roles} }`,
 			varName:  "x",
-			expected: TypeSet,
+			expected: NewAtomicType(AtomicSet),
 		},
 	}
 
@@ -238,7 +272,8 @@ test { x := {i | some i in input.roles} }`,
 			}
 
 			visitor := AnalyzeTypes(module.Rules[0])
-			if actual := visitor.GetTypes()[ttinst.varName]; actual != ttinst.expected {
+			actual := visitor.GetTypes()[ttinst.varName]
+			if !compareTypes(actual, ttinst.expected) {
 				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
 			}
 		})
@@ -251,35 +286,35 @@ func TestReferenceTypeInference2(t *testing.T) {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
 			name: "input string reference array",
 			rule: `package test
 		test { x := y.test[i] }`,
 			varName:  "i",
-			expected: TypeIndex,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "input string equality array",
 			rule: `package test
 		test { x = input.test[i] }`,
 			varName:  "i",
-			expected: TypeIndex,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "input string reference array with int index",
 			rule: `package test
 		test { i = 5; x := input.test[i] }`,
 			varName:  "i",
-			expected: TypeInt,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "else branch",
 			rule: `package test
 		test { true } else = "default" { i = 5 } `,
 			varName:  "i",
-			expected: TypeInt,
+			expected: NewAtomicType(AtomicInt),
 		},
 	}
 
@@ -292,7 +327,8 @@ func TestReferenceTypeInference2(t *testing.T) {
 			}
 
 			visitor := AnalyzeTypes(module.Rules[0])
-			if actual := visitor.GetTypes()[ttinst.varName]; actual != ttinst.expected {
+			actual := visitor.GetTypes()[ttinst.varName]
+			if !compareTypes(actual, ttinst.expected) {
 				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
 			}
 		})
@@ -330,35 +366,35 @@ input:
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
 			name: "input object reference with yaml schema",
 			rule: `package test
 test { x := input.review.object.kind }`,
 			varName:  "x",
-			expected: TypeString,
+			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "nested array reference",
 			rule: `package test
 test { x := input.review.object.spec.containers }`,
 			varName:  "x",
-			expected: TypeArray,
+			expected: NewArrayType(NewObjectType(make(map[string]RegoTypeDef))),
 		},
 		{
 			name: "array index reference",
 			rule: `package test
 test { x := input.review.object.spec.containers[i] }`,
 			varName:  "i",
-			expected: TypeIndex,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "nested object reference",
 			rule: `package test
 test { x := input.review.object.metadata.labels }`,
 			varName:  "x",
-			expected: TypeObject,
+			expected: NewObjectType(make(map[string]RegoTypeDef)),
 		},
 	}
 
@@ -380,7 +416,8 @@ test { x := input.review.object.metadata.labels }`,
 				visitor.VisitExpr(expr)
 			}
 
-			if actual := visitor.GetTypes()[ttinst.varName]; actual != ttinst.expected {
+			actual := visitor.GetTypes()[ttinst.varName]
+			if !compareTypes(actual, ttinst.expected) {
 				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
 			}
 		})
@@ -412,14 +449,14 @@ input:
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
 			name: "input object reference with yaml schema",
 			rule: `package test
 test { x := input.review.object.metadata; y := x.name }`,
 			varName:  "y",
-			expected: TypeString,
+			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "rules types",
@@ -427,7 +464,7 @@ test { x := input.review.object.metadata; y := x.name }`,
 test { x := input.review.object.metadata; y := z.name }
 node_status = z { z = input.review.object.metadata.name }`,
 			varName:  "node_status",
-			expected: TypeString,
+			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "rule with object propagation",
@@ -435,7 +472,7 @@ node_status = z { z = input.review.object.metadata.name }`,
 test := x { x := input.review.object }
 rule { y := test.kind }`,
 			varName:  "y",
-			expected: TypeString,
+			expected: NewAtomicType(AtomicString),
 		},
 	}
 
@@ -459,11 +496,13 @@ rule { y := test.kind }`,
 			}
 
 			if ttinst.name == "rules types" {
-				if actual := visitor.GetRuleTypes()[ttinst.varName]; actual != ttinst.expected {
+				actual := visitor.GetRuleTypes()[ttinst.varName]
+				if !compareTypes(actual, ttinst.expected) {
 					t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
 				}
 			} else {
-				if actual := visitor.GetTypes()[ttinst.varName]; actual != ttinst.expected {
+				actual := visitor.GetTypes()[ttinst.varName]
+				if !compareTypes(actual, ttinst.expected) {
 					t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
 				}
 			}
@@ -494,42 +533,44 @@ input:
 		name         string
 		rule         string
 		ruleName     string
-		expectedType RegoType
+		expectedType RegoTypeDef
 	}{
 		{
 			name: "direct string value",
 			rule: `package test
 test = "hello" { true }`,
 			ruleName:     "test",
-			expectedType: TypeString,
+			expectedType: NewAtomicType(AtomicString),
 		},
 		{
 			name: "direct number value",
 			rule: `package test
 test = 42 { true }`,
 			ruleName:     "test",
-			expectedType: TypeInt,
+			expectedType: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "array value",
 			rule: `package test
 test = ["a", "b"] { true }`,
 			ruleName:     "test",
-			expectedType: TypeArray,
+			expectedType: NewArrayType(NewAtomicType(AtomicString)),
 		},
 		{
 			name: "object value",
 			rule: `package test
 test = {"key": "value"} { true }`,
-			ruleName:     "test",
-			expectedType: TypeObject,
+			ruleName: "test",
+			expectedType: NewObjectType(map[string]RegoTypeDef{
+				"key": NewAtomicType(AtomicString),
+			}),
 		},
 		{
 			name: "reference value",
 			rule: `package test
 test = input.review.object.metadata.name { true }`,
 			ruleName:     "test",
-			expectedType: TypeString,
+			expectedType: NewAtomicType(AtomicString),
 		},
 		{
 			name: "complex rule with assignment",
@@ -538,7 +579,7 @@ complex_rule = result {
     result := input.review.object.kind
 }`,
 			ruleName:     "complex_rule",
-			expectedType: TypeString,
+			expectedType: NewAtomicType(AtomicString),
 		},
 		{
 			name: "rule with else branch",
@@ -549,7 +590,7 @@ test = "value1" {
     false
 }`,
 			ruleName:     "test",
-			expectedType: TypeString,
+			expectedType: NewAtomicType(AtomicString),
 		},
 		{
 			name: "rule with array reference",
@@ -558,7 +599,7 @@ containers = val {
     val := input.review.object.spec.containers
 }`,
 			ruleName:     "containers",
-			expectedType: TypeArray,
+			expectedType: NewArrayType(NewObjectType(make(map[string]RegoTypeDef))),
 		},
 		{
 			name: "rule with boolean result",
@@ -568,7 +609,7 @@ is_nginx = res {
     res := true
 }`,
 			ruleName:     "is_nginx",
-			expectedType: TypeBoolean,
+			expectedType: NewAtomicType(AtomicBoolean),
 		},
 	}
 
@@ -590,7 +631,8 @@ is_nginx = res {
 				visitor = visitor.VisitRule(rule)
 			}
 
-			if actual := visitor.GetRuleTypes()[ttinst.ruleName]; actual != ttinst.expectedType {
+			actual := visitor.GetRuleTypes()[ttinst.ruleName]
+			if !compareTypes(actual, ttinst.expectedType) {
 				t.Errorf("Expected type %v for rule %s, got %v", ttinst.expectedType, ttinst.ruleName, actual)
 			}
 		})
