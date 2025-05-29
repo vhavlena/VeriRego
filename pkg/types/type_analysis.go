@@ -2,6 +2,8 @@
 package types
 
 import (
+	"strings"
+
 	"github.com/open-policy-agent/opa/ast"
 )
 
@@ -25,17 +27,11 @@ const (
 
 // TypeInfo stores type information for variables and expressions.
 type TypeInfo struct {
-	types map[string]RegoType
-}
-
-/**
- * NewTypeInfo creates a new TypeInfo instance and returns a new initialized TypeInfo with an empty types map.
- * @return {*TypeInfo} A new initialized TypeInfo with an empty types map
- */
-func NewTypeInfo() *TypeInfo {
-	return &TypeInfo{
-		types: make(map[string]RegoType),
-	}
+	types       map[string]RegoType
+	ruleTypes   map[string]RegoType // Store types for rules
+	InputSchema *InputSchema
+	// Track which input path each variable represents
+	varPaths map[string]string
 }
 
 // TypeVisitor implements type analysis for Rego AST.
@@ -43,14 +39,65 @@ type TypeVisitor struct {
 	typeInfo *TypeInfo
 }
 
-/**
- * NewTypeVisitor creates a new TypeVisitor.
- * @return {*TypeVisitor} A new TypeVisitor instance initialized with an empty TypeInfo
- */
+// NewTypeVisitor creates a new TypeVisitor instance
 func NewTypeVisitor() *TypeVisitor {
 	return &TypeVisitor{
 		typeInfo: NewTypeInfo(),
 	}
+}
+
+// NewTypeInfo creates a new TypeInfo instance
+func NewTypeInfo() *TypeInfo {
+	return &TypeInfo{
+		types:       make(map[string]RegoType),
+		ruleTypes:   make(map[string]RegoType),
+		InputSchema: NewInputSchema(),
+		varPaths:    make(map[string]string),
+	}
+}
+
+// buildInputPath constructs a dot-separated path starting with "input"
+func (v *TypeVisitor) buildInputPath(ref ast.Ref) (string, []ast.Var) {
+	var pathParts []string
+	var variables []ast.Var
+
+	pathParts = append(pathParts, "input")
+	for _, term := range ref {
+		if str, ok := term.Value.(ast.String); ok {
+			pathParts = append(pathParts, string(str))
+		} else if variable, ok := term.Value.(ast.Var); ok {
+			variables = append(variables, variable)
+		}
+	}
+
+	return strings.Join(pathParts, "."), variables
+}
+
+// handleArrayVariables marks variables as indices for array access
+func (v *TypeVisitor) handleArrayVariables(variables []ast.Var) {
+	for _, variable := range variables {
+		v.promoteType(string(variable), TypeIndex)
+	}
+}
+
+func (v *TypeVisitor) inferInputRefType(ref ast.Ref) RegoType {
+	if len(ref) == 0 {
+		return TypeObject
+	}
+
+	path, variables := v.buildInputPath(ref)
+
+	// Check if we have schema information for this path
+	if schemaType, exists := v.typeInfo.InputSchema.types[path]; exists {
+		if schemaType == TypeArray {
+			v.handleArrayVariables(variables)
+		}
+		return schemaType
+	}
+
+	// Default behavior for unknown paths
+	v.handleArrayVariables(variables)
+	return TypeObject
 }
 
 /**
@@ -87,13 +134,38 @@ func (v *TypeVisitor) handleAssignments(expr *ast.Expr) {
  * @param {*ast.Expr} expr - The assignment expression to analyze
  */
 func (v *TypeVisitor) handleDirectAssignment(expr *ast.Expr) {
-	// Get the RHS value type
-	valueType := v.inferType(expr.Operand(1).Value)
+	// Get the RHS value
+	rhs := expr.Operand(1).Value
 
 	// Handle LHS variable
 	if variable, ok := expr.Operand(0).Value.(ast.Var); ok {
-		v.promoteType(string(variable), valueType)
+		varName := string(variable)
+
+		// If RHS is a reference, store the path
+		if ref, ok := rhs.(ast.Ref); ok {
+			path := v.buildRefPath(ref)
+			v.typeInfo.varPaths[varName] = path
+		}
+
+		// Get the type
+		valueType := v.inferType(rhs)
+		v.promoteType(varName, valueType)
 	}
+}
+
+// buildRefPath constructs a dot-separated path from a reference
+func (v *TypeVisitor) buildRefPath(ref ast.Ref) string {
+	var pathParts []string
+
+	for _, term := range ref {
+		if str, ok := term.Value.(ast.String); ok {
+			pathParts = append(pathParts, string(str))
+		} else if variable, ok := term.Value.(ast.Var); ok {
+			pathParts = append(pathParts, string(variable))
+		}
+	}
+
+	return strings.Join(pathParts, ".")
 }
 
 /**
@@ -289,7 +361,12 @@ func (v *TypeVisitor) inferRefType(ref ast.Ref) RegoType {
 		return TypeUnknown
 	}
 
-	// Common reference patterns
+	// Check for variable-based path
+	if typ := v.inferVarRefType(ref); typ != TypeUnknown {
+		return typ
+	}
+
+	// Existing reference handling
 	head := ref[0].Value.String()
 	switch head {
 	case "data":
@@ -299,23 +376,37 @@ func (v *TypeVisitor) inferRefType(ref ast.Ref) RegoType {
 	}
 }
 
-/**
- * inferInputRefType infers types for input.* references.
- * @param {ast.Ref} ref - The reference path to analyze
- * @return {RegoType} The inferred type of the reference
- */
-func (v *TypeVisitor) inferInputRefType(ref ast.Ref) RegoType {
+// inferVarRefType handles type inference for variable-based references
+func (v *TypeVisitor) inferVarRefType(ref ast.Ref) RegoType {
 	if len(ref) == 0 {
-		return TypeObject
+		return TypeUnknown
 	}
 
-	for _, term := range ref {
-		if variable, ok := term.Value.(ast.Var); ok {
-			v.promoteType(variable.String(), TypeIndex)
+	variable, ok := ref[0].Value.(ast.Var)
+	if !ok {
+		return TypeUnknown
+	}
+
+	storedPath, exists := v.typeInfo.varPaths[string(variable)]
+	if !exists {
+		return TypeUnknown
+	}
+
+	// Combine stored path with remaining reference parts
+	remainingPath := v.buildRefPath(ref[1:])
+	if remainingPath != "" {
+		fullPath := storedPath + "." + remainingPath
+		if typ, exists := v.typeInfo.InputSchema.types[fullPath]; exists {
+			return typ
 		}
 	}
 
-	return TypeObject
+	// Return the type of the stored path if we have it
+	if typ, exists := v.typeInfo.InputSchema.types[storedPath]; exists {
+		return typ
+	}
+
+	return TypeUnknown
 }
 
 /**
@@ -365,69 +456,190 @@ func (v *TypeVisitor) promoteType(varName string, typ RegoType) {
 }
 
 /**
- * inferType determines the type of a Rego value.
- * It handles all basic Rego types including strings, numbers, booleans, arrays, objects, and references.
- * @param {ast.Value} val - The value to analyze
- * @return {RegoType} The inferred type of the value
+ * promoteRuleType sets the type information for a given rule name.
+ * Only updates the type if the new type is more precise than the existing one.
+ * @param {string} ruleName - The name of the rule to set the type for
+ * @param {RegoType} typ - The type to set for the rule
  */
-func (v *TypeVisitor) inferType(val ast.Value) RegoType {
-	switch val := val.(type) {
-	case ast.String:
-		return TypeString
-	case ast.Number:
-		return TypeInt
-	case ast.Boolean:
-		return TypeBoolean
-	case *ast.Array:
-		return TypeArray
-	case ast.Object:
-		return TypeObject
-	case ast.Set:
-		return TypeSet
-	case ast.Ref:
-		return v.inferRefType(val)
-	default:
-		return TypeUnknown
+func (v *TypeVisitor) promoteRuleType(ruleName string, typ RegoType) {
+	existingType, exists := v.typeInfo.ruleTypes[ruleName]
+	if !exists || v.isMorePrecise(typ, existingType) {
+		v.typeInfo.ruleTypes[ruleName] = typ
 	}
 }
 
+// processRuleHead analyzes the head of a rule and sets appropriate types
+func (v *TypeVisitor) processRuleHead(ruleName string, head *ast.Head) {
+	if head.Value == nil {
+		return
+	}
+
+	if ref, ok := head.Value.Value.(ast.Ref); ok {
+		headPath := v.buildRefPath(ref)
+		v.typeInfo.varPaths[ruleName] = headPath
+		if typ := v.inferRefType(ref); typ != TypeUnknown {
+			v.promoteRuleType(ruleName, typ)
+		}
+	} else {
+		// For direct value assignments in rule head
+		typ := v.inferType(head.Value.Value)
+		v.promoteRuleType(ruleName, typ)
+	}
+}
+
+// processRuleBodyExpr processes a single expression in a rule body
+func (v *TypeVisitor) processRuleBodyExpr(expr *ast.Expr, ruleName string) {
+	v.VisitExpr(expr)
+
+	// Only process assignments or equality expressions
+	if !expr.IsAssignment() && !expr.IsEquality() {
+		return
+	}
+
+	lhs := expr.Operand(0).Value
+	rhs := expr.Operand(1).Value
+	v.processRuleAssignment(lhs, rhs, ruleName)
+}
+
+// processRuleAssignment handles assignment expressions in rules
+func (v *TypeVisitor) processRuleAssignment(lhs, rhs ast.Value, ruleName string) {
+	lhsVar, isVar := lhs.(ast.Var)
+	if !isVar {
+		return
+	}
+
+	typ := v.inferType(rhs)
+	if typ == TypeUnknown {
+		return
+	}
+
+	// Handle direct rule assignment
+	if string(lhsVar) == ruleName {
+		v.promoteRuleType(ruleName, typ)
+		return
+	}
+
+	// Handle indirect assignment
+	v.promoteType(string(lhsVar), typ)
+}
+
+// processElseBranch processes the else branch of a rule
+func (v *TypeVisitor) processElseBranch(elseBranch *ast.Rule) {
+	if elseBranch == nil {
+		return
+	}
+
+	elseVisitor := NewTypeVisitor()
+	elseVisitor.typeInfo.InputSchema = v.typeInfo.InputSchema
+	elseVisitor = elseVisitor.VisitRule(elseBranch)
+
+	// Merge types from else branch
+	for varName, typ := range elseVisitor.GetTypes() {
+		v.promoteType(varName, typ)
+	}
+	for ruleName, typ := range elseVisitor.GetRuleTypes() {
+		v.promoteRuleType(ruleName, typ)
+	}
+}
+
+// VisitRule analyzes a single rule and returns the visitor used
+func (v *TypeVisitor) VisitRule(rule *ast.Rule) *TypeVisitor {
+	ruleName := rule.Head.Name.String()
+
+	v.processRuleHead(ruleName, rule.Head)
+
+	// Process rule body
+	for _, expr := range rule.Body {
+		v.processRuleBodyExpr(expr, ruleName)
+	}
+
+	v.processElseBranch(rule.Else)
+	return v
+}
+
 /**
- * GetTypes returns the collected type information.
+ * AnalyzeTypes performs complete type analysis on a Rego policy rule
+ * @param {*ast.Rule} rule - The Rego rule to analyze
  * @return {map[string]RegoType} A map of variable names to their inferred types
  */
+func AnalyzeTypes(rule *ast.Rule) *TypeVisitor {
+	visitor := NewTypeVisitor()
+	return visitor.VisitRule(rule)
+}
+
+// inferPrimitiveType handles primitive value type inference
+func (v *TypeVisitor) inferPrimitiveType(val ast.Value) (RegoType, bool) {
+	switch val.(type) {
+	case ast.String:
+		return TypeString, true
+	case ast.Number:
+		return TypeInt, true
+	case ast.Boolean:
+		return TypeBoolean, true
+	case *ast.Array:
+		return TypeArray, true
+	case ast.Object:
+		return TypeObject, true
+	case ast.Set:
+		return TypeSet, true
+	default:
+		return TypeUnknown, false
+	}
+}
+
+// inferVarType handles variable type inference
+func (v *TypeVisitor) inferVarType(varName string) (RegoType, bool) {
+	// Check regular variable types
+	if typ, exists := v.typeInfo.types[varName]; exists {
+		return typ, true
+	}
+	// Check rule types
+	if typ, exists := v.typeInfo.ruleTypes[varName]; exists {
+		return typ, true
+	}
+	// Check stored path types
+	if path, exists := v.typeInfo.varPaths[varName]; exists {
+		if typ, exists := v.typeInfo.InputSchema.types[path]; exists {
+			return typ, true
+		}
+	}
+	return TypeUnknown, false
+}
+
+// inferType determines the type of a Rego value.
+func (v *TypeVisitor) inferType(val ast.Value) RegoType {
+	// Try primitive types first
+	if typ, ok := v.inferPrimitiveType(val); ok {
+		return typ
+	}
+
+	// Handle variables
+	if varVal, ok := val.(ast.Var); ok {
+		if typ, ok := v.inferVarType(string(varVal)); ok {
+			return typ
+		}
+		return TypeUnknown
+	}
+
+	// Handle references
+	if ref, ok := val.(ast.Ref); ok {
+		return v.inferRefType(ref)
+	}
+
+	return TypeUnknown
+}
+
+// GetTypes returns the collected type information
 func (v *TypeVisitor) GetTypes() map[string]RegoType {
 	return v.typeInfo.types
 }
 
-/**
- * AnalyzeTypes performs complete type analysis on a Rego policy rule.
- * It analyzes the rule head, body, and else branches to infer types of all variables.
- * @param {*ast.Rule} rule - The Rego rule to analyze
- * @return {map[string]RegoType} A map of variable names to their inferred types
- */
-func AnalyzeTypes(rule *ast.Rule) map[string]RegoType {
-	visitor := NewTypeVisitor()
+// GetRuleTypes returns the collected rule type information
+func (v *TypeVisitor) GetRuleTypes() map[string]RegoType {
+	return v.typeInfo.ruleTypes
+}
 
-	// Analyze rule head
-	if rule.Head.Key != nil {
-		if v, ok := rule.Head.Key.Value.(ast.Var); ok {
-			visitor.promoteType(string(v), visitor.inferType(rule.Head.Key.Value))
-		}
-	}
-
-	// Process rule body
-	for _, expr := range rule.Body {
-		visitor.VisitExpr(expr)
-	}
-
-	// Process else branch
-	if rule.Else != nil {
-		// Analyze the else branch recursively
-		elseTypes := AnalyzeTypes(rule.Else)
-		for varName, typ := range elseTypes {
-			visitor.promoteType(varName, typ)
-		}
-	}
-
-	return visitor.GetTypes()
+// GetTypeInfo returns the TypeInfo instance
+func (v *TypeVisitor) GetTypeInfo() *TypeInfo {
+	return v.typeInfo
 }
