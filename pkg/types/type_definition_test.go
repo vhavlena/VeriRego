@@ -220,7 +220,6 @@ func TestGetTypeFromPath(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test // capture range variable
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			result, ok := nestedType.GetTypeFromPath(test.path)
@@ -496,7 +495,6 @@ func TestIsEqual(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			result := tt.type1.IsEqual(&tt.type2)
