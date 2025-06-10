@@ -12,7 +12,15 @@ type TypeAnalyzer struct {
 	schema *InputSchema
 }
 
-// NewTypeAnalyzer creates a new type analyzer
+// NewTypeAnalyzer creates a new type analyzer.
+//
+// Parameters:
+//
+//	schema *InputSchema: The input schema to use for type inference.
+//
+// Returns:
+//
+//	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 	return &TypeAnalyzer{
 		types:  make(map[string]RegoTypeDef),
@@ -21,7 +29,15 @@ func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 	}
 }
 
-// getValueKey returns a string key for an AST value
+// getValueKey returns a string key for an AST value.
+//
+// Parameters:
+//
+//	val ast.Value: The AST value to generate a key for.
+//
+// Returns:
+//
+//	string: The string key representing the value.
 func (ta *TypeAnalyzer) getValueKey(val ast.Value) string {
 	switch v := val.(type) {
 	case ast.Ref:
@@ -33,7 +49,15 @@ func (ta *TypeAnalyzer) getValueKey(val ast.Value) string {
 	}
 }
 
-// GetType returns the type for a given AST value
+// GetType returns the type for a given AST value.
+//
+// Parameters:
+//
+//	val ast.Value: The AST value to get the type for.
+//
+// Returns:
+//
+//	RegoTypeDef: The inferred or cached type for the value.
 func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 	key := ta.getValueKey(val)
 	if typ, exists := ta.types[key]; exists {
@@ -43,6 +67,11 @@ func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 }
 
 // setType sets the type for a value only if the new type is more precise than the existing one
+//
+// Parameters:
+//
+//	val ast.Value: The AST value to set the type for.
+//	typ RegoTypeDef: The type to assign to the value.
 func (ta *TypeAnalyzer) setType(val ast.Value, typ RegoTypeDef) {
 	key := ta.getValueKey(val)
 	if existingType, exists := ta.types[key]; exists {
@@ -55,7 +84,15 @@ func (ta *TypeAnalyzer) setType(val ast.Value, typ RegoTypeDef) {
 	ta.refs[key] = val
 }
 
-// InferTermType infers the type of an AST term by analyzing its value
+// InferTermType infers the type of an AST term by analyzing its value.
+//
+// Parameters:
+//
+//	term *ast.Term: The AST term to infer the type for.
+//
+// Returns:
+//
+//	RegoTypeDef: The inferred type of the term.
 func (ta *TypeAnalyzer) InferTermType(term *ast.Term) RegoTypeDef {
 	if term == nil {
 		return NewUnknownType()
@@ -63,7 +100,15 @@ func (ta *TypeAnalyzer) InferTermType(term *ast.Term) RegoTypeDef {
 	return ta.inferType(term.Value)
 }
 
-// InferExprType infers the type of an AST expression
+// InferExprType infers the type of an AST expression.
+//
+// Parameters:
+//
+//	expr *ast.Expr: The AST expression to infer the type for.
+//
+// Returns:
+//
+//	RegoTypeDef: The inferred type of the expression.
 func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	if expr == nil {
 		return NewUnknownType()
@@ -116,7 +161,15 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	return ta.InferTermType(terms[0])
 }
 
-// inferType infers the type of an AST value
+// inferType infers the type of an AST value.
+//
+// Parameters:
+//
+//	val ast.Value: The AST value to infer the type for.
+//
+// Returns:
+//
+//	RegoTypeDef: The inferred type of the value.
 func (ta *TypeAnalyzer) inferType(val ast.Value) RegoTypeDef {
 	if val == nil {
 		return NewUnknownType()
@@ -169,7 +222,15 @@ func (ta *TypeAnalyzer) inferType(val ast.Value) RegoTypeDef {
 	return typ
 }
 
-// inferRefType infers the type of a reference (input.x or data.x)
+// inferRefType infers the type of a reference (e.g., input.x or data.x).
+//
+// Parameters:
+//
+//	ref ast.Ref: The reference to infer the type for.
+//
+// Returns:
+//
+//	RegoTypeDef: The inferred type of the reference.
 func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	if len(ref) == 0 {
 		return NewUnknownType()
@@ -190,7 +251,11 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	return NewUnknownType()
 }
 
-// AnalyzeRule performs type analysis on a Rego rule
+// AnalyzeRule performs type analysis on a Rego rule.
+//
+// Parameters:
+//
+//	rule *ast.Rule: The Rego rule to analyze.
 func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 	// Analyze rule head value if it exists
 	if rule.Head.Value != nil {
@@ -203,7 +268,28 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 	}
 }
 
-// Helper functions for categorizing builtin functions
+// GetAllTypes returns a copy of all inferred variable types.
+//
+// Returns:
+//
+//	map[string]RegoTypeDef: A map of variable names to their inferred types.
+func (ta *TypeAnalyzer) GetAllTypes() map[string]RegoTypeDef {
+	result := make(map[string]RegoTypeDef, len(ta.types))
+	for k, v := range ta.types {
+		result[k] = v
+	}
+	return result
+}
+
+// isStringFunction checks if a function name corresponds to a string operation.
+//
+// Parameters:
+//
+//	name string: The function name to check.
+//
+// Returns:
+//
+//	bool: True if the function is a string operation, false otherwise.
 func isStringFunction(name string) bool {
 	stringOps := map[string]bool{
 		"trim": true, "replace": true, "concat": true,
@@ -213,6 +299,15 @@ func isStringFunction(name string) bool {
 	return stringOps[name]
 }
 
+// isNumericFunction checks if a function name corresponds to a numeric operation.
+//
+// Parameters:
+//
+//	name string: The function name to check.
+//
+// Returns:
+//
+//	bool: True if the function is a numeric operation, false otherwise.
 func isNumericFunction(name string) bool {
 	numericOps := map[string]bool{
 		"plus": true, "minus": true, "mul": true,
@@ -221,6 +316,15 @@ func isNumericFunction(name string) bool {
 	return numericOps[name]
 }
 
+// isBooleanFunction checks if a function name corresponds to a boolean operation.
+//
+// Parameters:
+//
+//	name string: The function name to check.
+//
+// Returns:
+//
+//	bool: True if the function is a boolean operation, false otherwise.
 func isBooleanFunction(name string) bool {
 	booleanOps := map[string]bool{
 		"neq": true, "and": true,
@@ -231,6 +335,15 @@ func isBooleanFunction(name string) bool {
 	return booleanOps[name]
 }
 
+// isEquality checks if a function name corresponds to an equality operation.
+//
+// Parameters:
+//
+//	name string: The function name to check.
+//
+// Returns:
+//
+//	bool: True if the function is an equality operation, false otherwise.
 func isEquality(name string) bool {
 	equalityOps := map[string]bool{
 		"eq": true, "assign": true,
@@ -238,7 +351,16 @@ func isEquality(name string) bool {
 	return equalityOps[name]
 }
 
-// AnalyzeTypes is the main entry point for type analysis
+// AnalyzeTypes is the main entry point for type analysis.
+//
+// Parameters:
+//
+//	rule *ast.Rule: The Rego rule to analyze.
+//	schema *InputSchema: The input schema for type inference.
+//
+// Returns:
+//
+//	*TypeAnalyzer: The type analyzer with inferred types.
 func AnalyzeTypes(rule *ast.Rule, schema *InputSchema) *TypeAnalyzer {
 	analyzer := NewTypeAnalyzer(schema)
 	analyzer.AnalyzeRule(rule)

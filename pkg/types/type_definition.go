@@ -134,6 +134,15 @@ func (t *RegoTypeDef) IsEqual(other *RegoTypeDef) bool {
 	return false
 }
 
+// compareObjects checks if the current object type is more precise than another object type.
+//
+// Parameters:
+//
+//	other *RegoTypeDef: The other object type to compare against.
+//
+// Returns:
+//
+//	bool: True if the current object type is more precise
 func (t *RegoTypeDef) compareObjects(other *RegoTypeDef) bool {
 	// Must have at least as many fields as other
 	if len(t.ObjectFields) < len(other.ObjectFields) {
@@ -201,6 +210,15 @@ func (t *RegoTypeDef) IsMorePrecise(other *RegoTypeDef) bool {
 	return false
 }
 
+// GetTypeFromPath traverses the type definition using a path of field names or array indices.
+//
+// Parameters:
+//
+//	path []string: The path to traverse.
+//
+// Returns:
+//
+//	(*RegoTypeDef, bool): The type at the given path and true if found, otherwise nil and false.
 func (t *RegoTypeDef) GetTypeFromPath(path []string) (*RegoTypeDef, bool) {
 	if len(path) == 0 {
 		return nil, false

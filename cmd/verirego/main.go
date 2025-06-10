@@ -36,28 +36,26 @@ func analyzeModule(mod *ast.Module, yamlFile string) {
 func analyzeRule(rule *ast.Rule, yamlFile string) {
 	fmt.Printf("\n=== Rule: %s ===\n", rule.Head.Name)
 
-	// Create a type visitor
-	visitor := types.NewTypeVisitor()
-
-	// If YAML input file is provided, process it
+	// Prepare input schema
+	inputSchema := types.NewInputSchema()
 	if yamlFile != "" {
 		yamlData, err := os.ReadFile(yamlFile)
 		if err != nil {
 			fmt.Printf("Warning: Failed to read YAML input file: %v\n", err)
 		} else {
-			if err := visitor.GetTypeInfo().InputSchema.ProcessYAMLInput(yamlData); err != nil {
+			if err := inputSchema.ProcessYAMLInput(yamlData); err != nil {
 				fmt.Printf("Warning: Failed to process YAML input: %v\n", err)
 			}
 		}
 	}
 
-	// Perform detailed type analysis
-	typeVisitor := types.AnalyzeTypes(rule)
-	typeMap := typeVisitor.GetTypes()
+	// Run type analysis using the input schema
+	typeAnalyzer := types.AnalyzeTypes(rule, inputSchema)
+	typeMap := typeAnalyzer.GetAllTypes()
 	if len(typeMap) > 0 {
 		fmt.Printf("\nInferred Types:\n")
 		for varName, varType := range typeMap {
-			fmt.Printf("  %s: %s\n", varName, varType)
+			fmt.Printf("  %s: %+v\n", varName, varType)
 		}
 	}
 
