@@ -64,7 +64,7 @@ test { x := {"key": "value"} }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema)
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -102,7 +102,7 @@ test { x=true }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema)
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -178,7 +178,7 @@ test { x := input.review.object.metadata }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema)
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -230,7 +230,7 @@ test { x = [1, 2, 3] }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema)
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -491,6 +491,54 @@ test { [1, "two", true] }`,
 
 			if !actual.IsEqual(&tt.expected) {
 				t.Errorf("Expected type %v for expression, got %v", tt.expected, actual)
+			}
+		})
+	}
+}
+
+// TestParameterSpecInference tests type inference for input.parameters references using a parameter spec
+func TestParameterSpecInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	params := Parameters{
+		"foo": Parameter{dt: NewAtomicType(AtomicString), name: "foo", required: true},
+		"bar": Parameter{dt: NewAtomicType(AtomicInt), name: "bar", required: false},
+	}
+
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "input.parameters string param",
+			rule: `package test
+test { x := input.parameters.foo }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "input.parameters int param",
+			rule: `package test
+test { x := input.parameters.bar }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicInt),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, params)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
 			}
 		})
 	}

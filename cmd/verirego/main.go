@@ -11,7 +11,7 @@ import (
 )
 
 // analyzeModule performs analysis on a Rego module.
-func analyzeModule(mod *ast.Module, yamlFile string) {
+func analyzeModule(mod *ast.Module, yamlFile string, params types.Parameters) {
 	// Compile the module
 	compiler := ast.NewCompiler()
 	compiler.Compile(map[string]*ast.Module{
@@ -28,12 +28,12 @@ func analyzeModule(mod *ast.Module, yamlFile string) {
 	fmt.Printf("\nRego Policy Analysis:\n")
 
 	for _, rule := range compiledModule.Rules {
-		analyzeRule(rule, yamlFile)
+		analyzeRule(rule, yamlFile, params)
 	}
 }
 
 // analyzeRule performs analysis on a single Rego rule.
-func analyzeRule(rule *ast.Rule, yamlFile string) {
+func analyzeRule(rule *ast.Rule, yamlFile string, params types.Parameters) {
 	fmt.Printf("\n=== Rule: %s ===\n", rule.Head.Name)
 
 	// Prepare input schema
@@ -49,8 +49,8 @@ func analyzeRule(rule *ast.Rule, yamlFile string) {
 		}
 	}
 
-	// Run type analysis using the input schema
-	typeAnalyzer := types.AnalyzeTypes(rule, inputSchema)
+	// Run type analysis using the input schema and parameters
+	typeAnalyzer := types.AnalyzeTypes(rule, inputSchema, params)
 	typeMap := typeAnalyzer.GetAllTypes()
 	if len(typeMap) > 0 {
 		fmt.Printf("\nInferred Types:\n")
@@ -85,6 +85,7 @@ func main() {
 	// Define command line flags
 	regoFile := flag.String("rego", "", "Path to the Rego policy file (required)")
 	yamlFile := flag.String("yaml", "", "Path to the YAML input file (optional)")
+	specFile := flag.String("spec", "", "Path to the parameter specification file (optional)")
 
 	// Parse flags
 	flag.Parse()
@@ -97,11 +98,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	var params types.Parameters
+	if *specFile != "" {
+		specData, err := os.ReadFile(*specFile)
+		if err != nil {
+			fmt.Printf("Warning: Failed to read spec file: %v\n", err)
+		} else {
+			params, err = types.FromSpecFile(specData)
+			if err != nil {
+				fmt.Printf("Warning: Failed to process spec file: %v\n", err)
+			}
+		}
+	}
+
 	module, err := parseRegoFile(*regoFile)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	analyzeModule(module, *yamlFile)
+	analyzeModule(module, *yamlFile, params)
 }

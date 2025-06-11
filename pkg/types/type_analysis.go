@@ -7,9 +7,10 @@ import (
 
 // TypeAnalyzer performs type analysis on Rego AST
 type TypeAnalyzer struct {
-	types  map[string]RegoTypeDef // Store types by string key
-	refs   map[string]ast.Value   // Map string keys back to original values
-	schema *InputSchema
+	types      map[string]RegoTypeDef // Store types by string key
+	refs       map[string]ast.Value   // Map string keys back to original values
+	schema     *InputSchema
+	parameters Parameters
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -26,6 +27,25 @@ func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 		types:  make(map[string]RegoTypeDef),
 		refs:   make(map[string]ast.Value),
 		schema: schema,
+	}
+}
+
+// NewTypeAnalyzerWithParams creates a new type analyzer with parameters.
+//
+// Parameters:
+//
+//	schema *InputSchema: The input schema to use for type inference.
+//	params Parameters: The parameters for the type analyzer.
+//
+// Returns:
+//
+//	*TypeAnalyzer: A new instance of TypeAnalyzer with parameters.
+func NewTypeAnalyzerWithParams(schema *InputSchema, params Parameters) *TypeAnalyzer {
+	return &TypeAnalyzer{
+		types:      make(map[string]RegoTypeDef),
+		refs:       make(map[string]ast.Value),
+		schema:     schema,
+		parameters: params,
 	}
 }
 
@@ -238,6 +258,21 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 
 	head := ref[0].Value.String()
 	if head == "input" {
+		// Check for input.parameters.<name>
+		if len(ref) >= 3 {
+			second := ref[1].Value.String()
+			if second == "\"parameters\"" {
+				// Only support input.parameters.<name> (not nested)
+				if str, ok := ref[2].Value.(ast.String); ok {
+					// fmt.Printf("Parameter name: %s\n", str)
+					name := string(str)
+					if param, exists := ta.parameters[name]; exists {
+						return param.dt
+					}
+				}
+			}
+		}
+		// Fallback to schema for other input references
 		path := make([]string, 0, len(ref)-1)
 		for _, term := range ref[1:] {
 			if str, ok := term.Value.(ast.String); ok {
@@ -361,8 +396,8 @@ func isEquality(name string) bool {
 // Returns:
 //
 //	*TypeAnalyzer: The type analyzer with inferred types.
-func AnalyzeTypes(rule *ast.Rule, schema *InputSchema) *TypeAnalyzer {
-	analyzer := NewTypeAnalyzer(schema)
+func AnalyzeTypes(rule *ast.Rule, schema *InputSchema, params Parameters) *TypeAnalyzer {
+	analyzer := NewTypeAnalyzerWithParams(schema, params)
 	analyzer.AnalyzeRule(rule)
 	return analyzer
 }
