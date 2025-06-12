@@ -83,7 +83,7 @@ func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 	if typ, exists := ta.types[key]; exists {
 		return typ
 	}
-	return ta.inferType(val)
+	return ta.inferAstType(val)
 }
 
 // setType sets the type for a value only if the new type is more precise than the existing one
@@ -117,7 +117,7 @@ func (ta *TypeAnalyzer) InferTermType(term *ast.Term) RegoTypeDef {
 	if term == nil {
 		return NewUnknownType()
 	}
-	return ta.inferType(term.Value)
+	return ta.inferAstType(term.Value)
 }
 
 // InferExprType infers the type of an AST expression.
@@ -181,7 +181,7 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	return ta.InferTermType(terms[0])
 }
 
-// inferType infers the type of an AST value.
+// inferAstType infers the type of an AST value.
 //
 // Parameters:
 //
@@ -190,7 +190,7 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 // Returns:
 //
 //	RegoTypeDef: The inferred type of the value.
-func (ta *TypeAnalyzer) inferType(val ast.Value) RegoTypeDef {
+func (ta *TypeAnalyzer) inferAstType(val ast.Value) RegoTypeDef {
 	if val == nil {
 		return NewUnknownType()
 	}
@@ -292,14 +292,15 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 //
 //	rule *ast.Rule: The Rego rule to analyze.
 func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
-	// Analyze rule head value if it exists
-	if rule.Head.Value != nil {
-		ta.inferType(rule.Head.Value.Value)
-	}
-
 	// Analyze rule body
 	for _, expr := range rule.Body {
 		ta.InferExprType(expr)
+	}
+
+	// Analyze rule head value if it exists
+	if rule.Head.Value != nil {
+		tp := ta.inferAstType(rule.Head.Value.Value)
+		ta.setType(rule.Head.Name, tp)
 	}
 }
 

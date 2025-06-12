@@ -328,7 +328,7 @@ func TestInferType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			actual := analyzer.inferType(tt.value)
+			actual := analyzer.inferAstType(tt.value)
 			if !actual.IsEqual(&tt.expected) {
 				t.Errorf("inferType(%v) = %v, want %v", tt.value, actual, tt.expected)
 			}
@@ -342,13 +342,13 @@ func TestInferType(t *testing.T) {
 		expected := NewAtomicType(AtomicString)
 
 		// First call should infer and cache
-		first := analyzer.inferType(val)
+		first := analyzer.inferAstType(val)
 		if !first.IsEqual(&expected) {
 			t.Errorf("First call: got %v, want %v", first, expected)
 		}
 
 		// Second call should return cached value
-		second := analyzer.inferType(val)
+		second := analyzer.inferAstType(val)
 		if !second.IsEqual(&first) {
 			t.Errorf("Second call: got %v, want %v (cached value)", second, first)
 		}
@@ -539,6 +539,66 @@ test { x := input.parameters.bar }`,
 			actual := analyzer.GetType(varTerm.Value)
 			if !actual.IsEqual(&tt.expected) {
 				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
+			}
+		})
+	}
+}
+
+func TestRuleHeadTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+
+	tests := []struct {
+		name     string
+		rule     string
+		ruleName string
+		expected RegoTypeDef
+	}{
+		{
+			name: "rule head set type (no value)",
+			rule: `package test
+my_rule { true }`,
+			ruleName: "my_rule",
+			expected: NewAtomicType(AtomicBoolean), // Default for rules with no value is boolean
+		},
+		{
+			name: "rule head with value (string)",
+			rule: `package test
+my_rule = "foo" { true }`,
+			ruleName: "my_rule",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "rule head with value (array)",
+			rule: `package test
+my_rule = [1,2,3] { true }`,
+			ruleName: "my_rule",
+			expected: NewArrayType(NewAtomicType(AtomicInt)),
+		},
+		{
+			name: "rule head with object value",
+			rule: `package test
+my_rule = var { var := {"a": 1, "b": 2} }`,
+			ruleName: "my_rule",
+			expected: NewObjectType(map[string]RegoTypeDef{
+				"a": NewAtomicType(AtomicInt),
+				"b": NewAtomicType(AtomicInt),
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.ruleName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for rule %s, got %v", tt.expected, tt.ruleName, actual)
 			}
 		})
 	}
