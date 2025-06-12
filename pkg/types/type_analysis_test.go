@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/open-policy-agent/opa/ast"
@@ -8,149 +9,67 @@ import (
 
 func TestBasicTypeInference(t *testing.T) {
 	t.Parallel()
+	schema := NewInputSchema()
+
 	tests := []struct {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
-			name: "string assignment",
+			name: "string literal",
 			rule: `package test
 test { x := "hello" }`,
 			varName:  "x",
-			expected: TypeString,
+			expected: NewAtomicType(AtomicString),
 		},
 		{
-			name: "string equality",
-			rule: `package test
-test { x = "hello" }`,
-			varName:  "x",
-			expected: TypeString,
-		},
-		{
-			name: "number assignment",
+			name: "number literal",
 			rule: `package test
 test { x := 42 }`,
 			varName:  "x",
-			expected: TypeInt,
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
-			name: "boolean assignment",
+			name: "boolean literal",
 			rule: `package test
 test { x := true }`,
 			varName:  "x",
-			expected: TypeBoolean,
+			expected: NewAtomicType(AtomicBoolean),
 		},
 		{
-			name: "array assignment",
+			name: "array literal",
 			rule: `package test
 test { x := ["a", "b"] }`,
 			varName:  "x",
-			expected: TypeArray,
+			expected: NewArrayType(NewAtomicType(AtomicString)),
 		},
 		{
-			name: "object assignment",
+			name: "object literal",
 			rule: `package test
 test { x := {"key": "value"} }`,
-			varName:  "x",
-			expected: TypeObject,
+			varName: "x",
+			expected: NewObjectType(map[string]RegoTypeDef{
+				"key": NewAtomicType(AtomicString),
+			}),
 		},
 	}
 
-	for _, ttinst := range tests {
-		t.Run(ttinst.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			module, err := ast.ParseModule("test.rego", ttinst.rule)
+			module, err := ast.ParseModule("test.rego", tt.rule)
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			types := AnalyzeTypes(module.Rules[0])
-			if actual := types[ttinst.varName]; actual != ttinst.expected {
-				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
-			}
-		})
-	}
-}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
 
-func TestReferenceTypeInference(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		rule     string
-		varName  string
-		expected RegoType
-	}{
-		{
-			name: "input array reference",
-			rule: `package test
-test { x := input.roles }`,
-			varName:  "x",
-			expected: TypeObject,
-		},
-		{
-			name: "input object reference",
-			rule: `package test
-test { x := input.parameters }`,
-			varName:  "x",
-			expected: TypeObject,
-		},
-		{
-			name: "input string reference",
-			rule: `package test
-test { x := input.test }`,
-			varName:  "x",
-			expected: TypeObject,
-		},
-		{
-			name: "input string reference array",
-			rule: `package test
-test { x := input.test[i] }`,
-			varName:  "i",
-			expected: TypeIndex,
-		},
-		{
-			name: "array index variable 2",
-			rule: `package test
-test { arr := [1, 2, 3]; x := arr[i]; y := arr[j]; i < j }`,
-			varName:  "i",
-			expected: TypeInt,
-		},
-		{
-			name: "nested object reference",
-			rule: `package test
-test { x := input.parameters.user.profile }`,
-			varName:  "x",
-			expected: TypeObject,
-		},
-		{
-			name: "array reference with numeric index",
-			rule: `package test
-test { x := input.roles[0] }`,
-			varName:  "x",
-			expected: TypeObject,
-		},
-		{
-			name: "input reference itself",
-			rule: `package test
-test { x := input }`,
-			varName:  "x",
-			expected: TypeObject,
-		},
-	}
-
-	for _, ttinst := range tests {
-		t.Run(ttinst.name, func(t *testing.T) {
-			t.Parallel()
-			module, err := ast.ParseModule("test.rego", ttinst.rule)
-			if err != nil {
-				t.Fatalf("Failed to parse module: %v", err)
-			}
-
-			types := AnalyzeTypes(module.Rules[0])
-			if actual := types[ttinst.varName]; actual != ttinst.expected {
-				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
 			}
 		})
 	}
@@ -158,143 +77,614 @@ test { x := input }`,
 
 func TestBuiltinFunctionTypeInference(t *testing.T) {
 	t.Parallel()
+	schema := NewInputSchema()
+
 	tests := []struct {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
-			name: "string function arg",
+			name: "boolean function",
 			rule: `package test
-test { contains(x, "substring") }`,
+test { x=true }`,
 			varName:  "x",
-			expected: TypeString,
-		},
-		{
-			name: "numeric function arg",
-			rule: `package test
-test { plus(x, 5) }`,
-			varName:  "x",
-			expected: TypeInt,
-		},
-		{
-			name: "boolean function arg",
-			rule: `package test
-test { equal(x, true) }`,
-			varName:  "x",
-			expected: TypeBoolean,
+			expected: NewAtomicType(AtomicBoolean),
 		},
 	}
 
-	for _, ttinst := range tests {
-		t.Run(ttinst.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			module, err := ast.ParseModule("test.rego", ttinst.rule)
+			module, err := ast.ParseModule("test.rego", tt.rule)
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			types := AnalyzeTypes(module.Rules[0])
-			if actual := types[ttinst.varName]; actual != ttinst.expected {
-				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
 			}
 		})
 	}
 }
 
-func TestComprehensionTypeInference(t *testing.T) {
+func TestInputSchemaBasedInference(t *testing.T) {
 	t.Parallel()
+
+	// Sample YAML input
+	yamlInput := []byte(`
+      kind: "Pod"
+      metadata:
+        name: "test-pod"
+      spec:
+        containers:
+          - name: "container1"
+            image: "nginx"
+`)
+
+	schema := NewInputSchema()
+	err := schema.ProcessYAMLInput(yamlInput)
+	if err != nil {
+		t.Fatalf("Failed to process YAML input: %v", err)
+	}
+
 	tests := []struct {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
-			name: "array comprehension",
+			name: "input object reference",
 			rule: `package test
-import future.keywords.in
-test { x := [i | some i in input.roles] }`,
+test { x := input.review.object.kind }`,
 			varName:  "x",
-			expected: TypeArray,
+			expected: NewAtomicType(AtomicString),
 		},
 		{
-			name: "set comprehension",
+			name: "input array reference",
 			rule: `package test
-import future.keywords.in
-test { x := {i | some i in input.roles} }`,
-			varName:  "x",
-			expected: TypeSet,
+test { x := input.review.object.spec.containers }`,
+			varName: "x",
+			expected: NewArrayType(NewObjectType(map[string]RegoTypeDef{
+				"name":  NewAtomicType(AtomicString),
+				"image": NewAtomicType(AtomicString),
+			})),
+		},
+		{
+			name: "nested object reference",
+			rule: `package test
+test { x := input.review.object.metadata }`,
+			varName: "x",
+			expected: NewObjectType(map[string]RegoTypeDef{
+				"name": NewAtomicType(AtomicString),
+			}),
 		},
 	}
 
-	for _, ttinst := range tests {
-		t.Run(ttinst.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			module, err := ast.ParseModule("test.rego", ttinst.rule)
+			module, err := ast.ParseModule("test.rego", tt.rule)
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			types := AnalyzeTypes(module.Rules[0])
-			if actual := types[ttinst.varName]; actual != ttinst.expected {
-				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
 			}
 		})
 	}
 }
 
-func TestReferenceTypeInference2(t *testing.T) {
+func TestEqualityBasedInference(t *testing.T) {
 	t.Parallel()
+	schema := NewInputSchema()
+
 	tests := []struct {
 		name     string
 		rule     string
 		varName  string
-		expected RegoType
+		expected RegoTypeDef
 	}{
 		{
-			name: "input string reference array",
+			name: "equality with literal",
 			rule: `package test
-		test { x := y.test[i] }`,
-			varName:  "i",
-			expected: TypeIndex,
+test { x = "hello" }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
 		},
 		{
-			name: "input string equality array",
+			name: "equality with variable",
 			rule: `package test
-		test { x = input.test[i] }`,
-			varName:  "i",
-			expected: TypeIndex,
+test { y := 42; x = y }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicInt),
 		},
 		{
-			name: "input string reference array with int index",
+			name: "equality with array",
 			rule: `package test
-		test { i = 5; x := input.test[i] }`,
-			varName:  "i",
-			expected: TypeInt,
-		},
-		{
-			name: "else branch",
-			rule: `package test
-		test { true } else = "default" { i = 5 } `,
-			varName:  "i",
-			expected: TypeInt,
+test { x = [1, 2, 3] }`,
+			varName:  "x",
+			expected: NewArrayType(NewAtomicType(AtomicInt)),
 		},
 	}
 
-	for _, ttinst := range tests {
-		t.Run(ttinst.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			module, err := ast.ParseModule("test.rego", ttinst.rule)
+			module, err := ast.ParseModule("test.rego", tt.rule)
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			types := AnalyzeTypes(module.Rules[0])
-			if actual := types[ttinst.varName]; actual != ttinst.expected {
-				t.Errorf("Expected type %v for variable %s, got %v", ttinst.expected, ttinst.varName, actual)
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
 			}
 		})
+	}
+}
+
+func TestInferType(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	analyzer := NewTypeAnalyzer(schema)
+
+	tests := []struct {
+		name     string
+		value    ast.Value
+		expected RegoTypeDef
+	}{
+		{
+			name:     "nil value",
+			value:    nil,
+			expected: NewUnknownType(),
+		},
+		{
+			name:     "string value",
+			value:    ast.String("test"),
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name:     "number value",
+			value:    ast.Number("42"),
+			expected: NewAtomicType(AtomicInt),
+		},
+		{
+			name:     "boolean value",
+			value:    ast.Boolean(true),
+			expected: NewAtomicType(AtomicBoolean),
+		},
+		{
+			name:     "empty array",
+			value:    ast.NewArray(),
+			expected: NewArrayType(NewUnknownType()),
+		},
+		{
+			name:     "array with strings",
+			value:    ast.NewArray(ast.StringTerm("test")),
+			expected: NewArrayType(NewAtomicType(AtomicString)),
+		},
+		{
+			name:     "empty object",
+			value:    ast.NewObject(),
+			expected: NewObjectType(map[string]RegoTypeDef{}),
+		},
+		{
+			name: "array with objects",
+			value: ast.NewArray(ast.ObjectTerm([2]*ast.Term{
+				ast.StringTerm("key"),
+				ast.StringTerm("value"),
+			})),
+			expected: NewArrayType(NewObjectType(map[string]RegoTypeDef{
+				"key": NewAtomicType(AtomicString),
+			})),
+		},
+		{
+			name: "object with string value",
+			value: ast.NewObject(
+				[2]*ast.Term{
+					ast.StringTerm("key"),
+					ast.StringTerm("value"),
+				},
+			),
+			expected: NewObjectType(map[string]RegoTypeDef{
+				"key": NewAtomicType(AtomicString),
+			}),
+		},
+		{
+			name:     "set value",
+			value:    ast.NewSet(),
+			expected: NewAtomicType(AtomicSet),
+		},
+		{
+			name:     "variable",
+			value:    ast.Var("x"),
+			expected: NewUnknownType(),
+		},
+		{
+			name:     "input reference",
+			value:    ast.MustParseRef("input.test"),
+			expected: NewUnknownType(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			actual := analyzer.inferAstType(tt.value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("inferType(%v) = %v, want %v", tt.value, actual, tt.expected)
+			}
+		})
+	}
+
+	// Test caching behavior
+	t.Run("caching", func(t *testing.T) {
+		t.Parallel()
+		val := ast.String("cached")
+		expected := NewAtomicType(AtomicString)
+
+		// First call should infer and cache
+		first := analyzer.inferAstType(val)
+		if !first.IsEqual(&expected) {
+			t.Errorf("First call: got %v, want %v", first, expected)
+		}
+
+		// Second call should return cached value
+		second := analyzer.inferAstType(val)
+		if !second.IsEqual(&first) {
+			t.Errorf("Second call: got %v, want %v (cached value)", second, first)
+		}
+	})
+}
+
+func TestInferExprType(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	analyzer := NewTypeAnalyzer(schema)
+
+	tests := []struct {
+		name     string
+		rule     string
+		expected RegoTypeDef
+	}{
+		{
+			name: "simple term",
+			rule: `package test
+test { "hello" }`,
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "numeric comparison",
+			rule: `package test
+test { 1 < 2 }`,
+			expected: NewAtomicType(AtomicBoolean),
+		},
+		{
+			name: "string operation",
+			rule: `package test
+test { contains("hello", "lo") }`,
+			expected: NewAtomicType(AtomicBoolean),
+		},
+		{
+			name: "numeric operation",
+			rule: `package test
+test { plus(1, 2) }`,
+			expected: NewAtomicType(AtomicInt),
+		},
+		{
+			name: "boolean operation",
+			rule: `package test
+test { true = false }`,
+			expected: NewAtomicType(AtomicBoolean),
+		},
+		{
+			name: "array expression",
+			rule: `package test
+test { ["a", "b", "c"] }`,
+			expected: NewArrayType(NewAtomicType(AtomicString)),
+		},
+		{
+			name: "object expression",
+			rule: `package test
+test { {"key": "value"} }`,
+			expected: NewObjectType(map[string]RegoTypeDef{
+				"key": NewAtomicType(AtomicString),
+			}),
+		},
+		{
+			name: "equality comparison",
+			rule: `package test
+test { x = y }`,
+			expected: NewAtomicType(AtomicBoolean),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+
+			expr := module.Rules[0].Body[0]
+			actual := analyzer.InferExprType(expr)
+
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for expression, got %v", tt.expected, actual)
+			}
+		})
+	}
+}
+
+func TestInferExprTypeEdgeCases(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	analyzer := NewTypeAnalyzer(schema)
+
+	tests := []struct {
+		name     string
+		rule     string
+		expected RegoTypeDef
+	}{
+		{
+			name: "nil expression",
+			rule: `package test
+test { true }`,
+			expected: NewAtomicType(AtomicBoolean),
+		},
+		{
+			name: "empty array",
+			rule: `package test
+test { [] }`,
+			expected: NewArrayType(NewUnknownType()),
+		},
+		{
+			name: "empty object",
+			rule: `package test
+test { {} }`,
+			expected: NewObjectType(make(map[string]RegoTypeDef)),
+		},
+		{
+			name: "complex nested expression",
+			rule: `package test
+test { [[1, 2], [3, 4]] }`,
+			expected: NewArrayType(NewArrayType(NewAtomicType(AtomicInt))),
+		},
+		{
+			name: "mixed type array",
+			rule: `package test
+test { [1, "two", true] }`,
+			expected: NewArrayType(NewAtomicType(AtomicInt)), // Should infer from first element
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+
+			expr := module.Rules[0].Body[0]
+			fmt.Printf("Testing rule: %s %s\n", tt.rule, expr.String())
+			actual := analyzer.InferExprType(expr)
+
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for expression, got %v", tt.expected, actual)
+			}
+		})
+	}
+}
+
+// TestParameterSpecInference tests type inference for input.parameters references using a parameter spec
+func TestParameterSpecInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	params := Parameters{
+		"foo": Parameter{dt: NewAtomicType(AtomicString), name: "foo", required: true},
+		"bar": Parameter{dt: NewAtomicType(AtomicInt), name: "bar", required: false},
+	}
+
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "input.parameters string param",
+			rule: `package test
+test { x := input.parameters.foo }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "input.parameters int param",
+			rule: `package test
+test { x := input.parameters.bar }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicInt),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, params)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
+			}
+		})
+	}
+}
+
+func TestRuleHeadTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+
+	tests := []struct {
+		name     string
+		rule     string
+		ruleName string
+		expected RegoTypeDef
+	}{
+		{
+			name: "rule head set type (no value)",
+			rule: `package test
+my_rule { true }`,
+			ruleName: "my_rule",
+			expected: NewAtomicType(AtomicBoolean), // Default for rules with no value is boolean
+		},
+		{
+			name: "rule head with value (string)",
+			rule: `package test
+my_rule = "foo" { true }`,
+			ruleName: "my_rule",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "rule head with value (array)",
+			rule: `package test
+my_rule = [1,2,3] { true }`,
+			ruleName: "my_rule",
+			expected: NewArrayType(NewAtomicType(AtomicInt)),
+		},
+		{
+			name: "rule head with object value",
+			rule: `package test
+my_rule = var { var := {"a": 1, "b": 2} }`,
+			ruleName: "my_rule",
+			expected: NewObjectType(map[string]RegoTypeDef{
+				"a": NewAtomicType(AtomicInt),
+				"b": NewAtomicType(AtomicInt),
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.ruleName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for rule %s, got %v", tt.expected, tt.ruleName, actual)
+			}
+		})
+	}
+}
+
+func TestDataPackageRuleReferenceTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	// Define a module with a package path and a rule
+	ruleSrc := `package mypkg.subpkg
+my_rule = {"foo": 1, "bar": "baz"} { true }`
+	module, err := ast.ParseModule("test.rego", ruleSrc)
+	if err != nil {
+		t.Fatalf("Failed to parse module: %v", err)
+	}
+
+	analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+
+	// The rule head type should be an object with fields foo (int) and bar (string)
+	expected := NewObjectType(map[string]RegoTypeDef{
+		"foo": NewAtomicType(AtomicInt),
+		"bar": NewAtomicType(AtomicString),
+	})
+
+	// Build a reference: data.mypkg.subpkg.my_rule
+	ref := ast.MustParseRef("data.mypkg.subpkg.my_rule")
+	actual := analyzer.inferRefType(ref)
+
+	if !actual.IsEqual(&expected) {
+		t.Errorf("Expected type %v for data.mypkg.subpkg.my_rule, got %v", expected, actual)
+	}
+
+	// Also test fallback by just rule name (should not match, returns unknown)
+	ref2 := ast.MustParseRef("data.my_rule")
+	actual2 := analyzer.inferRefType(ref2)
+	if !actual2.IsUnknown() {
+		t.Errorf("Expected unknown type for data.my_rule, got %v", actual2)
+	}
+}
+
+func TestDataReferenceObjectInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	// Define a module with a package path and a rule returning an object
+	ruleSrc := `package mypkg
+my_obj = {"foo": 1, "bar": {"baz": "qux"}} { true }`
+	module, err := ast.ParseModule("test.rego", ruleSrc)
+	if err != nil {
+		t.Fatalf("Failed to parse module: %v", err)
+	}
+
+	analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+
+	expectedObj := NewObjectType(map[string]RegoTypeDef{
+		"foo": NewAtomicType(AtomicInt),
+		"bar": NewObjectType(map[string]RegoTypeDef{
+			"baz": NewAtomicType(AtomicString),
+		}),
+	})
+
+	// Test: data.mypkg.my_obj
+	ref := ast.MustParseRef("data.mypkg.my_obj")
+	actual := analyzer.inferRefType(ref)
+	if !actual.IsEqual(&expectedObj) {
+		t.Errorf("Expected type %v for data.mypkg.my_obj, got %v", expectedObj, actual)
+	}
+
+	// Test: data.mypkg.my_obj.bar
+	refBar := ast.MustParseRef("data.mypkg.my_obj.bar")
+	actualBar := analyzer.inferRefType(refBar)
+	expectedBar := NewObjectType(map[string]RegoTypeDef{
+		"baz": NewAtomicType(AtomicString),
+	})
+	if !actualBar.IsEqual(&expectedBar) {
+		t.Errorf("Expected type %v for data.mypkg.my_obj.bar, got %v", expectedBar, actualBar)
+	}
+
+	// Test: data.mypkg.my_obj.bar.baz
+	refBaz := ast.MustParseRef("data.mypkg.my_obj.bar.baz")
+	actualBaz := analyzer.inferRefType(refBaz)
+	expectedBaz := NewAtomicType(AtomicString)
+	if !actualBaz.IsEqual(&expectedBaz) {
+		t.Errorf("Expected type %v for data.mypkg.my_obj.bar.baz, got %v", expectedBaz, actualBaz)
+	}
+
+	// Test: data.mypkg.my_obj.unknown (should be unknown)
+	refUnknown := ast.MustParseRef("data.mypkg.my_obj.unknown")
+	actualUnknown := analyzer.inferRefType(refUnknown)
+	if !actualUnknown.IsUnknown() {
+		t.Errorf("Expected unknown type for data.mypkg.my_obj.unknown, got %v", actualUnknown)
 	}
 }

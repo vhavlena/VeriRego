@@ -1,15 +1,20 @@
-BINARY_NAME=verirego
-BUILD_DIR=build
-CMD_DIR=cmd/verirego
 
-.PHONY: all build test clean
+BUILD_DIR=build
+
+# List of binaries and their corresponding cmd directories
+BINARIES = type_analysis
+CMD_DIRS = type_analysis
+
+.PHONY: all build test clean install
 
 all: build
 
 build:
 	@echo "Building..."
 	@mkdir -p $(BUILD_DIR)
-	@go build -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)/main.go
+	@for dir in $(CMD_DIRS); do \
+	  go build -o $(BUILD_DIR)/$$dir ./cmd/$$dir/main.go; \
+	done
 
 test:
 	@echo "Running tests..."
@@ -19,7 +24,9 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR)
 
-# Optional: Add install target to copy binary to system path
+# Optional: Add install target to copy all binaries to system path
 install: build
 	@echo "Installing..."
-	@cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
+	@for dir in $(CMD_DIRS); do \
+	  cp $(BUILD_DIR)/$$dir /usr/local/bin/; \
+	done
