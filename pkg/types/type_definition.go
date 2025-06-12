@@ -312,3 +312,43 @@ func (t *RegoTypeDef) prettyPrintWithIndentShort(indent int, short bool) string 
 	}
 	return "invalid"
 }
+
+// TypeMapEqual returns true if two type maps are deeply equal.
+//
+// Parameters:
+//
+//	a map[string]RegoTypeDef: The first type map to compare.
+//	b map[string]RegoTypeDef: The second type map to compare.
+//
+// Returns:
+//
+//	bool: True if the type maps are equal
+func TypeMapEqual(a, b map[string]RegoTypeDef) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		bv, ok := b[k]
+		if !ok || !v.IsEqual(&bv) {
+			return false
+		}
+	}
+	return true
+}
+
+// CopyTypeMap returns a deep copy of a type map.
+//
+// Parameters:
+//
+//	src map[string]RegoTypeDef: The source type map to copy.
+//
+// Returns:
+//
+//	map[string]RegoTypeDef: A new map containing the copied types.
+func CopyTypeMap(src map[string]RegoTypeDef) map[string]RegoTypeDef {
+	cp := make(map[string]RegoTypeDef)
+	for k, v := range src {
+		cp[k] = v // RegoTypeDef is a struct, so this is a deep copy unless it contains pointers
+	}
+	return cp
+}

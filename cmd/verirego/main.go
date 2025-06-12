@@ -27,16 +27,7 @@ func analyzeModule(mod *ast.Module, yamlFile string, params types.Parameters) {
 	fmt.Printf("Compiled Module: %+v\n", compiledModule)
 	fmt.Printf("\nRego Policy Analysis:\n")
 
-	for _, rule := range compiledModule.Rules {
-		analyzeRule(rule, yamlFile, params)
-	}
-}
-
-// analyzeRule performs analysis on a single Rego rule.
-func analyzeRule(rule *ast.Rule, yamlFile string, params types.Parameters) {
-	fmt.Printf("\n=== Rule: %s ===\n", rule.Head.Name)
-
-	// Prepare input schema
+	// Prepare input schema once
 	inputSchema := types.NewInputSchema()
 	if yamlFile != "" {
 		yamlData, err := os.ReadFile(yamlFile)
@@ -49,15 +40,23 @@ func analyzeRule(rule *ast.Rule, yamlFile string, params types.Parameters) {
 		}
 	}
 
-	// Run type analysis using the input schema and parameters
-	typeAnalyzer := types.AnalyzeTypes(rule, inputSchema, params)
+	// fmt.Printf("\nInput Schema %+v:\n", inputSchema)
+	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema, params)
+	typeAnalyzer.AnalyzeModule(compiledModule)
+
 	typeMap := typeAnalyzer.GetAllTypes()
 	if len(typeMap) > 0 {
-		fmt.Printf("\nInferred Types:\n")
+		fmt.Printf("\nInferred Types (all rules):\n")
 		for varName, varType := range typeMap {
-			fmt.Printf("  %s: %+v\n", varName, varType)
+			fmt.Printf("  %s: %s\n", varName, varType.PrettyPrintShort())
 		}
 	}
+}
+
+// analyzeRule performs analysis on a single Rego rule.
+func analyzeRule(rule *ast.Rule, typeAnalyzer *types.TypeAnalyzer) {
+	// Run type analysis using the shared type analyzer
+	typeAnalyzer.AnalyzeRule(rule)
 
 	// Look for string operations
 	opVisitor := analysis.NewASTValueVisitor(analysis.NewStringOperations())

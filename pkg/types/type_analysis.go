@@ -315,6 +315,25 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 	}
 }
 
+// AnalyzeModule performs iterative type analysis on all rules in a Rego module.
+//
+// Parameters:
+//
+//	mod *ast.Module: The Rego module to analyze.
+func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
+	var prevTypeMap map[string]RegoTypeDef
+	for {
+		for _, rule := range mod.Rules {
+			ta.AnalyzeRule(rule)
+		}
+		typeMap := ta.GetAllTypes()
+		if prevTypeMap != nil && TypeMapEqual(prevTypeMap, typeMap) {
+			break
+		}
+		prevTypeMap = CopyTypeMap(typeMap)
+	}
+}
+
 // GetAllTypes returns a copy of all inferred variable types.
 //
 // Returns:
