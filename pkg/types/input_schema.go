@@ -38,10 +38,8 @@ func (s *InputSchema) ProcessYAMLInput(yamlData []byte) error {
 		return fmt.Errorf("failed to unmarshal input: %w", err)
 	}
 
-	// Start from the input object
-	if inputData, ok := data["input"].(map[string]interface{}); ok {
-		s.types = s.processNode(inputData)
-	}
+	s.types = s.processNode(data)
+
 	return nil
 }
 

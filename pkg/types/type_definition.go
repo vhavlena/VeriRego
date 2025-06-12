@@ -221,7 +221,7 @@ func (t *RegoTypeDef) IsMorePrecise(other *RegoTypeDef) bool {
 //	(*RegoTypeDef, bool): The type at the given path and true if found, otherwise nil and false.
 func (t *RegoTypeDef) GetTypeFromPath(path []string) (*RegoTypeDef, bool) {
 	if len(path) == 0 {
-		return nil, false
+		return t, true
 	}
 
 	currentKey := path[0]
@@ -249,4 +249,66 @@ func (t *RegoTypeDef) GetTypeFromPath(path []string) (*RegoTypeDef, bool) {
 		return nil, false
 	}
 	return nil, false
+}
+
+// PrettyPrintShort returns a human-readable string representation of the RegoTypeDef.
+//
+// Returns:
+//
+//	string: The pretty-printed type definition.
+func (t *RegoTypeDef) PrettyPrintShort() string {
+	return t.prettyPrintWithIndentShort(0, true)
+}
+
+// PrettyPrint returns a human-readable string representation of the RegoTypeDef.
+// This is equivalent to PrettyPrintShort(false).
+//
+// Returns:
+//
+//	string: The pretty-printed type definition.
+func (t *RegoTypeDef) PrettyPrint() string {
+	return t.prettyPrintWithIndentShort(0, false)
+}
+
+// prettyPrintWithIndentShort is a helper for pretty printing with indentation and short mode.
+//
+// Parameters:
+//
+//	indent int: The indentation level.
+//	short bool: If true, object types are shown as just "object".
+//
+// Returns:
+//
+//	string: The pretty-printed type definition with indentation.
+func (t *RegoTypeDef) prettyPrintWithIndentShort(indent int, short bool) string {
+	spaces := "  "
+	ind := ""
+	for i := 0; i < indent; i++ {
+		ind += spaces
+	}
+	switch t.Kind {
+	case KindAtomic:
+		return string(t.AtomicType)
+	case KindArray:
+		if t.ArrayType == nil {
+			return "array<unknown>"
+		}
+		return "array<" + t.ArrayType.prettyPrintWithIndentShort(indent, short) + ">"
+	case KindObject:
+		if short {
+			return "object"
+		}
+		if len(t.ObjectFields) == 0 {
+			return "object{}"
+		}
+		result := "object{\n"
+		for k, v := range t.ObjectFields {
+			result += ind + spaces + k + ": " + v.prettyPrintWithIndentShort(indent+1, short) + "\n"
+		}
+		result += ind + "}"
+		return result
+	case KindUnknown:
+		return "unknown"
+	}
+	return "invalid"
 }

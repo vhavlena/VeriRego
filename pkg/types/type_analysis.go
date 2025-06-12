@@ -7,10 +7,11 @@ import (
 
 // TypeAnalyzer performs type analysis on Rego AST
 type TypeAnalyzer struct {
-	types      map[string]RegoTypeDef // Store types by string key
-	refs       map[string]ast.Value   // Map string keys back to original values
-	schema     *InputSchema
-	parameters Parameters
+	packagePath ast.Ref
+	types       map[string]RegoTypeDef // Store types by string key
+	refs        map[string]ast.Value   // Map string keys back to original values
+	schema      *InputSchema
+	parameters  Parameters
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -40,12 +41,13 @@ func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 // Returns:
 //
 //	*TypeAnalyzer: A new instance of TypeAnalyzer with parameters.
-func NewTypeAnalyzerWithParams(schema *InputSchema, params Parameters) *TypeAnalyzer {
+func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema *InputSchema, params Parameters) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		types:      make(map[string]RegoTypeDef),
-		refs:       make(map[string]ast.Value),
-		schema:     schema,
-		parameters: params,
+		packagePath: packagePath,
+		types:       make(map[string]RegoTypeDef),
+		refs:        make(map[string]ast.Value),
+		schema:      schema,
+		parameters:  params,
 	}
 }
 
@@ -257,6 +259,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	}
 
 	head := ref[0].Value.String()
+	// input prefix
 	if head == "input" {
 		// Check for input.parameters.<name>
 		if len(ref) >= 3 {
@@ -273,16 +276,24 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 			}
 		}
 		// Fallback to schema for other input references
-		path := make([]string, 0, len(ref)-1)
-		for _, term := range ref[1:] {
-			if str, ok := term.Value.(ast.String); ok {
-				path = append(path, string(str))
-			}
-		}
+		path := refToPath(ref[1:])
 		if typ, exists := ta.schema.GetType(path); exists && typ != nil {
 			return *typ
 		}
 	}
+
+	// data prefix
+	if ref.HasPrefix(ta.packagePath) && len(ref) > len(ta.packagePath) {
+		strRule := ref[len(ta.packagePath)].Value.String()
+		key := strRule[1 : len(strRule)-1]
+		if typ, exists := ta.types[key]; exists {
+			path := refToPath(ref[len(ta.packagePath)+1:])
+			if pathType, exists := typ.GetTypeFromPath(path); exists {
+				return *pathType
+			}
+		}
+	}
+
 	return NewUnknownType()
 }
 
@@ -398,7 +409,28 @@ func isEquality(name string) bool {
 //
 //	*TypeAnalyzer: The type analyzer with inferred types.
 func AnalyzeTypes(rule *ast.Rule, schema *InputSchema, params Parameters) *TypeAnalyzer {
-	analyzer := NewTypeAnalyzerWithParams(schema, params)
+	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema, params)
 	analyzer.AnalyzeRule(rule)
 	return analyzer
+}
+
+// refToPath converts a Rego AST reference to a slice of strings representing the path.
+//
+// Parameters:
+//
+//	ref ast.Ref: The reference to convert.
+//
+// Returns:
+//
+//	[]string: The path as a slice of strings.
+func refToPath(ref ast.Ref) []string {
+	path := make([]string, 0, len(ref))
+	for _, term := range ref {
+		if str, ok := term.Value.(ast.String); ok {
+			path = append(path, string(str))
+		} else {
+			path = append(path, term.String())
+		}
+	}
+	return path
 }

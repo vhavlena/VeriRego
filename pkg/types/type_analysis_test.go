@@ -118,7 +118,6 @@ func TestInputSchemaBasedInference(t *testing.T) {
 
 	// Sample YAML input
 	yamlInput := []byte(`
-input:
   review:
     object:
       kind: "Pod"
@@ -601,5 +600,93 @@ my_rule = var { var := {"a": 1, "b": 2} }`,
 				t.Errorf("Expected type %v for rule %s, got %v", tt.expected, tt.ruleName, actual)
 			}
 		})
+	}
+}
+
+func TestDataPackageRuleReferenceTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	// Define a module with a package path and a rule
+	ruleSrc := `package mypkg.subpkg
+my_rule = {"foo": 1, "bar": "baz"} { true }`
+	module, err := ast.ParseModule("test.rego", ruleSrc)
+	if err != nil {
+		t.Fatalf("Failed to parse module: %v", err)
+	}
+
+	analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+
+	// The rule head type should be an object with fields foo (int) and bar (string)
+	expected := NewObjectType(map[string]RegoTypeDef{
+		"foo": NewAtomicType(AtomicInt),
+		"bar": NewAtomicType(AtomicString),
+	})
+
+	// Build a reference: data.mypkg.subpkg.my_rule
+	ref := ast.MustParseRef("data.mypkg.subpkg.my_rule")
+	actual := analyzer.inferRefType(ref)
+
+	if !actual.IsEqual(&expected) {
+		t.Errorf("Expected type %v for data.mypkg.subpkg.my_rule, got %v", expected, actual)
+	}
+
+	// Also test fallback by just rule name (should not match, returns unknown)
+	ref2 := ast.MustParseRef("data.my_rule")
+	actual2 := analyzer.inferRefType(ref2)
+	if !actual2.IsUnknown() {
+		t.Errorf("Expected unknown type for data.my_rule, got %v", actual2)
+	}
+}
+
+func TestDataReferenceObjectInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	// Define a module with a package path and a rule returning an object
+	ruleSrc := `package mypkg
+my_obj = {"foo": 1, "bar": {"baz": "qux"}} { true }`
+	module, err := ast.ParseModule("test.rego", ruleSrc)
+	if err != nil {
+		t.Fatalf("Failed to parse module: %v", err)
+	}
+
+	analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+
+	expectedObj := NewObjectType(map[string]RegoTypeDef{
+		"foo": NewAtomicType(AtomicInt),
+		"bar": NewObjectType(map[string]RegoTypeDef{
+			"baz": NewAtomicType(AtomicString),
+		}),
+	})
+
+	// Test: data.mypkg.my_obj
+	ref := ast.MustParseRef("data.mypkg.my_obj")
+	actual := analyzer.inferRefType(ref)
+	if !actual.IsEqual(&expectedObj) {
+		t.Errorf("Expected type %v for data.mypkg.my_obj, got %v", expectedObj, actual)
+	}
+
+	// Test: data.mypkg.my_obj.bar
+	refBar := ast.MustParseRef("data.mypkg.my_obj.bar")
+	actualBar := analyzer.inferRefType(refBar)
+	expectedBar := NewObjectType(map[string]RegoTypeDef{
+		"baz": NewAtomicType(AtomicString),
+	})
+	if !actualBar.IsEqual(&expectedBar) {
+		t.Errorf("Expected type %v for data.mypkg.my_obj.bar, got %v", expectedBar, actualBar)
+	}
+
+	// Test: data.mypkg.my_obj.bar.baz
+	refBaz := ast.MustParseRef("data.mypkg.my_obj.bar.baz")
+	actualBaz := analyzer.inferRefType(refBaz)
+	expectedBaz := NewAtomicType(AtomicString)
+	if !actualBaz.IsEqual(&expectedBaz) {
+		t.Errorf("Expected type %v for data.mypkg.my_obj.bar.baz, got %v", expectedBaz, actualBaz)
+	}
+
+	// Test: data.mypkg.my_obj.unknown (should be unknown)
+	refUnknown := ast.MustParseRef("data.mypkg.my_obj.unknown")
+	actualUnknown := analyzer.inferRefType(refUnknown)
+	if !actualUnknown.IsUnknown() {
+		t.Errorf("Expected unknown type for data.mypkg.my_obj.unknown, got %v", actualUnknown)
 	}
 }

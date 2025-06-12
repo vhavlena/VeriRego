@@ -172,7 +172,8 @@ func TestGetTypeFromPath(t *testing.T) {
 		{
 			name:          "empty path",
 			path:          []string{},
-			shouldSucceed: false,
+			shouldSucceed: true,
+			expectedKind:  KindObject,
 		},
 		{
 			name:          "top level object field",
