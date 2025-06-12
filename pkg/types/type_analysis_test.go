@@ -118,8 +118,6 @@ func TestInputSchemaBasedInference(t *testing.T) {
 
 	// Sample YAML input
 	yamlInput := []byte(`
-  review:
-    object:
       kind: "Pod"
       metadata:
         name: "test-pod"

@@ -51,18 +51,6 @@ func analyzeModule(mod *ast.Module, yamlFile string, params types.Parameters) {
 	}
 }
 
-// // analyzeRule performs analysis on a single Rego rule.
-// func analyzeRule(rule *ast.Rule, typeAnalyzer *types.TypeAnalyzer) {
-// 	// Run type analysis using the shared type analyzer
-// 	typeAnalyzer.AnalyzeRule(rule)
-
-// 	// Look for string operations
-// 	opVisitor := analysis.NewASTValueVisitor(analysis.NewStringOperations())
-// 	for _, expr := range rule.Body {
-// 		opVisitor.VisitExpr(expr)
-// 	}
-// }
-
 // parseRegoFile parses a Rego file and returns the AST Module.
 func parseRegoFile(file string) (*ast.Module, error) {
 	fileBytes, err := os.ReadFile(file)

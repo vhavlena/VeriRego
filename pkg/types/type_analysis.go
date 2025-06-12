@@ -276,9 +276,11 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 			}
 		}
 		// Fallback to schema for other input references
-		path := refToPath(ref[1:])
-		if typ, exists := ta.schema.GetType(path); exists && typ != nil {
-			return *typ
+		if len(ref) > 3 {
+			path := refToPath(ref[3:])
+			if typ, exists := ta.schema.GetType(path); exists && typ != nil {
+				return *typ
+			}
 		}
 	}
 
