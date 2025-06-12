@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/open-policy-agent/opa/ast"
-	"github.com/vhavlena/verirego/pkg/analysis"
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
@@ -40,7 +39,6 @@ func analyzeModule(mod *ast.Module, yamlFile string, params types.Parameters) {
 		}
 	}
 
-	// fmt.Printf("\nInput Schema %+v:\n", inputSchema)
 	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema, params)
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
@@ -53,17 +51,17 @@ func analyzeModule(mod *ast.Module, yamlFile string, params types.Parameters) {
 	}
 }
 
-// analyzeRule performs analysis on a single Rego rule.
-func analyzeRule(rule *ast.Rule, typeAnalyzer *types.TypeAnalyzer) {
-	// Run type analysis using the shared type analyzer
-	typeAnalyzer.AnalyzeRule(rule)
+// // analyzeRule performs analysis on a single Rego rule.
+// func analyzeRule(rule *ast.Rule, typeAnalyzer *types.TypeAnalyzer) {
+// 	// Run type analysis using the shared type analyzer
+// 	typeAnalyzer.AnalyzeRule(rule)
 
-	// Look for string operations
-	opVisitor := analysis.NewASTValueVisitor(analysis.NewStringOperations())
-	for _, expr := range rule.Body {
-		opVisitor.VisitExpr(expr)
-	}
-}
+// 	// Look for string operations
+// 	opVisitor := analysis.NewASTValueVisitor(analysis.NewStringOperations())
+// 	for _, expr := range rule.Body {
+// 		opVisitor.VisitExpr(expr)
+// 	}
+// }
 
 // parseRegoFile parses a Rego file and returns the AST Module.
 func parseRegoFile(file string) (*ast.Module, error) {
