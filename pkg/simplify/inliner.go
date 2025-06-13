@@ -10,11 +10,19 @@ type Inliner struct {
 }
 
 // NewInliner creates a new Inliner with an empty inlinePreds map.
+//
+// Returns:
+//
+// *Inliner: A new Inliner instance.
 func NewInliner() *Inliner {
 	return &Inliner{inlinePreds: make(map[string]*ast.Rule)}
 }
 
 // GatherInlinePredicates sets the inlinePreds map to rules that assign true and have only one expression in the body.
+//
+// Parameters:
+//
+// module (*ast.Module): The AST module to scan for inlinable predicates.
 func (inl *Inliner) GatherInlinePredicates(module *ast.Module) {
 	inl.inlinePreds = map[string]*ast.Rule{}
 	for _, rule := range module.Rules {
@@ -25,14 +33,23 @@ func (inl *Inliner) GatherInlinePredicates(module *ast.Module) {
 	}
 }
 
-// inlineExpr replaces function calls in an expression with the inlined body.
-func inlineExpr(expr *ast.Expr, funcDefs map[string]*ast.Rule) []*ast.Expr {
+// inlinePredicates replaces function calls in an expression with the inlined body.
+//
+// Parameters:
+//
+// expr (*ast.Expr): The expression to process.
+// funcDefs (map[string]*ast.Rule): Map of function names to their rule definitions.
+//
+// Returns:
+//
+// []*ast.Expr: Slice of expressions with inlined function calls.
+func inlinePredicates(expr *ast.Expr, funcDefs map[string]*ast.Rule) []*ast.Expr {
 	call, ok := expr.Terms.([]*ast.Term)
 	if !ok || len(call) == 0 {
 		return []*ast.Expr{expr}
 	}
 	// Check if the first term is a function name
-	funcName, ok := call[0].Value.(ast.Var)
+	funcName, ok := call[0].Value.(ast.Ref)
 	if !ok {
 		return []*ast.Expr{expr}
 	}
@@ -58,6 +75,15 @@ func inlineExpr(expr *ast.Expr, funcDefs map[string]*ast.Rule) []*ast.Expr {
 }
 
 // substituteVars replaces variables in an expression according to argMap.
+//
+// Parameters:
+//
+// expr (*ast.Expr): The expression in which to substitute variables.
+// argMap (map[string]*ast.Term): Map of variable names to argument terms.
+//
+// Returns:
+//
+// *ast.Expr: The expression with variables substituted.
 func substituteVars(expr *ast.Expr, argMap map[string]*ast.Term) *ast.Expr {
 	newExpr := *expr
 	newExpr.Terms = substituteTerms(expr.Terms, argMap)
@@ -65,6 +91,15 @@ func substituteVars(expr *ast.Expr, argMap map[string]*ast.Term) *ast.Expr {
 }
 
 // substituteTerms recursively substitutes variables in terms or slices of terms.
+//
+// Parameters:
+//
+// terms (interface{}): The terms or slice of terms to process.
+// argMap (map[string]*ast.Term): Map of variable names to argument terms.
+//
+// Returns:
+//
+// interface{}: The terms with variables substituted.
 func substituteTerms(terms interface{}, argMap map[string]*ast.Term) interface{} {
 	switch t := terms.(type) {
 	case *ast.Term:
@@ -99,4 +134,22 @@ func substituteTerms(terms interface{}, argMap map[string]*ast.Term) interface{}
 	default:
 		return terms
 	}
+}
+
+// InlineRuleBody replaces inlinable function calls in the rule's body with their inlined bodies.
+//
+// Parameters:
+//
+// rule (*ast.Rule): The rule whose body should be processed for inlining.
+//
+// Returns:
+//
+// []*ast.Expr: The new rule body with inlined expressions.
+func (inl *Inliner) InlineRuleBody(rule *ast.Rule) []*ast.Expr {
+	var newBody []*ast.Expr
+	for _, expr := range rule.Body {
+		inlined := inlinePredicates(expr, inl.inlinePreds)
+		newBody = append(newBody, inlined...)
+	}
+	return newBody
 }

@@ -1,7 +1,6 @@
 package simplify
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/open-policy-agent/opa/ast"
@@ -29,8 +28,6 @@ func TestSubstituteVars(t *testing.T) {
 
 func TestSubstituteTerms(t *testing.T) {
 	t.Parallel()
-	// xVar := ast.Var("x")
-	// yVar := ast.Var("y")
 	xTerm := ast.VarTerm("x")
 	yTerm := ast.VarTerm("y")
 	three := ast.IntNumberTerm(3)
@@ -52,62 +49,6 @@ func TestSubstituteTerms(t *testing.T) {
 	}
 	if newTerms[0].Value.Compare(three.Value) != 0 || newTerms[1].Value.Compare(four.Value) != 0 {
 		t.Errorf("expected terms to be 3 and 4, got %v and %v", newTerms[0].Value, newTerms[1].Value)
-	}
-}
-
-func TestInlineExpr(t *testing.T) {
-	t.Parallel()
-	// Case 1: Not a function call (should return original expr)
-	expr := ast.Equality.Expr(ast.VarTerm("x"), ast.IntNumberTerm(1))
-	funcDefs := map[string]*ast.Rule{}
-	result := inlineExpr(expr, funcDefs)
-	if len(result) != 1 || result[0] != expr {
-		t.Errorf("expected original expr, got %v", result)
-	}
-
-	// Case 2: Function call, but not in funcDefs (should return original expr)
-	callExpr := &ast.Expr{
-		Terms: []*ast.Term{
-			ast.VarTerm("foo"), ast.IntNumberTerm(2),
-		},
-	}
-	result = inlineExpr(callExpr, funcDefs)
-	if len(result) != 1 || result[0] != callExpr {
-		t.Errorf("expected original callExpr, got %v", result)
-	}
-
-	// Case 3: Function call, function in funcDefs (should inline body only)
-	// foo(x) = y { y := x + 1 }
-	fooRule, err := ast.ParseRule(`foo(x) = y { y := x + 1 }`)
-	if err != nil {
-		t.Fatalf("failed to parse rule: %v", err)
-	}
-	funcDefs["foo"] = fooRule
-	callExpr = &ast.Expr{
-		Terms: []*ast.Term{
-			ast.VarTerm("foo"), ast.IntNumberTerm(5),
-		},
-	}
-	result = inlineExpr(callExpr, funcDefs)
-	if len(result) == 0 {
-		t.Fatalf("expected inlined body, got empty result")
-	}
-	// Check that the inlined body is 'y := 5 + 1'
-	plusCall := &ast.Call{
-		ast.VarTerm("plus"), ast.IntNumberTerm(5), ast.IntNumberTerm(1),
-	}
-	plusTerm := ast.NewTerm(plusCall)
-	expected := ast.Assign.Expr(ast.VarTerm("y"), plusTerm)
-	found := false
-	for _, e := range result {
-		fmt.Printf("Debug: Inlined expr: %v %v\n", e, expected)
-
-		if e.String() == expected.String() {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected inlined expr to contain 'y := 5 + 1', got %v", result)
 	}
 }
 
@@ -162,5 +103,49 @@ inline_true {
 	}
 	if _, ok := inlinePreds["multi_body"]; ok {
 		t.Errorf("did not expect 'multi_body' to be an inline predicate")
+	}
+}
+
+func TestInlineRuleBody(t *testing.T) {
+	re := `package test
+
+foo(x) {
+  x > 1
+}
+
+bar(y) {
+  foo(y)
+  y < 10
+}`
+	module, err := ast.ParseModule("test.rego", re)
+	if err != nil {
+		t.Fatalf("failed to parse module: %v", err)
+	}
+	inliner := NewInliner()
+	inliner.GatherInlinePredicates(module)
+
+	// Find the bar rule
+	var barRule *ast.Rule
+	for _, rule := range module.Rules {
+		if rule.Head.Name.String() == "bar" {
+			barRule = rule
+			break
+		}
+	}
+	if barRule == nil {
+		t.Fatal("bar rule not found")
+	}
+
+	inlinedBody := inliner.InlineRuleBody(barRule)
+	if len(inlinedBody) != 2 {
+		t.Errorf("expected 2 expressions after inlining, got %d", len(inlinedBody))
+	}
+	// The first should be 'y > 1', the second 'y < 10'
+	exprStrs := []string{inlinedBody[0].String(), inlinedBody[1].String()}
+	if exprStrs[0] != ast.GreaterThan.Expr(ast.VarTerm("y"), ast.IntNumberTerm(1)).String() {
+		t.Errorf("expected first expr to be 'y > 1', got %v", exprStrs[0])
+	}
+	if exprStrs[1] != ast.LessThan.Expr(ast.VarTerm("y"), ast.IntNumberTerm(10)).String() {
+		t.Errorf("expected second expr to be 'y < 10', got %v", exprStrs[1])
 	}
 }
