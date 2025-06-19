@@ -7,6 +7,7 @@ import (
 
 type Inliner struct {
 	inlinePreds map[string]*ast.Rule
+	packagePath ast.Ref
 }
 
 // NewInliner creates a new Inliner with an empty inlinePreds map.
@@ -15,7 +16,7 @@ type Inliner struct {
 //
 // *Inliner: A new Inliner instance.
 func NewInliner() *Inliner {
-	return &Inliner{inlinePreds: make(map[string]*ast.Rule)}
+	return &Inliner{inlinePreds: make(map[string]*ast.Rule), packagePath: ast.Ref{}}
 }
 
 // GatherInlinePredicates sets the inlinePreds map to rules that assign true and have only one expression in the body.
@@ -26,6 +27,9 @@ func NewInliner() *Inliner {
 func (inl *Inliner) GatherInlinePredicates(module *ast.Module) {
 	inl.inlinePreds = map[string]*ast.Rule{}
 	for _, rule := range module.Rules {
+		if rule.Head.Value == nil {
+			continue
+		}
 		boolVal, ok := rule.Head.Value.Value.(ast.Boolean)
 		if ok && boolVal == ast.Boolean(true) && len(rule.Body) == 1 {
 			inl.inlinePreds[rule.Head.Name.String()] = rule
@@ -43,17 +47,24 @@ func (inl *Inliner) GatherInlinePredicates(module *ast.Module) {
 // Returns:
 //
 // []*ast.Expr: Slice of expressions with inlined function calls.
-func inlinePredicates(expr *ast.Expr, funcDefs map[string]*ast.Rule) []*ast.Expr {
+func (inl *Inliner) inlinePredicates(expr *ast.Expr, funcDefs map[string]*ast.Rule) []*ast.Expr {
 	call, ok := expr.Terms.([]*ast.Term)
 	if !ok || len(call) == 0 {
 		return []*ast.Expr{expr}
 	}
 	// Check if the first term is a function name
-	funcName, ok := call[0].Value.(ast.Ref)
+	funcRef, ok := call[0].Value.(ast.Ref)
 	if !ok {
 		return []*ast.Expr{expr}
 	}
-	def, ok := funcDefs[funcName.String()]
+
+	funcName := funcRef.String()
+	if funcRef.HasPrefix(inl.packagePath) && len(inl.packagePath) > 0 {
+		funcName = funcRef[len(funcRef)-1].String()
+		funcName = funcName[1 : len(funcName)-1]
+	}
+
+	def, ok := funcDefs[funcName]
 	if !ok {
 		return []*ast.Expr{expr}
 	}
@@ -148,8 +159,45 @@ func substituteTerms(terms interface{}, argMap map[string]*ast.Term) interface{}
 func (inl *Inliner) InlineRuleBody(rule *ast.Rule) []*ast.Expr {
 	var newBody []*ast.Expr
 	for _, expr := range rule.Body {
-		inlined := inlinePredicates(expr, inl.inlinePreds)
+		inlined := inl.inlinePredicates(expr, inl.inlinePreds)
 		newBody = append(newBody, inlined...)
 	}
 	return newBody
+}
+
+// InlineRule returns a new rule with its body inlined using the inliner's predicates.
+//
+// Parameters:
+//
+// rule (*ast.Rule): The rule to inline.
+//
+// Returns:
+//
+// *ast.Rule: The new rule with inlined body.
+func (inl *Inliner) InlineRule(rule *ast.Rule) *ast.Rule {
+	newRule := *rule
+	newRule.Body = inl.InlineRuleBody(rule)
+	return &newRule
+}
+
+// InlineModule returns a new module with all rules inlined using the inliner's predicates.
+//
+// Parameters:
+//
+// module (*ast.Module): The module to inline.
+//
+// Returns:
+//
+// *ast.Module: The new module with inlined rules.
+func (inl *Inliner) InlineModule(module *ast.Module) *ast.Module {
+	if module.Package != nil && module.Package.Path != nil {
+		inl.packagePath = module.Package.Path
+	}
+	newModule := *module
+	newRules := make([]*ast.Rule, len(module.Rules))
+	for i, rule := range module.Rules {
+		newRules[i] = inl.InlineRule(rule)
+	}
+	newModule.Rules = newRules
+	return &newModule
 }
