@@ -9,11 +9,12 @@ The repository includes a type inference binary, `type_analysis`, which analyzes
 ### Usage
 
 ```
-./build/type_analysis -rego <policy.rego> [-yaml <input.yaml>] [-spec <spec.yaml>]
+./build/type_analysis -rego <policy.rego> [-yaml <input.yaml>] [-spec <spec.yaml>] [-inline]
 ```
 
 - `-rego` (required): Path to the Rego policy file to analyze.
 - `-yaml` (optional): Path to a YAML file providing input data for schema inference.
 - `-spec` (optional): Path to a parameter specification file.
+- `-inline` (optional): If specified, enables inlining of rules and variables during type analysis. This can improve precision by replacing references with their definitions where possible.
 
 The tool will output the inferred types for all rules in the provided policy.
