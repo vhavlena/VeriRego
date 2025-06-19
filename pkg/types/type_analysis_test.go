@@ -688,3 +688,82 @@ my_obj = {"foo": 1, "bar": {"baz": "qux"}} { true }`
 		t.Errorf("Expected unknown type for data.mypkg.my_obj.unknown, got %v", actualUnknown)
 	}
 }
+
+func TestIndexingTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "array indexing",
+			rule: `package test
+test { arr := [1,2,3]; x := arr[_] }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicInt),
+		},
+		{
+			name: "array of strings indexing",
+			rule: `package test
+test { arr := ["a", "b"]; x := arr[_] }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "object with mixed value types indexing",
+			rule: `package test
+test { obj := {"foo": 1, "bar": "baz"}; x := obj[_] }`,
+			varName:  "x",
+			expected: NewUnknownType(), // Mixed types, should be unknown
+		},
+		{
+			name: "nested array indexing",
+			rule: `package test
+test { arr := [[1,2],[3,4]]; x := arr[_] }`,
+			varName:  "x",
+			expected: NewArrayType(NewAtomicType(AtomicInt)),
+		},
+		{
+			name: "indexing input array",
+			rule: `package test
+test { x := input.review.object.spec.containers[_] }`,
+			varName: "x",
+			expected: NewObjectType(map[string]RegoTypeDef{
+				"name":  NewAtomicType(AtomicString),
+				"image": NewAtomicType(AtomicString),
+			}),
+		},
+	}
+
+	// Prepare input schema for the input array test
+	yamlInput := []byte(`
+      kind: "Pod"
+      metadata:
+        name: "test-pod"
+      spec:
+        containers:
+          - name: "container1"
+            image: "nginx"
+`)
+	schema.ProcessYAMLInput(yamlInput)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
+			}
+		})
+	}
+}

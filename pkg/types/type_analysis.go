@@ -296,6 +296,15 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 		}
 	}
 
+	// handle references to variables (arrays)
+	refHead := ref[0].Value.String()
+	if typ, exists := ta.types[refHead]; exists {
+		path := refToPath(ref[1:])
+		if pathType, exists := typ.GetTypeFromPath(path); exists {
+			return *pathType
+		}
+	}
+
 	return NewUnknownType()
 }
 
