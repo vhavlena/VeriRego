@@ -149,3 +149,51 @@ bar(y) {
 		t.Errorf("expected second expr to be 'y < 10', got %v", exprStrs[1])
 	}
 }
+
+func TestInlineRuleBodyMultipar(t *testing.T) {
+	re := `package test
+
+foo(x,z) {
+  z[_] = x
+}
+
+bar(y) {
+  foo(y,{"Node"})
+  y < 10
+}`
+	module, err := ast.ParseModule("test.rego", re)
+	if err != nil {
+		t.Fatalf("failed to parse module: %v", err)
+	}
+	inliner := NewInliner()
+	inliner.GatherInlinePredicates(module)
+
+	// Find the bar rule
+	var barRule *ast.Rule
+	for _, rule := range module.Rules {
+		if rule.Head.Name.String() == "bar" {
+			barRule = rule
+			break
+		}
+	}
+	if barRule == nil {
+		t.Fatal("bar rule not found")
+	}
+
+	inlinedBody := inliner.InlineRuleBody(barRule)
+	if len(inlinedBody) != 2 {
+		t.Errorf("expected 2 expressions after inlining, got %d", len(inlinedBody))
+	}
+	// The first should be '{"Node"}[_] = y', the second 'y < 10'
+	exprStrs := []string{inlinedBody[0].String(), inlinedBody[1].String()}
+	expectedFirst := ast.Equality.Expr(
+		ast.RefTerm(ast.NewTerm(ast.NewSet(ast.StringTerm("Node"))), ast.Wildcard),
+		ast.VarTerm("y"),
+	).String()
+	if exprStrs[0] != expectedFirst {
+		t.Errorf("expected first expr to be '{\"Node\"}[_] = y', got %v", exprStrs[0])
+	}
+	if exprStrs[1] != ast.LessThan.Expr(ast.VarTerm("y"), ast.IntNumberTerm(10)).String() {
+		t.Errorf("expected second expr to be 'y < 10', got %v", exprStrs[1])
+	}
+}

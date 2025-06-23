@@ -131,6 +131,14 @@ func substituteTerms(terms interface{}, argMap map[string]*ast.Term) interface{}
 			}
 			return ast.NewTerm(newCall)
 		}
+		if ref, ok := t.Value.(ast.Ref); ok {
+			for i := range ref {
+				if newTerm, ok := substituteTerms(ref[i], argMap).(*ast.Term); ok {
+					ref[i] = newTerm
+				}
+			}
+			return ref
+		}
 		return t
 	case []*ast.Term:
 		newTerms := make([]*ast.Term, len(t))
