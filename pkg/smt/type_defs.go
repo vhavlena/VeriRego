@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-policy-agent/opa/ast"
+
 	"github.com/vhavlena/verirego/pkg/err"
 	"github.com/vhavlena/verirego/pkg/types"
 )
@@ -19,6 +21,52 @@ func RandString(n int) string {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 	return string(b)
+}
+
+// GenerateTypeDefs generates SMT-LIB datatype and sort declarations, variable declarations, and constraints for all variables.
+//
+// It determines the maximum type depth, generates the necessary SMT-LIB type and sort definitions,
+// declares each variable, and asserts the SMT constraints for each variable according to its type.
+// The generated lines are appended to the Translator's smtLines field.
+//
+// Returns:
+//
+//	error: An error if any variable declaration or constraint generation fails.
+func (t *Translator) GenerateTypeDefs() error {
+	datatypes := t.getDatatypesDeclaration()
+	t.smtLines = append(t.smtLines, datatypes...)
+
+	maxDepth := 0
+	vars := make([]string, 0, len(t.TypeInfo.Types))
+	for name, tp := range t.TypeInfo.Types {
+		_, ok := t.TypeInfo.Refs[name].(ast.Var)
+		if ok {
+			vars = append(vars, name)
+			maxDepth = max(maxDepth, tp.TypeDepth())
+		}
+	}
+	sortDefs := t.getSortDefinitions(maxDepth)
+	t.smtLines = append(t.smtLines, sortDefs...)
+
+	for _, name := range vars {
+		tp := t.TypeInfo.Types[name]
+		smtVar, er := getVarDeclaration(name, &tp)
+		if er != nil {
+			return er
+		}
+		t.smtLines = append(t.smtLines, smtVar)
+	}
+
+	for _, name := range vars {
+		tp := t.TypeInfo.Types[name]
+		smtConstr, er := t.getSmtConstrAssert(name, &tp)
+		if er != nil {
+			return er
+		}
+		t.smtLines = append(t.smtLines, smtConstr)
+	}
+
+	return nil
 }
 
 // getTypeConstr returns the SMT type constraint function name for a given Rego type.
@@ -57,9 +105,9 @@ func (t *Translator) getDatatypesDeclaration() []string {
 	ogentype := `
 (declare-datatypes (T)
 	((OGenType
-    	(Atom (atom OAtom))
-    	(OObj (obj (Array String T)))
-    	(OArray (arr (Array Int T)))
+		(Atom (atom OAtom))
+		(OObj (obj (Array String T)))
+		(OArray (arr (Array Int T)))
 	))
 )`
 	gettypeatom := `
@@ -67,6 +115,21 @@ func (t *Translator) getDatatypesDeclaration() []string {
   ((OGenTypeAtom (Atom (atom OAtom)) ))
 )`
 	return []string{oatom, ogentype, gettypeatom}
+}
+
+// getVarDeclaration returns the SMT-LIB variable declaration for a given variable name and type.
+//
+// Parameters:
+//
+//	name string: The variable name.
+//	tp *types.RegoTypeDef: The Rego type definition for the variable.
+//
+// Returns:
+//
+//	string: The SMT-LIB variable declaration string.
+//	error: An error if the declaration could not be generated.
+func getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
+	return fmt.Sprintf("(define-fun %s () OTypeD%d)", name, tp.TypeDepth()), nil
 }
 
 // getSortDefinitions returns SMT-LIB sort definitions up to the given maximum depth.

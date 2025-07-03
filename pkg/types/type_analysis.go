@@ -8,8 +8,8 @@ import (
 // TypeAnalyzer performs type analysis on Rego AST
 type TypeAnalyzer struct {
 	packagePath ast.Ref
-	types       map[string]RegoTypeDef // Store types by string key
-	refs        map[string]ast.Value   // Map string keys back to original values
+	Types       map[string]RegoTypeDef // Store types by string key
+	Refs        map[string]ast.Value   // Map string keys back to original values
 	schema      *InputSchema
 	parameters  Parameters
 }
@@ -25,8 +25,8 @@ type TypeAnalyzer struct {
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		types:  make(map[string]RegoTypeDef),
-		refs:   make(map[string]ast.Value),
+		Types:  make(map[string]RegoTypeDef),
+		Refs:   make(map[string]ast.Value),
 		schema: schema,
 	}
 }
@@ -44,8 +44,8 @@ func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema *InputSchema, params Parameters) *TypeAnalyzer {
 	return &TypeAnalyzer{
 		packagePath: packagePath,
-		types:       make(map[string]RegoTypeDef),
-		refs:        make(map[string]ast.Value),
+		Types:       make(map[string]RegoTypeDef),
+		Refs:        make(map[string]ast.Value),
 		schema:      schema,
 		parameters:  params,
 	}
@@ -82,7 +82,7 @@ func (ta *TypeAnalyzer) getValueKey(val ast.Value) string {
 //	RegoTypeDef: The inferred or cached type for the value.
 func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 	key := ta.getValueKey(val)
-	if typ, exists := ta.types[key]; exists {
+	if typ, exists := ta.Types[key]; exists {
 		return typ
 	}
 	return ta.inferAstType(val)
@@ -96,14 +96,14 @@ func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 //	typ RegoTypeDef: The type to assign to the value.
 func (ta *TypeAnalyzer) setType(val ast.Value, typ RegoTypeDef) {
 	key := ta.getValueKey(val)
-	if existingType, exists := ta.types[key]; exists {
+	if existingType, exists := ta.Types[key]; exists {
 		// Only update if new type is more precise
 		if !typ.IsMorePrecise(&existingType) {
 			return
 		}
 	}
-	ta.types[key] = typ
-	ta.refs[key] = val
+	ta.Types[key] = typ
+	ta.Refs[key] = val
 }
 
 // InferTermType infers the type of an AST term by analyzing its value.
@@ -199,7 +199,7 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value) RegoTypeDef {
 
 	// Use GetType to check for existing type (caching)
 	key := ta.getValueKey(val)
-	if typ, exists := ta.types[key]; exists {
+	if typ, exists := ta.Types[key]; exists {
 		return typ
 	}
 
@@ -231,7 +231,7 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value) RegoTypeDef {
 	case ast.Ref:
 		typ = ta.inferRefType(v)
 	case ast.Var:
-		if t, exists := ta.types[ta.getValueKey(v)]; exists {
+		if t, exists := ta.Types[ta.getValueKey(v)]; exists {
 			typ = t
 		} else {
 			typ = NewUnknownType()
@@ -288,7 +288,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	if ref.HasPrefix(ta.packagePath) && len(ref) > len(ta.packagePath) {
 		strRule := ref[len(ta.packagePath)].Value.String()
 		key := strRule[1 : len(strRule)-1]
-		if typ, exists := ta.types[key]; exists {
+		if typ, exists := ta.Types[key]; exists {
 			path := refToPath(ref[len(ta.packagePath)+1:])
 			if pathType, exists := typ.GetTypeFromPath(path); exists {
 				return *pathType
@@ -298,7 +298,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 
 	// handle references to variables (arrays)
 	refHead := ref[0].Value.String()
-	if typ, exists := ta.types[refHead]; exists {
+	if typ, exists := ta.Types[refHead]; exists {
 		path := refToPath(ref[1:])
 		if pathType, exists := typ.GetTypeFromPath(path); exists {
 			return *pathType
@@ -351,8 +351,8 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 //
 //	map[string]RegoTypeDef: A map of variable names to their inferred types.
 func (ta *TypeAnalyzer) GetAllTypes() map[string]RegoTypeDef {
-	result := make(map[string]RegoTypeDef, len(ta.types))
-	for k, v := range ta.types {
+	result := make(map[string]RegoTypeDef, len(ta.Types))
+	for k, v := range ta.Types {
 		result[k] = v
 	}
 	return result
