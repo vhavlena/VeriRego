@@ -2,11 +2,24 @@ package smt
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/vhavlena/verirego/pkg/err"
 	"github.com/vhavlena/verirego/pkg/types"
 )
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func RandString(n int) string {
+	rand.Seed(time.Now().UnixNano())
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
+}
 
 // getTypeConstr returns the SMT type constraint function name for a given Rego type.
 //
@@ -89,9 +102,9 @@ func (t *Translator) getSortDefinitions(maxDepth int) []string {
 //	string: The SMT-LIB assertion string.
 //	error: An error if constraints could not be generated.
 func (t *Translator) getSmtConstrAssert(smtValue string, tp *types.RegoTypeDef) (string, error) {
-	andArr, err2 := t.getSmtConstr(smtValue, tp)
-	if err2 != nil {
-		return "", err.ErrSmtConstraints(err2)
+	andArr, er := t.getSmtConstr(smtValue, tp)
+	if er != nil {
+		return "", err.ErrSmtConstraints(er)
 	}
 	assert := strings.Join(andArr, " ")
 	return fmt.Sprintf("(assert (and %s))", assert), nil
@@ -113,6 +126,8 @@ func (t *Translator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) ([]str
 		return t.getSmtAtomConstr(smtValue, tp)
 	} else if tp.IsObject() {
 		return t.getSmtObjectConstr(smtValue, tp)
+	} else if tp.IsArray() {
+		return t.getSmtArrConstr(smtValue, tp)
 	}
 	return nil, err.ErrUnsupportedType
 }
@@ -140,9 +155,9 @@ func (t *Translator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) 
 			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(&val), sel))
 		}
 
-		valAnalysis, err2 := t.getSmtConstr(sel, &val)
-		if err2 != nil {
-			return nil, err.ErrSmtFieldConstraints(key, err2)
+		valAnalysis, er := t.getSmtConstr(sel, &val)
+		if er != nil {
+			return nil, err.ErrSmtFieldConstraints(key, er)
 		}
 		andConstr = append(andConstr, valAnalysis...)
 	}
@@ -175,4 +190,34 @@ func (t *Translator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) ([
 	default:
 		return nil, err.ErrUnsupportedAtomic
 	}
+}
+
+// getSmtArrConstr generates SMT-LIB constraints for an array value and type.
+//
+// Parameters:
+//
+//	smtValue string: The SMT variable or value name.
+//	tp *types.RegoTypeDef: The Rego array type definition.
+//
+// Returns:
+//
+//	[]string: A slice of SMT-LIB constraint strings for the array and its elements.
+//	error: An error if constraints could not be generated.
+func (t *Translator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+	if !tp.IsArray() {
+		return nil, err.ErrUnsupportedType
+	}
+	andConstr := make([]string, 0, 64)
+	andConstr = append(andConstr, fmt.Sprintf("(is-OArray %s)", smtValue))
+
+	valAnalysis, er := t.getSmtConstr("elem", tp.ArrayType)
+	if er != nil {
+		return nil, er
+	}
+	ands := fmt.Sprintf("(and %s)", strings.Join(valAnalysis, " "))
+	qvar := RandString(5)
+	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr %s) %s))) %s))", qvar, smtValue, qvar, ands)
+	andConstr = append(andConstr, forall)
+
+	return andConstr, nil
 }

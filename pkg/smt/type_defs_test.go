@@ -220,3 +220,59 @@ func TestTranslator_getSmtConstrAssert_NestedObject(t *testing.T) {
 		t.Errorf("assertion does not have expected SMT-LIB format: %s", assertStr)
 	}
 }
+
+func TestTranslator_getSmtArrConstr(t *testing.T) {
+	t.Parallel()
+	tr := &Translator{}
+
+	// Test simple array of atomic strings
+	arrType := &types.RegoTypeDef{
+		Kind: types.KindArray,
+		ArrayType: &types.RegoTypeDef{
+			Kind:       types.KindAtomic,
+			AtomicType: types.AtomicString,
+		},
+	}
+	constr, err := tr.getSmtArrConstr("a", arrType)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(constr) != 2 {
+		t.Errorf("expected 2 constraints, got %d", len(constr))
+	}
+	if constr[0] != "(is-OArray a)" {
+		t.Errorf("missing or incorrect OArray constraint: %v", constr[0])
+	}
+	if !strings.Contains(constr[1], "(is-OString (atom elem))") {
+		t.Errorf("missing or incorrect atomic string constraint in forall: %v", constr[1])
+	}
+
+	// Test nested array: array of array of ints
+	nestedArrType := &types.RegoTypeDef{
+		Kind: types.KindArray,
+		ArrayType: &types.RegoTypeDef{
+			Kind: types.KindArray,
+			ArrayType: &types.RegoTypeDef{
+				Kind:       types.KindAtomic,
+				AtomicType: types.AtomicInt,
+			},
+		},
+	}
+	nestedConstr, err := tr.getSmtArrConstr("b", nestedArrType)
+
+	if err != nil {
+		t.Fatalf("unexpected error for nested array: %v", err)
+	}
+	if len(nestedConstr) != 2 {
+		t.Errorf("expected 2 constraints for nested array, got %d", len(nestedConstr))
+	}
+	if nestedConstr[0] != "(is-OArray b)" {
+		t.Errorf("missing or incorrect OArray constraint for nested array: %v", nestedConstr[0])
+	}
+	if !strings.Contains(nestedConstr[1], "(is-OArray elem)") {
+		t.Errorf("missing or incorrect nested OArray constraint in forall: %v", nestedConstr[1])
+	}
+	if !strings.Contains(nestedConstr[1], "(is-ONumber (atom elem)") {
+		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedConstr[1])
+	}
+}
