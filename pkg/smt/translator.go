@@ -10,3 +10,17 @@ type Translator struct {
 	VarMap   map[string]string   // Mapping of Rego term keys to SMT variable names
 	smtLines []string            // Collected SMT lines
 }
+
+// NewTranslator creates a new Translator instance with the given TypeAnalyzer.
+func NewTranslator(typeInfo *types.TypeAnalyzer) *Translator {
+	return &Translator{
+		TypeInfo: typeInfo,
+		VarMap:   make(map[string]string),
+		smtLines: make([]string, 0, 128),
+	}
+}
+
+// SmtLines returns the generated SMT-LIB lines.
+func (t *Translator) SmtLines() []string {
+	return t.smtLines
+}
