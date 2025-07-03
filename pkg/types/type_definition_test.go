@@ -522,17 +522,17 @@ func TestTypeDepth(t *testing.T) {
 		{
 			name:     "atomic type",
 			typeDef:  NewAtomicType(AtomicString),
-			expected: 1,
+			expected: 0,
 		},
 		{
 			name:     "unknown type",
 			typeDef:  NewUnknownType(),
-			expected: 1,
+			expected: 0,
 		},
 		{
 			name:     "array of atomic",
 			typeDef:  NewArrayType(NewAtomicType(AtomicInt)),
-			expected: 2,
+			expected: 1,
 		},
 		{
 			name: "object with atomic fields",
@@ -540,12 +540,12 @@ func TestTypeDepth(t *testing.T) {
 				"a": NewAtomicType(AtomicString),
 				"b": NewAtomicType(AtomicInt),
 			}),
-			expected: 2,
+			expected: 1,
 		},
 		{
 			name:     "nested array",
 			typeDef:  NewArrayType(NewArrayType(NewAtomicType(AtomicBoolean))),
-			expected: 3,
+			expected: 2,
 		},
 		{
 			name: "nested object",
@@ -554,14 +554,14 @@ func TestTypeDepth(t *testing.T) {
 					"inner": NewAtomicType(AtomicInt),
 				}),
 			}),
-			expected: 3,
+			expected: 2,
 		},
 		{
 			name: "object with array field",
 			typeDef: NewObjectType(map[string]RegoTypeDef{
 				"arr": NewArrayType(NewAtomicType(AtomicString)),
 			}),
-			expected: 3,
+			expected: 2,
 		},
 		{
 			name: "object with mixed fields",
@@ -572,7 +572,7 @@ func TestTypeDepth(t *testing.T) {
 					"d": NewAtomicType(AtomicBoolean),
 				}),
 			}),
-			expected: 3,
+			expected: 2,
 		},
 	}
 

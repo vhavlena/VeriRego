@@ -361,7 +361,7 @@ func CopyTypeMap(src map[string]RegoTypeDef) map[string]RegoTypeDef {
 func (t *RegoTypeDef) TypeDepth() int {
 	switch t.Kind {
 	case KindAtomic, KindUnknown:
-		return 1
+		return 0
 	case KindArray:
 		if t.ArrayType == nil {
 			return 1
@@ -377,5 +377,5 @@ func (t *RegoTypeDef) TypeDepth() int {
 		}
 		return 1 + maxDepth
 	}
-	return 1
+	return 0
 }
