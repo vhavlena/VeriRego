@@ -129,7 +129,7 @@ func (t *Translator) getDatatypesDeclaration() []string {
 //	string: The SMT-LIB variable declaration string.
 //	error: An error if the declaration could not be generated.
 func getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
-	return fmt.Sprintf("(define-fun %s () OTypeD%d)", name, tp.TypeDepth()), nil
+	return fmt.Sprintf("(declare-fun %s () OTypeD%d)", name, tp.TypeDepth()), nil
 }
 
 // getSortDefinitions returns SMT-LIB sort definitions up to the given maximum depth.
