@@ -160,6 +160,9 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 		switch {
 		case isStringFunction(operator.String()):
 			return NewAtomicType(AtomicString)
+		case operator.String() == "sprintf":
+			ta.setType(terms[len(terms)-1].Value, NewAtomicType(AtomicString))
+			return NewAtomicType(AtomicString)
 		case isNumericFunction(operator.String()):
 			return NewAtomicType(AtomicInt)
 		case isBooleanFunction(operator.String()):

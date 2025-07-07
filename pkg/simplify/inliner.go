@@ -202,9 +202,13 @@ func (inl *Inliner) InlineModule(module *ast.Module) *ast.Module {
 		inl.packagePath = module.Package.Path
 	}
 	newModule := *module
-	newRules := make([]*ast.Rule, len(module.Rules))
-	for i, rule := range module.Rules {
-		newRules[i] = inl.InlineRule(rule)
+	newRules := make([]*ast.Rule, 0, len(module.Rules))
+	for _, rule := range module.Rules {
+		// Only keep rules that are not in the inlinePreds map (i.e., not substituted)
+		if _, isInlined := inl.inlinePreds[rule.Head.Name.String()]; isInlined {
+			continue
+		}
+		newRules = append(newRules, inl.InlineRule(rule))
 	}
 	newModule.Rules = newRules
 	return &newModule

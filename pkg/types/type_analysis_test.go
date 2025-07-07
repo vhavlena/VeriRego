@@ -767,3 +767,51 @@ test { x := input.review.object.spec.containers[_] }`,
 		})
 	}
 }
+
+func TestSprintfTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "sprintf assigns string type",
+			rule: `package test
+test { sprintf("hello %s", ["world"], x) }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "sprintf with int arg",
+			rule: `package test
+test { sprintf("number: %d", [42], x) }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "sprintf with multiple args",
+			rule: `package test
+test { sprintf("%s-%d", ["foo", 7], x) }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
+			}
+		})
+	}
+}
