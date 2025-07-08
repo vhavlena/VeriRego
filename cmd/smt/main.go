@@ -47,8 +47,8 @@ func analyzeAndWriteSMT(mod *ast.Module, yamlFile string, params types.Parameter
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
 	// Prepare SMT translator
-	translator := smt.NewTranslator(typeAnalyzer)
-	if err := translator.GenerateTypeDefs(); err != nil {
+	translator := smt.NewTranslator(typeAnalyzer, compiledModule)
+	if err := translator.GenerateSmtContent(); err != nil {
 		return fmt.Errorf("SMT generation failed: %v", err)
 	}
 

@@ -32,13 +32,16 @@ func RandString(n int) string {
 // Returns:
 //
 //	error: An error if any variable declaration or constraint generation fails.
-func (t *Translator) GenerateTypeDefs() error {
+func (t *Translator) GenerateTypeDefs(globalVars map[string]any) error {
 	datatypes := t.getDatatypesDeclaration()
 	t.smtLines = append(t.smtLines, datatypes...)
 
 	maxDepth := 0
 	vars := make([]string, 0, len(t.TypeInfo.Types))
 	for name, tp := range t.TypeInfo.Types {
+		if _, ok := globalVars[name]; !ok {
+			continue
+		}
 		_, ok := t.TypeInfo.Refs[name].(ast.Var)
 		if ok {
 			vars = append(vars, name)
