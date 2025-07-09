@@ -14,6 +14,15 @@ var (
 	ErrInvalidParameters = errors.New("missing or invalid 'spec.parameters' field in YAML")
 )
 
+// SMT-LIB/term conversion errors
+var (
+	ErrExplicitArraysNotSupported   = errors.New("explicit arrays are not supported")
+	ErrObjectConversionNotSupported = errors.New("object conversion not supported")
+	ErrSetConversionNotSupported    = errors.New("set conversion not supported")
+	ErrUnsupportedTermType          = errors.New("unsupported term type")
+	ErrUnsupportedFunction          = errors.New("unsupported function")
+)
+
 // ErrSmtConstraints returns an error for SMT constraint generation failure.
 //
 // Parameters:

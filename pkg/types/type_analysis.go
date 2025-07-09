@@ -85,7 +85,7 @@ func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 	if typ, exists := ta.Types[key]; exists {
 		return typ
 	}
-	return ta.inferAstType(val)
+	return ta.inferAstType(val, nil)
 }
 
 // setType sets the type for a value only if the new type is more precise than the existing one
@@ -106,20 +106,21 @@ func (ta *TypeAnalyzer) setType(val ast.Value, typ RegoTypeDef) {
 	ta.Refs[key] = val
 }
 
-// InferTermType infers the type of an AST term by analyzing its value.
+// InferTermType infers the type of an AST term by analyzing its value, optionally refining the type based on an expected type (inherType).
 //
 // Parameters:
 //
 //	term *ast.Term: The AST term to infer the type for.
+//	inherType *RegoTypeDef: An optional expected type (e.g., from a function parameter) used to refine the inferred type for variables.
 //
 // Returns:
 //
-//	RegoTypeDef: The inferred type of the term.
-func (ta *TypeAnalyzer) InferTermType(term *ast.Term) RegoTypeDef {
+//	RegoTypeDef: The inferred (and possibly refined) type of the term.
+func (ta *TypeAnalyzer) InferTermType(term *ast.Term, inherType *RegoTypeDef) RegoTypeDef {
 	if term == nil {
 		return NewUnknownType()
 	}
-	return ta.inferAstType(term.Value)
+	return ta.inferAstType(term.Value, inherType)
 }
 
 // InferExprType infers the type of an AST expression.
@@ -139,7 +140,7 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	term, ok := expr.Terms.(*ast.Term)
 	if ok {
 		// If the expression is a single term, infer its type directly
-		return ta.InferTermType(term)
+		return ta.InferTermType(term, nil)
 	}
 
 	// Handle different expression types based on Terms
@@ -151,29 +152,26 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 
 	// For simple expressions with a single term
 	if len(terms) == 1 {
-		return ta.InferTermType(terms[0])
+		return ta.InferTermType(terms[0], nil)
 	}
 
 	// Handle built-in operators and functions
 	if expr.IsCall() {
 		operator := terms[0]
-		switch {
-		case isStringFunction(operator.String()):
-			return NewAtomicType(AtomicString)
-		case operator.String() == "sprintf":
-			ta.setType(terms[len(terms)-1].Value, NewAtomicType(AtomicString))
-			return NewAtomicType(AtomicString)
-		case isNumericFunction(operator.String()):
-			return NewAtomicType(AtomicInt)
-		case isBooleanFunction(operator.String()):
-			return NewAtomicType(AtomicBoolean)
-		case isEquality(operator.String()):
-			typeLeft := ta.InferTermType(terms[1])
-			typeRight := ta.InferTermType(terms[2])
+		if isEquality(operator.String()) {
+			typeLeft := ta.InferTermType(terms[1], nil)
+			typeRight := ta.InferTermType(terms[2], nil)
 			ta.setType(terms[1].Value, typeLeft)
 			ta.setType(terms[1].Value, typeRight)
 			ta.setType(terms[2].Value, typeRight)
 			ta.setType(terms[2].Value, typeLeft)
+		} else {
+			// Handle function calls
+			funcType, funcParams := funcParamsType(operator.String(), len(terms)-1)
+			for i := 1; i < len(terms); i++ {
+				ta.InferTermType(terms[i], &funcParams[i-1])
+			}
+			return funcType
 		}
 	}
 
@@ -183,19 +181,20 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	}
 
 	// For all other cases, infer type from the first term
-	return ta.InferTermType(terms[0])
+	return ta.InferTermType(terms[0], nil)
 }
 
-// inferAstType infers the type of an AST value.
+// inferAstType infers the type of an AST value, optionally refining the type based on an expected type (inherType).
 //
 // Parameters:
 //
 //	val ast.Value: The AST value to infer the type for.
+//	inherType *RegoTypeDef: An optional expected type (e.g., from a function parameter) used to refine the inferred type for variables.
 //
 // Returns:
 //
-//	RegoTypeDef: The inferred type of the value.
-func (ta *TypeAnalyzer) inferAstType(val ast.Value) RegoTypeDef {
+//	RegoTypeDef: The inferred (and possibly refined) type of the value.
+func (ta *TypeAnalyzer) inferAstType(val ast.Value, inherType *RegoTypeDef) RegoTypeDef {
 	if val == nil {
 		return NewUnknownType()
 	}
@@ -239,6 +238,16 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value) RegoTypeDef {
 		} else {
 			typ = NewUnknownType()
 		}
+		if inherType != nil && inherType.IsMorePrecise(&typ) {
+			typ = *inherType
+		}
+	case ast.Call:
+		operator := v[0]
+		funcType, funcParams := funcParamsType(operator.String(), len(v)-1)
+		for i := 1; i < len(v); i++ {
+			ta.InferTermType(v[i], &funcParams[i-1])
+		}
+		return funcType
 	default:
 		typ = NewUnknownType()
 	}
@@ -324,7 +333,7 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 
 	// Analyze rule head value if it exists
 	if rule.Head.Value != nil {
-		tp := ta.inferAstType(rule.Head.Value.Value)
+		tp := ta.inferAstType(rule.Head.Value.Value, nil)
 		ta.setType(rule.Head.Name, tp)
 	}
 }
@@ -413,6 +422,43 @@ func isBooleanFunction(name string) bool {
 		"startswith": true, "endswith": true,
 	}
 	return booleanOps[name]
+}
+
+// funcParamsType returns the expected return type and parameter types for a given function name and parameter count.
+//
+// Parameters:
+//
+//	name string: The function name.
+//	params int: The number of parameters for the function.
+//
+// Returns:
+//
+//	RegoTypeDef: The expected return type of the function.
+//	[]RegoTypeDef: The expected types for each parameter.
+func funcParamsType(name string, params int) (RegoTypeDef, []RegoTypeDef) {
+	pars := make([]RegoTypeDef, params)
+	for i := 0; i < params; i++ {
+		pars[i] = NewUnknownType()
+	}
+	switch {
+	case isStringFunction(name):
+		for i := 0; i < params; i++ {
+			pars[i] = NewAtomicType(AtomicString)
+		}
+		return NewAtomicType(AtomicString), pars
+	case name == "sprintf":
+		pars[len(pars)-1] = NewAtomicType(AtomicString)
+		return NewAtomicType(AtomicString), pars
+
+	case isNumericFunction(name):
+		for i := 0; i < params; i++ {
+			pars[i] = NewAtomicType(AtomicInt)
+		}
+		return NewAtomicType(AtomicInt), pars
+	case isBooleanFunction(name):
+		return NewAtomicType(AtomicBoolean), pars
+	}
+	return NewUnknownType(), pars
 }
 
 // isEquality checks if a function name corresponds to an equality operation.
