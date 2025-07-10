@@ -8,9 +8,51 @@ import (
 	verr "github.com/vhavlena/verirego/pkg/err"
 )
 
-func (t *Translator) exprToSmt(expr ast.Expr) error {
+// exprToSmt converts a Rego AST expression to its SMT-LIB string representation.
+//
+// Parameters:
+//
+//	expr ast.Expr: The Rego AST expression to convert.
+//
+// Returns:
+//
+//	string: The SMT-LIB string representation of the expression.
+//	error: An error if the expression cannot be converted.
+func (t *Translator) exprToSmt(expr ast.Expr) (string, error) {
+	// If the expression is a single term, just convert it
+	if term, ok := expr.Terms.(*ast.Term); ok {
+		smtStr, err := t.termToSmt(term)
+		if err != nil {
+			return "", err
+		}
+		return smtStr, nil
+	}
 
-	return nil
+	// If the expression is a call or operator (e.g., [op, arg1, arg2, ...])
+	terms, ok := expr.Terms.([]*ast.Term)
+	if !ok || len(terms) == 0 {
+		return "", verr.ErrInvalidEmptyTerm
+	}
+
+	opStr := removeQuotes(terms[0].String())
+
+	// Convert all arguments
+	args := make([]string, len(terms)-1)
+	for i := 1; i < len(terms); i++ {
+		argStr, err := t.termToSmt(terms[i])
+		if err != nil {
+			return "", err
+		}
+		args[i-1] = argStr
+	}
+
+	// Use regoFuncToSmt to get the SMT-LIB string for the operator
+	smtStr, err := regoFuncToSmt(opStr, args)
+	if err != nil {
+		return "", err
+	}
+
+	return smtStr, nil
 }
 
 // termToSmt converts a Rego AST term to its SMT-LIB string representation.
@@ -45,14 +87,14 @@ func (t *Translator) termToSmt(term *ast.Term) (string, error) {
 	case ast.Set:
 		// Not directly supported in SMT-LIB, return error
 		return "", verr.ErrSetConversionNotSupported
-	case *ast.Var:
+	case ast.Var:
 		// Variable name
 		return v.String(), nil
 	case ast.Ref:
 		return t.refToSmt(v)
 	case ast.Call:
 		// Handle string functions and other builtins
-		op := v[0].String()
+		op := removeQuotes(v[0].String())
 		args := make([]string, len(v)-1)
 		for i := 1; i < len(v); i++ {
 			s, err := t.termToSmt(v[i])
@@ -138,7 +180,6 @@ func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
 				baseVar = getSchemaVar(ref)
 			}
 		}
-		fmt.Printf("Debug: baseVar: %s, path: %v\n", baseVar, path)
 		tp, ok := t.TypeInfo.Types[baseVar]
 		if !ok {
 			return "", verr.ErrSchemaVarTypeNotFound

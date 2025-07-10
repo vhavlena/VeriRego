@@ -21,7 +21,8 @@ var (
 	ErrUnsupportedTermType          = errors.New("unsupported term type")
 	ErrUnsupportedFunction          = errors.New("unsupported function")
 	ErrSchemaVarTypeNotFound        = errors.New("type for schema variable not found")
-	ErrEmptyReferenceConv           = fmt.Errorf("Cannot convert empty reference")
+	ErrEmptyReferenceConv           = errors.New("Cannot convert empty reference")
+	ErrInvalidEmptyTerm             = errors.New("invalid or empty expression terms")
 )
 
 // ErrSmtConstraints returns an error for SMT constraint generation failure.

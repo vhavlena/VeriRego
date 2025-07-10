@@ -138,3 +138,68 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 		t.Errorf("expected error for missing type in nested path, got nil")
 	}
 }
+
+func TestTermToSmt_BasicTypes(t *testing.T) {
+	tr := newDummyTranslator()
+	tests := []struct {
+		name    string
+		term    *ast.Term
+		want    string
+		wantErr bool
+	}{
+		{"string", ast.NewTerm(ast.String("foo")), `"foo"`, false},
+		{"number", ast.NewTerm(ast.Number("42")), "42", false},
+		{"boolean true", ast.NewTerm(ast.Boolean(true)), "true", false},
+		{"boolean false", ast.NewTerm(ast.Boolean(false)), "false", false},
+		{"var", ast.NewTerm(ast.Var("x")), "x", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tr.termToSmt(tt.term)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("termToSmt() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("termToSmt() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExprToSmt_BasicOps(t *testing.T) {
+	tr := newDummyTranslator()
+	// expr: plus(1, 2) => (+ 1 2)
+	plusExpr := ast.Expr{
+		Terms: []*ast.Term{
+			ast.NewTerm(ast.String("plus")),
+			ast.NewTerm(ast.Number("1")),
+			ast.NewTerm(ast.Number("2")),
+		},
+	}
+	got, err := tr.exprToSmt(plusExpr)
+	if err != nil {
+		t.Errorf("exprToSmt() error = %v", err)
+	}
+	want := "(+ 1 2)"
+	if got != want {
+		t.Errorf("exprToSmt() = %v, want %v", got, want)
+	}
+
+	// expr: eq("foo", "foo") => (= "foo" "foo")
+	eqExpr := ast.Expr{
+		Terms: []*ast.Term{
+			ast.NewTerm(ast.String("eq")),
+			ast.NewTerm(ast.String("foo")),
+			ast.NewTerm(ast.String("foo")),
+		},
+	}
+	got, err = tr.exprToSmt(eqExpr)
+	if err != nil {
+		t.Errorf("exprToSmt() error = %v", err)
+	}
+	want = "(= \"foo\" \"foo\")"
+	if got != want {
+		t.Errorf("exprToSmt() = %v, want %v", got, want)
+	}
+}
