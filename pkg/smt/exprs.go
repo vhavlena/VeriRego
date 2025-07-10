@@ -48,6 +48,8 @@ func (t *Translator) termToSmt(term *ast.Term) (string, error) {
 	case *ast.Var:
 		// Variable name
 		return v.String(), nil
+	case ast.Ref:
+		return t.refToSmt(v)
 	case ast.Call:
 		// Handle string functions and other builtins
 		op := v[0].String()
@@ -101,4 +103,53 @@ func regoFuncToSmt(op string, args []string) (string, error) {
 		return fmt.Sprintf("(%s %s)", smtFunc, strings.Join(args, " ")), nil
 	}
 	return "", fmt.Errorf("%w: %s", verr.ErrUnsupportedFunction, op)
+}
+
+// refToSmt converts a Rego reference (ast.Ref) to its SMT-LIB string representation.
+//
+// Parameters:
+//
+//	ref ast.Ref: The Rego reference to convert.
+//
+// Returns:
+//
+//	string: The SMT-LIB string representation of the reference.
+//	error: An error if the reference cannot be converted.
+func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
+	if len(ref) == 0 {
+		return "", verr.ErrEmptyReferenceConv
+	}
+
+	head := ref[0].Value.String()
+	// input prefix
+	if head == "input" {
+
+		var baseVar string
+		var path []string
+
+		// Check for input.parameters.<name>
+		if len(ref) >= 3 {
+			second := ref[1].Value.String()
+			if second == "\"parameters\"" {
+				baseVar = getParamVar(ref)
+				path = refToPath(ref[3:])
+			} else {
+				path = refToPath(ref[4:])
+				baseVar = getSchemaVar(ref)
+			}
+		}
+		fmt.Printf("Debug: baseVar: %s, path: %v\n", baseVar, path)
+		tp, ok := t.TypeInfo.Types[baseVar]
+		if !ok {
+			return "", verr.ErrSchemaVarTypeNotFound
+		}
+		smt, err := getSmtRef(baseVar, path, &tp)
+		if err != nil {
+			return "", fmt.Errorf("error converting reference to SMT: %w", err)
+		}
+		return smt, nil
+	}
+
+	// TODO: handle most general references
+	return ref.String(), nil
 }

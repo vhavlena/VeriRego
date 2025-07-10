@@ -1,4 +1,3 @@
-// Package err defines common errors for the VeriRego project.
 package err
 
 import (
@@ -21,6 +20,8 @@ var (
 	ErrSetConversionNotSupported    = errors.New("set conversion not supported")
 	ErrUnsupportedTermType          = errors.New("unsupported term type")
 	ErrUnsupportedFunction          = errors.New("unsupported function")
+	ErrSchemaVarTypeNotFound        = errors.New("type for schema variable not found")
+	ErrEmptyReferenceConv           = fmt.Errorf("Cannot convert empty reference")
 )
 
 // ErrSmtConstraints returns an error for SMT constraint generation failure.

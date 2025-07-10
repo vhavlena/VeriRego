@@ -287,3 +287,85 @@ func (t *Translator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) ([]
 
 	return andConstr, nil
 }
+
+func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, error) {
+	smtref := smtvar
+	actType := tp
+	for _, p := range path {
+		if !actType.IsObject() {
+			return "", fmt.Errorf("only object types can be used in references")
+		}
+		val := actType.ObjectFields[p]
+		actType = &val
+		smtref = fmt.Sprintf("(select (obj %s) \"%s\")", smtref, p)
+	}
+	return smtref, nil
+}
+
+// refToPath converts a Rego AST reference to a slice of strings representing the path.
+//
+// Parameters:
+//
+//	ref ast.Ref: The reference to convert.
+//
+// Returns:
+//
+//	[]string: The path as a slice of strings.
+func refToPath(ref ast.Ref) []string {
+	path := make([]string, 0, len(ref))
+	for _, term := range ref {
+		if str, ok := term.Value.(ast.String); ok {
+			path = append(path, string(str))
+		} else {
+			path = append(path, term.String())
+		}
+	}
+	return path
+}
+
+// removeQuotes removes leading and trailing double quotes from a string, if present.
+//
+// Parameters:
+//
+//	s string: The input string.
+//
+// Returns:
+//
+//	string: The string without leading and trailing quotes.
+func removeQuotes(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	if s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
+// getSchemaVar constructs a schema variable name from a Rego reference for input.review.object.<name>.
+//
+// Parameters:
+//
+//	ref ast.Ref: The reference to convert.
+//
+// Returns:
+//
+//	string: The schema variable name as a dot-separated string.
+func getSchemaVar(ref ast.Ref) string {
+	// input.review.object.<name>
+	return fmt.Sprintf("%s.%s.%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()), removeQuotes(ref[2].String()), removeQuotes(ref[3].String()))
+}
+
+// getParamVar constructs a parameter variable name from a Rego reference for input.parameters.<name>.
+//
+// Parameters:
+//
+//	ref ast.Ref: The reference to convert.
+//
+// Returns:
+//
+//	string: The parameter variable name as a dot-separated string.
+func getParamVar(ref ast.Ref) string {
+	// input.parameters.<name>
+	return fmt.Sprintf("%s.%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()), removeQuotes(ref[2].String()))
+}
