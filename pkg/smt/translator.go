@@ -55,6 +55,34 @@ func (t *Translator) InputParameterVars() []string {
 	return paramVars
 }
 
+// getSmtVarsDeclare collects the global variables to be declared in SMT-LIB, excluding input parameters.
+//
+// Returns:
+//
+//	map[string]any: A map of variable names to empty structs, representing global variables to declare.
+func (t *Translator) getSmtVarsDeclare() map[string]any {
+
+	inputParams := t.InputParameterVars()
+	inputParamSet := make(map[string]struct{}, len(inputParams))
+	for _, v := range inputParams {
+		inputParamSet[v] = struct{}{}
+	}
+
+	globalVars := make(map[string]any)
+	if t.TypeInfo != nil {
+		for name := range t.TypeInfo.Types {
+			if _, isParam := inputParamSet[name]; !isParam {
+				_, okVar := t.TypeInfo.Refs[name].(ast.Var)
+				if okVar {
+					globalVars[name] = struct{}{}
+				}
+			}
+		}
+	}
+	globalVars["input.review.object"] = struct{}{} // Always include schema
+	return globalVars
+}
+
 // GenerateSmtContent generates the SMT-LIB content for the current module.
 //
 // This function collects input parameter variables and global variables, then generates
@@ -66,21 +94,7 @@ func (t *Translator) InputParameterVars() []string {
 //	error: An error if type definition generation fails, otherwise nil.
 func (t *Translator) GenerateSmtContent() error {
 	// Gather input parameter variables
-	inputParams := t.InputParameterVars()
-	inputParamSet := make(map[string]struct{}, len(inputParams))
-	for _, v := range inputParams {
-		inputParamSet[v] = struct{}{}
-	}
-
-	// Gather global variables: those in TypeInfo.Types not in inputParams
-	globalVars := make(map[string]any)
-	if t.TypeInfo != nil {
-		for name := range t.TypeInfo.Types {
-			if _, isParam := inputParamSet[name]; !isParam {
-				globalVars[name] = struct{}{}
-			}
-		}
-	}
+	globalVars := t.getSmtVarsDeclare()
 	if err := t.GenerateTypeDefs(globalVars); err != nil {
 		return err
 	}

@@ -10,8 +10,8 @@ type TypeAnalyzer struct {
 	packagePath ast.Ref
 	Types       map[string]RegoTypeDef // Store types by string key
 	Refs        map[string]ast.Value   // Map string keys back to original values
-	schema      *InputSchema
-	parameters  Parameters
+	Schema      *InputSchema
+	Parameters  Parameters
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -27,7 +27,7 @@ func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 	return &TypeAnalyzer{
 		Types:  make(map[string]RegoTypeDef),
 		Refs:   make(map[string]ast.Value),
-		schema: schema,
+		Schema: schema,
 	}
 }
 
@@ -46,8 +46,8 @@ func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema *InputSchema, params 
 		packagePath: packagePath,
 		Types:       make(map[string]RegoTypeDef),
 		Refs:        make(map[string]ast.Value),
-		schema:      schema,
-		parameters:  params,
+		Schema:      schema,
+		Parameters:  params,
 	}
 }
 
@@ -281,7 +281,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 				if str, ok := ref[2].Value.(ast.String); ok {
 					// fmt.Printf("Parameter name: %s\n", str)
 					name := string(str)
-					if param, exists := ta.parameters[name]; exists {
+					if param, exists := ta.Parameters[name]; exists {
 						return param.dt
 					}
 				}
@@ -290,7 +290,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 		// Fallback to schema for other input references
 		if len(ref) > 3 {
 			path := refToPath(ref[3:])
-			if typ, exists := ta.schema.GetType(path); exists && typ != nil {
+			if typ, exists := ta.Schema.GetType(path); exists && typ != nil {
 				return *typ
 			}
 		}
@@ -345,6 +345,10 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 //	mod *ast.Module: The Rego module to analyze.
 func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 	var prevTypeMap map[string]RegoTypeDef
+	// include schema among types
+	if ta.Schema != nil {
+		ta.setType(ast.MustParseRef("input.review.object"), ta.Schema.GetTypes())
+	}
 	for {
 		for _, rule := range mod.Rules {
 			ta.AnalyzeRule(rule)

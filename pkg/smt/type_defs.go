@@ -32,21 +32,18 @@ func RandString(n int) string {
 // Returns:
 //
 //	error: An error if any variable declaration or constraint generation fails.
-func (t *Translator) GenerateTypeDefs(globalVars map[string]any) error {
+func (t *Translator) GenerateTypeDefs(usedVars map[string]any) error {
 	datatypes := t.getDatatypesDeclaration()
 	t.smtLines = append(t.smtLines, datatypes...)
 
 	maxDepth := 0
 	vars := make([]string, 0, len(t.TypeInfo.Types))
 	for name, tp := range t.TypeInfo.Types {
-		if _, ok := globalVars[name]; !ok {
+		if _, ok := usedVars[name]; !ok {
 			continue
 		}
-		_, ok := t.TypeInfo.Refs[name].(ast.Var)
-		if ok {
-			vars = append(vars, name)
-			maxDepth = max(maxDepth, tp.TypeDepth())
-		}
+		vars = append(vars, name)
+		maxDepth = max(maxDepth, tp.TypeDepth())
 	}
 	sortDefs := t.getSortDefinitions(maxDepth)
 	t.smtLines = append(t.smtLines, sortDefs...)
@@ -288,6 +285,18 @@ func (t *Translator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) ([]
 	return andConstr, nil
 }
 
+// getSmtRef constructs an SMT-LIB reference string by traversing a path through nested object types.
+//
+// Parameters:
+//
+//	smtvar string: The base SMT variable name.
+//	path []string: The path to traverse as a slice of field names.
+//	tp *types.RegoTypeDef: The starting Rego type definition.
+//
+// Returns:
+//
+//	string: The SMT-LIB reference string for the given path.
+//	error: An error if the path cannot be traversed due to type mismatches.
 func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, error) {
 	smtref := smtvar
 	actType := tp
