@@ -94,7 +94,7 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
 	}
 
-	assertion := fmt.Sprintf("(assert (<=> %s %s))", smtHead, bodySmt)
+	assertion := fmt.Sprintf("(assert (= %s %s))", smtHead, bodySmt)
 	t.smtLines = append(t.smtLines, assertion)
 	return nil
 }

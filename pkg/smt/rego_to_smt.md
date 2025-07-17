@@ -123,6 +123,66 @@ To access a field, use:
 (assert (= (select (obj myObj) "foo") (Atom (OString "abc"))))
 ```
 
+## Expression and Rule Translation
+
+### Expression Translation
+Rego expressions are translated to SMT-LIB using the following principles:
+- **Atomic expressions** (e.g., `x == 1`, `foo > 0`) are mapped to their SMT-LIB equivalents using the corresponding operator and arguments.
+- **Supported operators** include arithmetic (`plus`, `minus`, `mul`, `div`), comparison (`eq`, `neq`, `gt`, `lt`, `equal`), and string operations (`concat`, `contains`, `startswith`, `endswith`, etc.).
+- The translation is performed by converting the operator and its arguments to SMT-LIB syntax, e.g.:
+
+```rego
+x == 1
+```
+translates to:
+```smtlib
+(= x 1)
+```
+
+```rego
+x != 2
+```
+translates to:
+```smtlib
+(not (= x 2))
+```
+
+```rego
+plus(x, 1)
+```
+translates to:
+```smtlib
+(+ x 1)
+```
+
+### Rule Translation
+Each Rego rule is translated to a single SMT-LIB assertion. The rule variable is equal to the rule value if and only if all body expressions are satisfied. The general form is:
+
+```rego
+p = x {
+  x == 1
+  x > 0
+}
+```
+translates to:
+```smtlib
+(assert (= (= p x) (and (= x 1) (> x 0))))
+```
+
+If the rule has no body, the assertion is:
+```rego
+q = 42 {}
+```
+translates to:
+```smtlib
+(assert (= (= q 42) true))
+```
+
+#### Notes
+- The translation supports rules with head keys and references (e.g., `violation[result] { ... }`), which are mapped to equality or, in the future, to set membership.
+- All body expressions are combined using `and` in SMT-LIB.
+- The translation is implemented in `pkg/smt/exprs.go` and `pkg/smt/rules.go`.
+
 ## Error Handling
 If a type is not supported, an error is returned.
 
