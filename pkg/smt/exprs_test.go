@@ -203,3 +203,86 @@ func TestExprToSmt_BasicOps(t *testing.T) {
 		t.Errorf("exprToSmt() = %v, want %v", got, want)
 	}
 }
+
+func TestExprToSmt_Advanced(t *testing.T) {
+	tr := newDummyTranslator()
+
+	cases := []struct {
+		name    string
+		expr    ast.Expr
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "neq operator",
+			expr: ast.Expr{
+				Terms: []*ast.Term{
+					ast.NewTerm(ast.String("neq")),
+					ast.NewTerm(ast.Number("1")),
+					ast.NewTerm(ast.Number("2")),
+				},
+			},
+			want:    "(not (= 1 2))",
+			wantErr: false,
+		},
+		{
+			name: "gt operator",
+			expr: ast.Expr{
+				Terms: []*ast.Term{
+					ast.NewTerm(ast.String("gt")),
+					ast.NewTerm(ast.Number("3")),
+					ast.NewTerm(ast.Number("2")),
+				},
+			},
+			want:    "(> 3 2)",
+			wantErr: false,
+		},
+		{
+			name: "lt operator",
+			expr: ast.Expr{
+				Terms: []*ast.Term{
+					ast.NewTerm(ast.String("lt")),
+					ast.NewTerm(ast.Number("1")),
+					ast.NewTerm(ast.Number("2")),
+				},
+			},
+			want:    "(< 1 2)",
+			wantErr: false,
+		},
+		{
+			name: "equal operator",
+			expr: ast.Expr{
+				Terms: []*ast.Term{
+					ast.NewTerm(ast.String("equal")),
+					ast.NewTerm(ast.Number("5")),
+					ast.NewTerm(ast.Number("5")),
+				},
+			},
+			want:    "(= 5 5)",
+			wantErr: false,
+		},
+		{
+			name: "unsupported operator",
+			expr: ast.Expr{
+				Terms: []*ast.Term{
+					ast.NewTerm(ast.String("foo")),
+					ast.NewTerm(ast.Number("1")),
+				},
+			},
+			want:    "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tr.exprToSmt(tt.expr)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("exprToSmt() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("exprToSmt() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
