@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/open-policy-agent/opa/ast"
+	"github.com/vhavlena/verirego/pkg/types"
 )
 
 func TestInputParameterVars(t *testing.T) {
@@ -75,5 +76,42 @@ complex_rule_a(a) {
 	want := []string{"b", "c", "a"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("InputParameterVars() = %v, want %v", got, want)
+	}
+}
+
+func TestTranslateModuleToSmt_Basic(t *testing.T) {
+	rego := `
+	package test
+	p = x {
+		x == 1
+		x > 0
+	}
+	q = 42 { true }
+	`
+	mod, err := ast.ParseModule("test.rego", rego)
+	if err != nil {
+		t.Fatalf("failed to parse rego: %v", err)
+	}
+	// Minimal type analyzer for variables used in rules
+	ta := &types.TypeAnalyzer{
+		Types: map[string]types.RegoTypeDef{
+			"x": types.NewAtomicType(types.AtomicInt),
+			"p": types.NewAtomicType(types.AtomicInt),
+			"q": types.NewAtomicType(types.AtomicInt),
+		},
+		Refs: map[string]ast.Value{},
+	}
+	tr := &Translator{TypeInfo: ta, smtLines: make([]string, 0, 8), mod: mod}
+	err = tr.TranslateModuleToSmt()
+	if err != nil {
+		t.Fatalf("TranslateModuleToSmt error: %v", err)
+	}
+	if len(tr.smtLines) != 2 {
+		t.Errorf("Expected 2 SMT assertions, got %d", len(tr.smtLines))
+	}
+	for i, line := range tr.smtLines {
+		if line == "" || line[:7] != "(assert" {
+			t.Errorf("SMT line %d not an assertion: %q", i, line)
+		}
 	}
 }

@@ -135,6 +135,9 @@ func regoFuncToSmt(op string, args []string) (string, error) {
 		"length":     "str.len",
 		"indexof":    "str.indexof",
 		"substring":  "str.substr",
+		"equal":      "=",
+		"gt":         ">",
+		"lt":         "<",
 	}
 
 	if op == "neq" {

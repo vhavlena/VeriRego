@@ -98,6 +98,28 @@ func (t *Translator) GenerateSmtContent() error {
 	if err := t.GenerateTypeDefs(globalVars); err != nil {
 		return err
 	}
+	if err := t.TranslateModuleToSmt(); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+// TranslateModuleToSmt converts all rules in the Translator's module to SMT-LIB assertions.
+//
+// Each rule is translated using RuleToSmt and results in a single SMT-LIB (assert ...) statement.
+//
+// Returns:
+//
+//	error: An error if any rule conversion fails.
+func (t *Translator) TranslateModuleToSmt() error {
+	if t.mod == nil || t.mod.Rules == nil {
+		return nil
+	}
+	for _, rule := range t.mod.Rules {
+		if err := t.RuleToSmt(rule); err != nil {
+			return err
+		}
+	}
 	return nil
 }
