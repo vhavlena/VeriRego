@@ -325,7 +325,7 @@ func TestInferType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			actual := analyzer.inferAstType(tt.value)
+			actual := analyzer.inferAstType(tt.value, nil)
 			if !actual.IsEqual(&tt.expected) {
 				t.Errorf("inferType(%v) = %v, want %v", tt.value, actual, tt.expected)
 			}
@@ -339,13 +339,13 @@ func TestInferType(t *testing.T) {
 		expected := NewAtomicType(AtomicString)
 
 		// First call should infer and cache
-		first := analyzer.inferAstType(val)
+		first := analyzer.inferAstType(val, nil)
 		if !first.IsEqual(&expected) {
 			t.Errorf("First call: got %v, want %v", first, expected)
 		}
 
 		// Second call should return cached value
-		second := analyzer.inferAstType(val)
+		second := analyzer.inferAstType(val, nil)
 		if !second.IsEqual(&first) {
 			t.Errorf("Second call: got %v, want %v (cached value)", second, first)
 		}
@@ -751,6 +751,88 @@ test { x := input.review.object.spec.containers[_] }`,
 `)
 	schema.ProcessYAMLInput(yamlInput)
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
+			}
+		})
+	}
+}
+
+func TestSprintfTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "sprintf assigns string type",
+			rule: `package test
+test { sprintf("hello %s", ["world"], x) }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "sprintf with int arg",
+			rule: `package test
+test { sprintf("number: %d", [42], x) }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "sprintf with multiple args",
+			rule: `package test
+test { sprintf("%s-%d", ["foo", 7], x) }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
+			}
+		})
+	}
+}
+
+func TestNestedFunctionCalls(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "sprintf assigns string type",
+			rule: `package test
+test { x = concat(concat(u, v),z) }`,
+			varName:  "v",
+			expected: NewAtomicType(AtomicString),
+		},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

@@ -6,6 +6,44 @@ import (
 	"github.com/open-policy-agent/opa/ast"
 )
 
+func TestInlineModule_RemovesInlinedRules(t *testing.T) {
+	re := `package test
+
+foo(x) {
+  x > 1
+}
+
+bar(y) {
+  foo(y)
+  y < 10
+}`
+	module, err := ast.ParseModule("test.rego", re)
+	if err != nil {
+		t.Fatalf("failed to parse module: %v", err)
+	}
+	inliner := NewInliner()
+	inliner.GatherInlinePredicates(module)
+	inlinedModule := inliner.InlineModule(module)
+
+	// Check that the inlined rule 'foo' is removed
+	for _, rule := range inlinedModule.Rules {
+		if rule.Head.Name.String() == "foo" {
+			t.Errorf("expected 'foo' rule to be removed from inlined module")
+		}
+	}
+	// Check that 'bar' is still present
+	foundBar := false
+	for _, rule := range inlinedModule.Rules {
+		if rule.Head.Name.String() == "bar" {
+			foundBar = true
+			break
+		}
+	}
+	if !foundBar {
+		t.Errorf("expected 'bar' rule to be present in inlined module")
+	}
+}
+
 func TestSubstituteVars(t *testing.T) {
 	t.Parallel()
 	// xVar := ast.Var("x")

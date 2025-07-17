@@ -352,3 +352,30 @@ func CopyTypeMap(src map[string]RegoTypeDef) map[string]RegoTypeDef {
 	}
 	return cp
 }
+
+// TypeDepth computes the depth of the datatype.
+//
+// Returns:
+//
+//	int: The depth of the type. For atomic and unknown types, the depth is 1. For arrays and objects, it is 1 plus the maximum depth of nested types.
+func (t *RegoTypeDef) TypeDepth() int {
+	switch t.Kind {
+	case KindAtomic, KindUnknown:
+		return 0
+	case KindArray:
+		if t.ArrayType == nil {
+			return 1
+		}
+		return 1 + t.ArrayType.TypeDepth()
+	case KindObject:
+		maxDepth := 0
+		for _, fieldType := range t.ObjectFields {
+			depth := fieldType.TypeDepth()
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+		}
+		return 1 + maxDepth
+	}
+	return 0
+}

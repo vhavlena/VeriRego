@@ -510,3 +510,78 @@ func TestIsEqual(t *testing.T) {
 		})
 	}
 }
+
+func TestTypeDepth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		typeDef  RegoTypeDef
+		expected int
+	}{
+		{
+			name:     "atomic type",
+			typeDef:  NewAtomicType(AtomicString),
+			expected: 0,
+		},
+		{
+			name:     "unknown type",
+			typeDef:  NewUnknownType(),
+			expected: 0,
+		},
+		{
+			name:     "array of atomic",
+			typeDef:  NewArrayType(NewAtomicType(AtomicInt)),
+			expected: 1,
+		},
+		{
+			name: "object with atomic fields",
+			typeDef: NewObjectType(map[string]RegoTypeDef{
+				"a": NewAtomicType(AtomicString),
+				"b": NewAtomicType(AtomicInt),
+			}),
+			expected: 1,
+		},
+		{
+			name:     "nested array",
+			typeDef:  NewArrayType(NewArrayType(NewAtomicType(AtomicBoolean))),
+			expected: 2,
+		},
+		{
+			name: "nested object",
+			typeDef: NewObjectType(map[string]RegoTypeDef{
+				"outer": NewObjectType(map[string]RegoTypeDef{
+					"inner": NewAtomicType(AtomicInt),
+				}),
+			}),
+			expected: 2,
+		},
+		{
+			name: "object with array field",
+			typeDef: NewObjectType(map[string]RegoTypeDef{
+				"arr": NewArrayType(NewAtomicType(AtomicString)),
+			}),
+			expected: 2,
+		},
+		{
+			name: "object with mixed fields",
+			typeDef: NewObjectType(map[string]RegoTypeDef{
+				"a": NewAtomicType(AtomicString),
+				"b": NewArrayType(NewAtomicType(AtomicInt)),
+				"c": NewObjectType(map[string]RegoTypeDef{
+					"d": NewAtomicType(AtomicBoolean),
+				}),
+			}),
+			expected: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			depth := tt.typeDef.TypeDepth()
+			if depth != tt.expected {
+				t.Errorf("TypeDepth() = %d, want %d", depth, tt.expected)
+			}
+		})
+	}
+}

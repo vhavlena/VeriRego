@@ -1,9 +1,9 @@
 package types
 
 import (
-	"fmt"
-
 	"sigs.k8s.io/yaml"
+
+	"github.com/vhavlena/verirego/pkg/err"
 )
 
 type Parameter struct {
@@ -17,17 +17,17 @@ type Parameters map[string]Parameter
 // FromSpecFile creates Parameters from a YAML spec.parameters field
 func FromSpecFile(yamlData []byte) (Parameters, error) {
 	var data map[string]interface{}
-	if err := yaml.Unmarshal(yamlData, &data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal YAML: %w", err)
+	if unmarshalErr := yaml.Unmarshal(yamlData, &data); unmarshalErr != nil {
+		return nil, err.ErrYamlUnmarshal(unmarshalErr)
 	}
 
 	spec, ok := data["spec"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("missing 'spec' field in YAML")
+		return nil, err.ErrMissingSpecField
 	}
 	params, ok := spec["parameters"].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("missing or invalid 'spec.parameters' field in YAML")
+		return nil, err.ErrInvalidParameters
 	}
 
 	result := make(Parameters)

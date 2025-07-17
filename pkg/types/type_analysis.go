@@ -8,10 +8,10 @@ import (
 // TypeAnalyzer performs type analysis on Rego AST
 type TypeAnalyzer struct {
 	packagePath ast.Ref
-	types       map[string]RegoTypeDef // Store types by string key
-	refs        map[string]ast.Value   // Map string keys back to original values
-	schema      *InputSchema
-	parameters  Parameters
+	Types       map[string]RegoTypeDef // Store types by string key
+	Refs        map[string]ast.Value   // Map string keys back to original values
+	Schema      *InputSchema
+	Parameters  Parameters
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -25,9 +25,9 @@ type TypeAnalyzer struct {
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		types:  make(map[string]RegoTypeDef),
-		refs:   make(map[string]ast.Value),
-		schema: schema,
+		Types:  make(map[string]RegoTypeDef),
+		Refs:   make(map[string]ast.Value),
+		Schema: schema,
 	}
 }
 
@@ -44,10 +44,10 @@ func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema *InputSchema, params Parameters) *TypeAnalyzer {
 	return &TypeAnalyzer{
 		packagePath: packagePath,
-		types:       make(map[string]RegoTypeDef),
-		refs:        make(map[string]ast.Value),
-		schema:      schema,
-		parameters:  params,
+		Types:       make(map[string]RegoTypeDef),
+		Refs:        make(map[string]ast.Value),
+		Schema:      schema,
+		Parameters:  params,
 	}
 }
 
@@ -82,10 +82,10 @@ func (ta *TypeAnalyzer) getValueKey(val ast.Value) string {
 //	RegoTypeDef: The inferred or cached type for the value.
 func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 	key := ta.getValueKey(val)
-	if typ, exists := ta.types[key]; exists {
+	if typ, exists := ta.Types[key]; exists {
 		return typ
 	}
-	return ta.inferAstType(val)
+	return ta.inferAstType(val, nil)
 }
 
 // setType sets the type for a value only if the new type is more precise than the existing one
@@ -96,30 +96,31 @@ func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 //	typ RegoTypeDef: The type to assign to the value.
 func (ta *TypeAnalyzer) setType(val ast.Value, typ RegoTypeDef) {
 	key := ta.getValueKey(val)
-	if existingType, exists := ta.types[key]; exists {
+	if existingType, exists := ta.Types[key]; exists {
 		// Only update if new type is more precise
 		if !typ.IsMorePrecise(&existingType) {
 			return
 		}
 	}
-	ta.types[key] = typ
-	ta.refs[key] = val
+	ta.Types[key] = typ
+	ta.Refs[key] = val
 }
 
-// InferTermType infers the type of an AST term by analyzing its value.
+// InferTermType infers the type of an AST term by analyzing its value, optionally refining the type based on an expected type (inherType).
 //
 // Parameters:
 //
 //	term *ast.Term: The AST term to infer the type for.
+//	inherType *RegoTypeDef: An optional expected type (e.g., from a function parameter) used to refine the inferred type for variables.
 //
 // Returns:
 //
-//	RegoTypeDef: The inferred type of the term.
-func (ta *TypeAnalyzer) InferTermType(term *ast.Term) RegoTypeDef {
+//	RegoTypeDef: The inferred (and possibly refined) type of the term.
+func (ta *TypeAnalyzer) InferTermType(term *ast.Term, inherType *RegoTypeDef) RegoTypeDef {
 	if term == nil {
 		return NewUnknownType()
 	}
-	return ta.inferAstType(term.Value)
+	return ta.inferAstType(term.Value, inherType)
 }
 
 // InferExprType infers the type of an AST expression.
@@ -139,7 +140,7 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	term, ok := expr.Terms.(*ast.Term)
 	if ok {
 		// If the expression is a single term, infer its type directly
-		return ta.InferTermType(term)
+		return ta.InferTermType(term, nil)
 	}
 
 	// Handle different expression types based on Terms
@@ -151,26 +152,26 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 
 	// For simple expressions with a single term
 	if len(terms) == 1 {
-		return ta.InferTermType(terms[0])
+		return ta.InferTermType(terms[0], nil)
 	}
 
 	// Handle built-in operators and functions
 	if expr.IsCall() {
 		operator := terms[0]
-		switch {
-		case isStringFunction(operator.String()):
-			return NewAtomicType(AtomicString)
-		case isNumericFunction(operator.String()):
-			return NewAtomicType(AtomicInt)
-		case isBooleanFunction(operator.String()):
-			return NewAtomicType(AtomicBoolean)
-		case isEquality(operator.String()):
-			typeLeft := ta.InferTermType(terms[1])
-			typeRight := ta.InferTermType(terms[2])
+		if isEquality(operator.String()) {
+			typeLeft := ta.InferTermType(terms[1], nil)
+			typeRight := ta.InferTermType(terms[2], nil)
 			ta.setType(terms[1].Value, typeLeft)
 			ta.setType(terms[1].Value, typeRight)
 			ta.setType(terms[2].Value, typeRight)
 			ta.setType(terms[2].Value, typeLeft)
+		} else {
+			// Handle function calls
+			funcType, funcParams := funcParamsType(operator.String(), len(terms)-1)
+			for i := 1; i < len(terms); i++ {
+				ta.InferTermType(terms[i], &funcParams[i-1])
+			}
+			return funcType
 		}
 	}
 
@@ -180,26 +181,27 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	}
 
 	// For all other cases, infer type from the first term
-	return ta.InferTermType(terms[0])
+	return ta.InferTermType(terms[0], nil)
 }
 
-// inferAstType infers the type of an AST value.
+// inferAstType infers the type of an AST value, optionally refining the type based on an expected type (inherType).
 //
 // Parameters:
 //
 //	val ast.Value: The AST value to infer the type for.
+//	inherType *RegoTypeDef: An optional expected type (e.g., from a function parameter) used to refine the inferred type for variables.
 //
 // Returns:
 //
-//	RegoTypeDef: The inferred type of the value.
-func (ta *TypeAnalyzer) inferAstType(val ast.Value) RegoTypeDef {
+//	RegoTypeDef: The inferred (and possibly refined) type of the value.
+func (ta *TypeAnalyzer) inferAstType(val ast.Value, inherType *RegoTypeDef) RegoTypeDef {
 	if val == nil {
 		return NewUnknownType()
 	}
 
 	// Use GetType to check for existing type (caching)
 	key := ta.getValueKey(val)
-	if typ, exists := ta.types[key]; exists {
+	if typ, exists := ta.Types[key]; exists {
 		return typ
 	}
 
@@ -231,11 +233,21 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value) RegoTypeDef {
 	case ast.Ref:
 		typ = ta.inferRefType(v)
 	case ast.Var:
-		if t, exists := ta.types[ta.getValueKey(v)]; exists {
+		if t, exists := ta.Types[ta.getValueKey(v)]; exists {
 			typ = t
 		} else {
 			typ = NewUnknownType()
 		}
+		if inherType != nil && inherType.IsMorePrecise(&typ) {
+			typ = *inherType
+		}
+	case ast.Call:
+		operator := v[0]
+		funcType, funcParams := funcParamsType(operator.String(), len(v)-1)
+		for i := 1; i < len(v); i++ {
+			ta.InferTermType(v[i], &funcParams[i-1])
+		}
+		return funcType
 	default:
 		typ = NewUnknownType()
 	}
@@ -269,7 +281,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 				if str, ok := ref[2].Value.(ast.String); ok {
 					// fmt.Printf("Parameter name: %s\n", str)
 					name := string(str)
-					if param, exists := ta.parameters[name]; exists {
+					if param, exists := ta.Parameters[name]; exists {
 						return param.dt
 					}
 				}
@@ -278,7 +290,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 		// Fallback to schema for other input references
 		if len(ref) > 3 {
 			path := refToPath(ref[3:])
-			if typ, exists := ta.schema.GetType(path); exists && typ != nil {
+			if typ, exists := ta.Schema.GetType(path); exists && typ != nil {
 				return *typ
 			}
 		}
@@ -288,7 +300,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	if ref.HasPrefix(ta.packagePath) && len(ref) > len(ta.packagePath) {
 		strRule := ref[len(ta.packagePath)].Value.String()
 		key := strRule[1 : len(strRule)-1]
-		if typ, exists := ta.types[key]; exists {
+		if typ, exists := ta.Types[key]; exists {
 			path := refToPath(ref[len(ta.packagePath)+1:])
 			if pathType, exists := typ.GetTypeFromPath(path); exists {
 				return *pathType
@@ -298,7 +310,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 
 	// handle references to variables (arrays)
 	refHead := ref[0].Value.String()
-	if typ, exists := ta.types[refHead]; exists {
+	if typ, exists := ta.Types[refHead]; exists {
 		path := refToPath(ref[1:])
 		if pathType, exists := typ.GetTypeFromPath(path); exists {
 			return *pathType
@@ -321,7 +333,7 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 
 	// Analyze rule head value if it exists
 	if rule.Head.Value != nil {
-		tp := ta.inferAstType(rule.Head.Value.Value)
+		tp := ta.inferAstType(rule.Head.Value.Value, nil)
 		ta.setType(rule.Head.Name, tp)
 	}
 }
@@ -333,6 +345,10 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 //	mod *ast.Module: The Rego module to analyze.
 func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 	var prevTypeMap map[string]RegoTypeDef
+	// include schema among types
+	if ta.Schema != nil {
+		ta.setType(ast.MustParseRef("input.review.object"), ta.Schema.GetTypes())
+	}
 	for {
 		for _, rule := range mod.Rules {
 			ta.AnalyzeRule(rule)
@@ -351,8 +367,8 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 //
 //	map[string]RegoTypeDef: A map of variable names to their inferred types.
 func (ta *TypeAnalyzer) GetAllTypes() map[string]RegoTypeDef {
-	result := make(map[string]RegoTypeDef, len(ta.types))
-	for k, v := range ta.types {
+	result := make(map[string]RegoTypeDef, len(ta.Types))
+	for k, v := range ta.Types {
 		result[k] = v
 	}
 	return result
@@ -410,6 +426,43 @@ func isBooleanFunction(name string) bool {
 		"startswith": true, "endswith": true,
 	}
 	return booleanOps[name]
+}
+
+// funcParamsType returns the expected return type and parameter types for a given function name and parameter count.
+//
+// Parameters:
+//
+//	name string: The function name.
+//	params int: The number of parameters for the function.
+//
+// Returns:
+//
+//	RegoTypeDef: The expected return type of the function.
+//	[]RegoTypeDef: The expected types for each parameter.
+func funcParamsType(name string, params int) (RegoTypeDef, []RegoTypeDef) {
+	pars := make([]RegoTypeDef, params)
+	for i := 0; i < params; i++ {
+		pars[i] = NewUnknownType()
+	}
+	switch {
+	case isStringFunction(name):
+		for i := 0; i < params; i++ {
+			pars[i] = NewAtomicType(AtomicString)
+		}
+		return NewAtomicType(AtomicString), pars
+	case name == "sprintf":
+		pars[len(pars)-1] = NewAtomicType(AtomicString)
+		return NewAtomicType(AtomicString), pars
+
+	case isNumericFunction(name):
+		for i := 0; i < params; i++ {
+			pars[i] = NewAtomicType(AtomicInt)
+		}
+		return NewAtomicType(AtomicInt), pars
+	case isBooleanFunction(name):
+		return NewAtomicType(AtomicBoolean), pars
+	}
+	return NewUnknownType(), pars
 }
 
 // isEquality checks if a function name corresponds to an equality operation.
