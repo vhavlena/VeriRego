@@ -101,15 +101,16 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 		},
 		Refs: map[string]ast.Value{},
 	}
-	tr := &Translator{TypeInfo: ta, smtLines: make([]string, 0, 8), mod: mod}
+	tr := NewTranslator(ta, mod)
 	err = tr.TranslateModuleToSmt()
 	if err != nil {
 		t.Fatalf("TranslateModuleToSmt error: %v", err)
 	}
-	if len(tr.smtLines) != 2 {
-		t.Errorf("Expected 2 SMT assertions, got %d", len(tr.smtLines))
+	smtLines := tr.SmtLines()
+	if len(smtLines) != 2 {
+		t.Errorf("Expected 2 SMT assertions, got %d", len(smtLines))
 	}
-	for i, line := range tr.smtLines {
+	for i, line := range smtLines {
 		if line == "" || line[:7] != "(assert" {
 			t.Errorf("SMT line %d not an assertion: %q", i, line)
 		}

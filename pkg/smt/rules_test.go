@@ -26,16 +26,17 @@ func TestRuleToSmt_Basic(t *testing.T) {
 		},
 		Refs: map[string]ast.Value{},
 	}
-	tr := &Translator{TypeInfo: ta, smtLines: make([]string, 0, 8)}
+	tr := NewTranslator(ta, mod)
 	rule := mod.Rules[0]
 	err = tr.RuleToSmt(rule)
 	if err != nil {
 		t.Fatalf("RuleToSmt error: %v", err)
 	}
-	if len(tr.smtLines) == 0 {
+	lines := tr.SmtLines()
+	if len(lines) == 0 {
 		t.Fatalf("No SMT lines generated")
 	}
-	got := tr.smtLines[len(tr.smtLines)-1]
+	got := lines[len(lines)-1]
 	if got == "" || got[:7] != "(assert" {
 		t.Errorf("Expected SMT assertion, got: %q", got)
 	}
@@ -55,13 +56,17 @@ func TestRuleToSmt_NoBody(t *testing.T) {
 		},
 		Refs: map[string]ast.Value{},
 	}
-	tr := &Translator{TypeInfo: ta, smtLines: make([]string, 0, 8)}
+	tr := NewTranslator(ta, mod)
 	rule := mod.Rules[0]
 	err = tr.RuleToSmt(rule)
 	if err != nil {
 		t.Fatalf("RuleToSmt error: %v", err)
 	}
-	got := tr.smtLines[len(tr.smtLines)-1]
+	lines := tr.SmtLines()
+	if len(lines) == 0 {
+		t.Fatalf("No SMT lines generated")
+	}
+	got := lines[len(lines)-1]
 	if got == "" || got[:7] != "(assert" {
 		t.Errorf("Expected SMT assertion, got: %q", got)
 	}

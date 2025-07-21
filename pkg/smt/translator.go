@@ -7,29 +7,37 @@ import (
 
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
-	TypeInfo *types.TypeAnalyzer // Type information for Rego terms
-	VarMap   map[string]string   // Mapping of Rego term keys to SMT variable names
-	smtLines []string            // Collected SMT lines
-	mod      *ast.Module
+	TypeInfo     *types.TypeAnalyzer // Type information for Rego terms
+	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
+	smtTypeDecls []string            // SMT type declarations
+	smtDecls     []string            // SMT variable declarations
+	smtAsserts   []string            // SMT assertions
+	mod          *ast.Module
 }
 
 // NewTranslator creates a new Translator instance with the given TypeAnalyzer.
 func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 	return &Translator{
-		TypeInfo: typeInfo,
-		VarMap:   make(map[string]string),
-		smtLines: make([]string, 0, 128),
-		mod:      mod,
+		TypeInfo:     typeInfo,
+		VarMap:       make(map[string]string),
+		smtTypeDecls: make([]string, 0, 32),
+		smtDecls:     make([]string, 0, 64),
+		smtAsserts:   make([]string, 0, 128),
+		mod:          mod,
 	}
 }
 
-// SmtLines returns the generated SMT-LIB lines collected during translation.
+// SmtLines returns the generated SMT-LIB lines collected during translation, in the correct order.
 //
 // Returns:
 //
 //	[]string: A slice of SMT-LIB formatted strings representing the translation output.
 func (t *Translator) SmtLines() []string {
-	return t.smtLines
+	lines := make([]string, 0, len(t.smtTypeDecls)+len(t.smtDecls)+len(t.smtAsserts))
+	lines = append(lines, t.smtTypeDecls...)
+	lines = append(lines, t.smtDecls...)
+	lines = append(lines, t.smtAsserts...)
+	return lines
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.
@@ -101,7 +109,6 @@ func (t *Translator) GenerateSmtContent() error {
 	if err := t.TranslateModuleToSmt(); err != nil {
 		return err
 	}
-
 	return nil
 }
 

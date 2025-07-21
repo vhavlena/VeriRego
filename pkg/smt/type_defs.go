@@ -34,7 +34,7 @@ func RandString(n int) string {
 //	error: An error if any variable declaration or constraint generation fails.
 func (t *Translator) GenerateTypeDefs(usedVars map[string]any) error {
 	datatypes := t.getDatatypesDeclaration()
-	t.smtLines = append(t.smtLines, datatypes...)
+	t.smtTypeDecls = append(t.smtTypeDecls, datatypes...)
 
 	maxDepth := 0
 	vars := make([]string, 0, len(t.TypeInfo.Types))
@@ -46,7 +46,7 @@ func (t *Translator) GenerateTypeDefs(usedVars map[string]any) error {
 		maxDepth = max(maxDepth, tp.TypeDepth())
 	}
 	sortDefs := t.getSortDefinitions(maxDepth)
-	t.smtLines = append(t.smtLines, sortDefs...)
+	t.smtTypeDecls = append(t.smtTypeDecls, sortDefs...)
 
 	for _, name := range vars {
 		tp := t.TypeInfo.Types[name]
@@ -54,7 +54,7 @@ func (t *Translator) GenerateTypeDefs(usedVars map[string]any) error {
 		if er != nil {
 			return er
 		}
-		t.smtLines = append(t.smtLines, smtVar)
+		t.smtDecls = append(t.smtDecls, smtVar)
 	}
 
 	for _, name := range vars {
@@ -63,7 +63,7 @@ func (t *Translator) GenerateTypeDefs(usedVars map[string]any) error {
 		if er != nil {
 			return er
 		}
-		t.smtLines = append(t.smtLines, smtConstr)
+		t.smtAsserts = append(t.smtAsserts, smtConstr)
 	}
 
 	return nil
