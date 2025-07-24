@@ -23,6 +23,7 @@ var (
 	ErrSchemaVarTypeNotFound        = errors.New("type for schema variable not found")
 	ErrEmptyReferenceConv           = errors.New("Cannot convert empty reference")
 	ErrInvalidEmptyTerm             = errors.New("invalid or empty expression terms")
+	ErrTypeNotFound                 = errors.New("type not found")
 )
 
 // ErrSmtConstraints returns an error for SMT constraint generation failure.

@@ -171,6 +171,7 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 			for i := 1; i < len(terms); i++ {
 				ta.InferTermType(terms[i], &funcParams[i-1])
 			}
+			ta.setType(terms[0].Value, funcType)
 			return funcType
 		}
 	}
@@ -451,8 +452,11 @@ func funcParamsType(name string, params int) (RegoTypeDef, []RegoTypeDef) {
 		}
 		return NewAtomicType(AtomicString), pars
 	case name == "sprintf":
+		// format string
+		pars[0] = NewAtomicType(AtomicString)
+		// last parameter is a result
 		pars[len(pars)-1] = NewAtomicType(AtomicString)
-		return NewAtomicType(AtomicString), pars
+		return NewAtomicType(AtomicBoolean), pars
 
 	case isNumericFunction(name):
 		for i := 0; i < params; i++ {

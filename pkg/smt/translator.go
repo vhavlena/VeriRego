@@ -1,35 +1,45 @@
 package smt
 
 import (
+	"fmt"
+
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
-	TypeInfo *types.TypeAnalyzer // Type information for Rego terms
-	VarMap   map[string]string   // Mapping of Rego term keys to SMT variable names
-	smtLines []string            // Collected SMT lines
-	mod      *ast.Module
+	TypeInfo     *types.TypeAnalyzer // Type information for Rego terms
+	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
+	smtTypeDecls []string            // SMT type declarations
+	smtDecls     []string            // SMT variable declarations
+	smtAsserts   []string            // SMT assertions
+	mod          *ast.Module
 }
 
 // NewTranslator creates a new Translator instance with the given TypeAnalyzer.
 func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 	return &Translator{
-		TypeInfo: typeInfo,
-		VarMap:   make(map[string]string),
-		smtLines: make([]string, 0, 128),
-		mod:      mod,
+		TypeInfo:     typeInfo,
+		VarMap:       make(map[string]string),
+		smtTypeDecls: make([]string, 0, 32),
+		smtDecls:     make([]string, 0, 64),
+		smtAsserts:   make([]string, 0, 128),
+		mod:          mod,
 	}
 }
 
-// SmtLines returns the generated SMT-LIB lines collected during translation.
+// SmtLines returns the generated SMT-LIB lines collected during translation, in the correct order.
 //
 // Returns:
 //
 //	[]string: A slice of SMT-LIB formatted strings representing the translation output.
 func (t *Translator) SmtLines() []string {
-	return t.smtLines
+	lines := make([]string, 0, len(t.smtTypeDecls)+len(t.smtDecls)+len(t.smtAsserts))
+	lines = append(lines, t.smtTypeDecls...)
+	lines = append(lines, t.smtDecls...)
+	lines = append(lines, t.smtAsserts...)
+	return lines
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.
@@ -101,7 +111,6 @@ func (t *Translator) GenerateSmtContent() error {
 	if err := t.TranslateModuleToSmt(); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -122,4 +131,36 @@ func (t *Translator) TranslateModuleToSmt() error {
 		}
 	}
 	return nil
+}
+
+// getFreshVariable returns a fresh temporary variable name that does not clash with any variable in TypeInfo or any value in VarMap.
+//
+// Args:
+//
+//	prefix (string): The prefix to use for the generated variable name.
+//
+// Returns:
+//
+//	string: A fresh variable name with the given prefix, guaranteed not to conflict with existing variables.
+func (t *Translator) getFreshVariable(prefix string) string {
+	// Collect all used names: keys in TypeInfo.Types and values in VarMap
+	used := make(map[string]struct{})
+	if t.TypeInfo != nil {
+		for name := range t.TypeInfo.Types {
+			used[name] = struct{}{}
+		}
+	}
+	for _, v := range t.VarMap {
+		used[v] = struct{}{}
+	}
+	// Try to find a fresh variable name
+	for i := 0; ; i++ {
+		varName := prefix
+		if i > 0 {
+			varName = prefix + fmt.Sprintf("_%d", i)
+		}
+		if _, exists := used[varName]; !exists {
+			return varName
+		}
+	}
 }
