@@ -463,3 +463,173 @@ func TestExplicitArrayToSmt_CompareFullSmtLib(t *testing.T) {
 		t.Errorf("expected SMT-LIB to contain: %q\nGot:\n%s", expectedElem2, smtlib)
 	}
 }
+
+func TestHandleConstObject_AllCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SimpleObject", func(t *testing.T) {
+		objTerm := ast.MustParseTerm(`{"name": "test", "value": 42}`)
+		obj, ok := objTerm.Value.(ast.Object)
+		if !ok {
+			t.Fatalf("expected ast.Object, got %T", objTerm.Value)
+		}
+		typeMap := map[string]types.RegoTypeDef{
+			obj.String(): types.NewObjectType(map[string]types.RegoTypeDef{
+				"name":  types.NewAtomicType(types.AtomicString),
+				"value": types.NewAtomicType(types.AtomicInt),
+			}),
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		varName, err := tr.handleConstObject(obj)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if varName == "" {
+			t.Fatalf("expected non-empty variable name")
+		}
+		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
+		expected := "(declare-fun " + varName + " () OTypeD1)\n(assert (and (is-OString (atom (select (obj " + varName + ") \"name\"))) (is-ONumber (atom (select (obj " + varName + ") \"value\")))))"
+		if joined != expected {
+			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
+		}
+	})
+
+	t.Run("TypeNotFound", func(t *testing.T) {
+		objTerm := ast.MustParseTerm(`{"key": "value"}`)
+		obj, ok := objTerm.Value.(ast.Object)
+		if !ok {
+			t.Fatalf("expected ast.Object, got %T", objTerm.Value)
+		}
+		tr := newDummyTranslator()
+		_, err := tr.handleConstObject(obj)
+		if err == nil {
+			t.Fatalf("expected error for missing type info, got nil")
+		}
+	})
+
+	t.Run("NestedObject", func(t *testing.T) {
+		objTerm := ast.MustParseTerm(`{"user": {"name": "john", "age": 30}, "active": true}`)
+		obj, ok := objTerm.Value.(ast.Object)
+		if !ok {
+			t.Fatalf("expected ast.Object, got %T", objTerm.Value)
+		}
+		typeMap := map[string]types.RegoTypeDef{
+			obj.String(): types.NewObjectType(map[string]types.RegoTypeDef{
+				"user": types.NewObjectType(map[string]types.RegoTypeDef{
+					"name": types.NewAtomicType(types.AtomicString),
+					"age":  types.NewAtomicType(types.AtomicInt),
+				}),
+				"active": types.NewAtomicType(types.AtomicBoolean),
+			}),
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		varName, err := tr.handleConstObject(obj)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if varName == "" {
+			t.Fatalf("expected non-empty variable name")
+		}
+		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
+		expected := "(declare-fun const_obj () OTypeD2)\n(assert (and (is-OObj (select (obj const_obj) \"user\")) (is-OString (atom (select (obj (select (obj const_obj) \"user\")) \"name\"))) (is-ONumber (atom (select (obj (select (obj const_obj) \"user\")) \"age\"))) (is-OBoolean (atom (select (obj const_obj) \"active\")))))"
+		if joined != expected {
+			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
+		}
+	})
+
+	t.Run("EmptyObject", func(t *testing.T) {
+		objTerm := ast.MustParseTerm(`{}`)
+		obj, ok := objTerm.Value.(ast.Object)
+		if !ok {
+			t.Fatalf("expected ast.Object, got %T", objTerm.Value)
+		}
+		typeMap := map[string]types.RegoTypeDef{
+			obj.String(): types.NewObjectType(map[string]types.RegoTypeDef{}),
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		varName, err := tr.handleConstObject(obj)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if varName == "" {
+			t.Fatalf("expected non-empty variable name")
+		}
+		if len(tr.smtDecls) == 0 {
+			t.Errorf("expected at least one SMT declaration, got none")
+		}
+		if len(tr.smtAsserts) == 0 {
+			t.Errorf("expected at least one SMT assertion, got none")
+		}
+	})
+
+	t.Run("CompareFullSmtLib", func(t *testing.T) {
+		objTerm := ast.MustParseTerm(`{"status": "active", "count": 5}`)
+		obj, ok := objTerm.Value.(ast.Object)
+		if !ok {
+			t.Fatalf("expected ast.Object, got %T", objTerm.Value)
+		}
+		typeMap := map[string]types.RegoTypeDef{
+			obj.String(): types.NewObjectType(map[string]types.RegoTypeDef{
+				"status": types.NewAtomicType(types.AtomicString),
+				"count":  types.NewAtomicType(types.AtomicInt),
+			}),
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		varName, err := tr.handleConstObject(obj)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if varName == "" {
+			t.Fatalf("expected non-empty variable name")
+		}
+		var sb strings.Builder
+		for _, decl := range tr.smtDecls {
+			sb.WriteString(decl)
+			sb.WriteString("\n")
+		}
+		for _, asrt := range tr.smtAsserts {
+			sb.WriteString(asrt)
+			sb.WriteString("\n")
+		}
+		smtlib := sb.String()
+		expectedDeclPrefix := "(declare-fun " + varName + " () OTypeD"
+		if !strings.Contains(smtlib, expectedDeclPrefix) {
+			t.Errorf("expected SMT-LIB to contain declaration prefix: %q\nGot:\n%s", expectedDeclPrefix, smtlib)
+		}
+		expectedConstraintPrefix := "(assert (and"
+		if !strings.Contains(smtlib, expectedConstraintPrefix) {
+			t.Errorf("expected SMT-LIB to contain constraint assertion: %q\nGot:\n%s", expectedConstraintPrefix, smtlib)
+		}
+		if !strings.Contains(smtlib, varName) {
+			t.Errorf("expected SMT-LIB to contain variable name %q in assertions\nGot:\n%s", varName, smtlib)
+		}
+	})
+
+	t.Run("ObjectWithArray", func(t *testing.T) {
+		objTerm := ast.MustParseTerm(`{"items": [1, 2, 3], "name": "list"}`)
+		obj, ok := objTerm.Value.(ast.Object)
+		if !ok {
+			t.Fatalf("expected ast.Object, got %T", objTerm.Value)
+		}
+		typeMap := map[string]types.RegoTypeDef{
+			obj.String(): types.NewObjectType(map[string]types.RegoTypeDef{
+				"items": types.NewArrayType(types.NewAtomicType(types.AtomicInt)),
+				"name":  types.NewAtomicType(types.AtomicString),
+			}),
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		varName, err := tr.handleConstObject(obj)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if varName == "" {
+			t.Fatalf("expected non-empty variable name")
+		}
+		if len(tr.smtDecls) == 0 {
+			t.Errorf("expected at least one SMT declaration, got none")
+		}
+		if len(tr.smtAsserts) == 0 {
+			t.Errorf("expected at least one SMT assertion, got none")
+		}
+	})
+}

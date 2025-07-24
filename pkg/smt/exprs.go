@@ -82,8 +82,7 @@ func (t *Translator) termToSmt(term *ast.Term) (string, error) {
 		// convert to a fresh variable with the array type
 		return t.explicitArrayToSmt(v)
 	case ast.Object:
-		// Not directly supported in SMT-LIB, return error
-		return "", verr.ErrObjectConversionNotSupported
+		return t.handleConstObject(v)
 	case ast.Set:
 		// Not directly supported in SMT-LIB, return error
 		return "", verr.ErrSetConversionNotSupported
@@ -279,4 +278,36 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), getSmtType(&rtype))
 	t.smtDecls = append(t.smtDecls, decls)
 	return nil
+}
+
+// handleConstObject converts a Rego constant object to an SMT-LIB variable, adds its declaration and assertion, and returns the variable name.
+//
+// Parameters:
+//
+//	obj ast.Object: The Rego object to convert.
+//
+// Returns:
+//
+//	string: The SMT-LIB variable name representing the object.
+//	error: An error if type information is missing or conversion fails.
+func (t *Translator) handleConstObject(obj ast.Object) (string, error) {
+	varName := t.getFreshVariable("const_obj")
+	tp, ok := t.TypeInfo.Types[obj.String()]
+	if !ok {
+		return "", fmt.Errorf("type information not found for object: %s", obj.String())
+	}
+
+	decl, err := getVarDeclaration(varName, &tp)
+	if err != nil {
+		return "", err
+	}
+	t.smtDecls = append(t.smtDecls, decl)
+
+	smtConstr, er := t.getSmtConstrAssert(varName, &tp)
+	if er != nil {
+		return "", er
+	}
+	t.smtAsserts = append(t.smtAsserts, smtConstr)
+
+	return varName, nil
 }
