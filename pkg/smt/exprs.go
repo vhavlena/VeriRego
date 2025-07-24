@@ -193,7 +193,7 @@ func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
 		}
 		tp, ok := t.TypeInfo.Types[baseVar]
 		if !ok {
-			return "", verr.ErrSchemaVarTypeNotFound
+			return "", verr.ErrTypeNotFound
 		}
 		smt, err := getSmtRef(baseVar, path, &tp)
 		if err != nil {
@@ -221,7 +221,7 @@ func (t *Translator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 	termStr := arr.String()
 	tp, ok := t.TypeInfo.Types[termStr]
 	if !ok {
-		return "", verr.ErrSchemaVarTypeNotFound
+		return "", verr.ErrTypeNotFound
 	}
 	varDecl, err := getVarDeclaration(varName, &tp)
 	if err != nil {
@@ -265,14 +265,14 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 	for i := 1; i < len(terms); i++ {
 		tp, ok := t.TypeInfo.Types[terms[i].String()]
 		if !ok {
-			return fmt.Errorf("type information not found for term: %s", terms[i].String())
+			return verr.ErrTypeNotFound
 		}
 		pars[i-1] = getSmtType(&tp)
 	}
 	// gather return type
 	rtype, ok := t.TypeInfo.Types[terms[0].String()]
 	if !ok {
-		return fmt.Errorf("type information not found for term: %s", terms[0].String())
+		return verr.ErrTypeNotFound
 	}
 
 	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), getSmtType(&rtype))
@@ -294,7 +294,7 @@ func (t *Translator) handleConstObject(obj ast.Object) (string, error) {
 	varName := t.getFreshVariable("const_obj")
 	tp, ok := t.TypeInfo.Types[obj.String()]
 	if !ok {
-		return "", fmt.Errorf("type information not found for object: %s", obj.String())
+		return "", verr.ErrTypeNotFound
 	}
 
 	decl, err := getVarDeclaration(varName, &tp)
