@@ -240,8 +240,6 @@ test { x = [1, 2, 3] }`,
 
 func TestInferType(t *testing.T) {
 	t.Parallel()
-	schema := NewInputSchema()
-	analyzer := NewTypeAnalyzer(schema)
 
 	tests := []struct {
 		name     string
@@ -325,6 +323,8 @@ func TestInferType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			schema := NewInputSchema()
+			analyzer := NewTypeAnalyzer(schema)
 			actual := analyzer.inferAstType(tt.value, nil)
 			if !actual.IsEqual(&tt.expected) {
 				t.Errorf("inferType(%v) = %v, want %v", tt.value, actual, tt.expected)
@@ -338,6 +338,8 @@ func TestInferType(t *testing.T) {
 		val := ast.String("cached")
 		expected := NewAtomicType(AtomicString)
 
+		schema := NewInputSchema()
+		analyzer := NewTypeAnalyzer(schema)
 		// First call should infer and cache
 		first := analyzer.inferAstType(val, nil)
 		if !first.IsEqual(&expected) {
