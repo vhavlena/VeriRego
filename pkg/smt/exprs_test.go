@@ -20,6 +20,17 @@ func newDummyTranslator() *Translator {
 	}
 	return &Translator{
 		TypeInfo: ta,
+		VarMap:   make(map[string]string),
+	}
+}
+
+func newTestTranslatorWithTypes(typeMap map[string]types.RegoTypeDef) *Translator {
+	return &Translator{
+		TypeInfo: &types.TypeAnalyzer{
+			Types: typeMap,
+			Refs:  map[string]ast.Value{},
+		},
+		VarMap: make(map[string]string),
 	}
 }
 
@@ -177,7 +188,7 @@ func TestExprToSmt_BasicOps(t *testing.T) {
 			ast.NewTerm(ast.Number("2")),
 		},
 	}
-	got, err := tr.exprToSmt(plusExpr)
+	got, err := tr.exprToSmt(&plusExpr)
 	if err != nil {
 		t.Errorf("exprToSmt() error = %v", err)
 	}
@@ -187,7 +198,7 @@ func TestExprToSmt_BasicOps(t *testing.T) {
 	}
 
 	// expr: eq("foo", "foo") => (= "foo" "foo")
-	eqExpr := ast.Expr{
+	eqExpr := &ast.Expr{
 		Terms: []*ast.Term{
 			ast.NewTerm(ast.String("eq")),
 			ast.NewTerm(ast.String("foo")),
@@ -276,7 +287,7 @@ func TestExprToSmt_Advanced(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tr.exprToSmt(tt.expr)
+			got, err := tr.exprToSmt(&tt.expr)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("exprToSmt() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -284,5 +295,171 @@ func TestExprToSmt_Advanced(t *testing.T) {
 				t.Errorf("exprToSmt() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestExplicitArrayToSmt_Success(t *testing.T) {
+	tr := newDummyTranslator()
+	// Add type info for the array string representation
+	arr := ast.NewArray(ast.IntNumberTerm(1), ast.IntNumberTerm(2), ast.IntNumberTerm(3))
+	arrStr := arr.String()
+	tr.TypeInfo.Types[arrStr] = types.NewArrayType(types.NewAtomicType(types.AtomicInt))
+	got, err := tr.explicitArrayToSmt(arr)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if got == "" {
+		t.Errorf("expected non-empty SMT var name, got empty string")
+	}
+	// More sophisticated checks: variable name format and side effects
+	if !strings.HasPrefix(got, "const_arr") {
+		t.Errorf("expected SMT var name to start with 'const_arr_', got %q", got)
+	}
+	// Check that a declaration and assertion were added
+	if len(tr.smtDecls) == 0 {
+		t.Errorf("expected at least one SMT declaration, got none")
+	}
+	if len(tr.smtAsserts) == 0 {
+		t.Errorf("expected at least one SMT assertion, got none")
+	}
+}
+
+func TestExplicitArrayToSmt_TypeNotFound(t *testing.T) {
+	tr := newDummyTranslator()
+	arr := ast.NewArray(ast.IntNumberTerm(1), ast.IntNumberTerm(2))
+	_, err := tr.explicitArrayToSmt(arr)
+	if err == nil {
+		t.Fatalf("expected error for missing type info, got nil")
+	}
+}
+
+func TestExprToSmt_AllCases(t *testing.T) {
+	t.Parallel()
+	t.Run("Builtins", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"plus": types.NewAtomicType(types.AtomicInt),
+			"1":    types.NewAtomicType(types.AtomicInt),
+			"2":    types.NewAtomicType(types.AtomicInt),
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		expr := ast.MustParseExpr("plus(1,2)")
+		smt, err := tr.exprToSmt(expr)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := "(+ 1 2)"
+		if smt != expected {
+			t.Errorf("expected %q, got %q", expected, smt)
+		}
+	})
+
+	t.Run("Neq", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"neq": types.NewAtomicType(types.AtomicBoolean),
+			"1":   types.NewAtomicType(types.AtomicInt),
+			"2":   types.NewAtomicType(types.AtomicInt),
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		expr := ast.MustParseExpr("neq(1,2)")
+		smt, err := tr.exprToSmt(expr)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := "(not (= 1 2))"
+		if smt != expected {
+			t.Errorf("expected %q, got %q", expected, smt)
+		}
+	})
+
+	t.Run("Uninterpreted", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"foo": types.NewAtomicType(types.AtomicString),
+			"1":   types.NewAtomicType(types.AtomicInt),
+			"2":   types.NewAtomicType(types.AtomicInt),
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		expr := ast.MustParseExpr("foo(1,2)")
+		smt, err := tr.exprToSmt(expr)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// The function name will be a fresh variable, so just check the format
+		if len(tr.smtDecls) == 0 {
+			t.Errorf("expected a function declaration in smtDecls")
+		}
+		decl := tr.smtDecls[len(tr.smtDecls)-1]
+		if decl == "" || decl[:13] != "(declare-fun " {
+			t.Errorf("expected function declaration, got %q", decl)
+		}
+		if smt[:1] != "(" || smt[len(smt)-1:] != ")" {
+			t.Errorf("expected function application format, got %q", smt)
+		}
+	})
+
+	t.Run("TypeError", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"foo": types.NewAtomicType(types.AtomicFunction),
+			// missing type for "1"
+		}
+		tr := newTestTranslatorWithTypes(typeMap)
+		expr := ast.MustParseExpr("foo(1)")
+		_, err := tr.exprToSmt(expr)
+		if err == nil {
+			t.Errorf("expected error for missing type, got nil")
+		}
+	})
+}
+
+func TestExplicitArrayToSmt_CompareFullSmtLib(t *testing.T) {
+	arrTerm := ast.MustParseTerm(`[1, 2, 3]`)
+	arr, ok := arrTerm.Value.(*ast.Array)
+	if !ok {
+		t.Fatalf("expected ast.Array, got %T", arrTerm.Value)
+	}
+
+	typeMap := map[string]types.RegoTypeDef{
+		arr.String(): types.NewArrayType(types.NewAtomicType(types.AtomicInt)),
+	}
+	tr := newTestTranslatorWithTypes(typeMap)
+
+	varName, err := tr.explicitArrayToSmt(arr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if varName == "" {
+		t.Fatalf("expected non-empty SMT var name")
+	}
+
+	var sb strings.Builder
+	for _, decl := range tr.smtDecls {
+		sb.WriteString(decl)
+		sb.WriteString("\n")
+	}
+	for _, asrt := range tr.smtAsserts {
+		sb.WriteString(asrt)
+		sb.WriteString("\n")
+	}
+	smtlib := sb.String()
+
+	expectedDeclPrefix := "(declare-fun " + varName + " () OTypeD1)"
+	expectedElem0 := "(assert (= (select (arr " + varName + ") 0) 1))"
+	expectedElem1 := "(assert (= (select (arr " + varName + ") 1) 2))"
+	expectedElem2 := "(assert (= (select (arr " + varName + ") 2) 3))"
+
+	if !strings.Contains(smtlib, expectedDeclPrefix) {
+		t.Errorf("expected SMT-LIB to contain declaration: %q\nGot:\n%s", expectedDeclPrefix, smtlib)
+	}
+	if !strings.Contains(smtlib, expectedElem0) {
+		t.Errorf("expected SMT-LIB to contain: %q\nGot:\n%s", expectedElem0, smtlib)
+	}
+	if !strings.Contains(smtlib, expectedElem1) {
+		t.Errorf("expected SMT-LIB to contain: %q\nGot:\n%s", expectedElem1, smtlib)
+	}
+	if !strings.Contains(smtlib, expectedElem2) {
+		t.Errorf("expected SMT-LIB to contain: %q\nGot:\n%s", expectedElem2, smtlib)
 	}
 }

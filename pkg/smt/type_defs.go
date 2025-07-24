@@ -129,7 +129,20 @@ func (t *Translator) getDatatypesDeclaration() []string {
 //	string: The SMT-LIB variable declaration string.
 //	error: An error if the declaration could not be generated.
 func getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
-	return fmt.Sprintf("(declare-fun %s () OTypeD%d)", name, tp.TypeDepth()), nil
+	return fmt.Sprintf("(declare-fun %s () %s)", name, getSmtType(tp)), nil
+}
+
+// getSmtType returns the SMT-LIB sort name for a given Rego type definition based on its type depth.
+//
+// Parameters:
+//
+//	ttp *types.RegoTypeDef: The Rego type definition.
+//
+// Returns:
+//
+//	string: The SMT-LIB sort name corresponding to the type depth.
+func getSmtType(tp *types.RegoTypeDef) string {
+	return fmt.Sprintf("OTypeD%d", tp.TypeDepth())
 }
 
 // getSortDefinitions returns SMT-LIB sort definitions up to the given maximum depth.

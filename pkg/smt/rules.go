@@ -78,7 +78,7 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 	// Convert all body expressions to SMT
 	bodySmts := make([]string, 0, len(rule.Body))
 	for _, expr := range rule.Body {
-		smtStr, err := t.exprToSmt(*expr)
+		smtStr, err := t.exprToSmt(expr)
 		if err != nil {
 			return fmt.Errorf("failed to convert rule body expr: %w", err)
 		}

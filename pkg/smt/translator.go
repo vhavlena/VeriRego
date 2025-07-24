@@ -1,6 +1,8 @@
 package smt
 
 import (
+	"fmt"
+
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/vhavlena/verirego/pkg/types"
 )
@@ -129,4 +131,36 @@ func (t *Translator) TranslateModuleToSmt() error {
 		}
 	}
 	return nil
+}
+
+// getFreshVariable returns a fresh temporary variable name that does not clash with any variable in TypeInfo or any value in VarMap.
+//
+// Args:
+//
+//	prefix (string): The prefix to use for the generated variable name.
+//
+// Returns:
+//
+//	string: A fresh variable name with the given prefix, guaranteed not to conflict with existing variables.
+func (t *Translator) getFreshVariable(prefix string) string {
+	// Collect all used names: keys in TypeInfo.Types and values in VarMap
+	used := make(map[string]struct{})
+	if t.TypeInfo != nil {
+		for name := range t.TypeInfo.Types {
+			used[name] = struct{}{}
+		}
+	}
+	for _, v := range t.VarMap {
+		used[v] = struct{}{}
+	}
+	// Try to find a fresh variable name
+	for i := 0; ; i++ {
+		varName := prefix
+		if i > 0 {
+			varName = prefix + fmt.Sprintf("_%d", i)
+		}
+		if _, exists := used[varName]; !exists {
+			return varName
+		}
+	}
 }
