@@ -1,6 +1,10 @@
 // Package types provides type analysis for Rego AST.
 package types
 
+import (
+	"github.com/open-policy-agent/opa/ast"
+)
+
 // TypeKind represents the kind of a Rego type
 type TypeKind string
 
@@ -29,6 +33,44 @@ type RegoTypeDef struct {
 	ArrayType    *RegoTypeDef           // The type of array elements if Kind is array
 	ObjectFields map[string]RegoTypeDef // The field types if Kind is object
 }
+
+//----------------------------------------------------------------
+
+type PathNode struct {
+	Key      string
+	IsGround bool // Ground = constant, non-ground = variable
+}
+
+func FromGroundPath(path []string) []PathNode {
+	nodes := make([]PathNode, len(path))
+	for i, p := range path {
+		nodes[i] = PathNode{
+			Key:      p,
+			IsGround: true,
+		}
+	}
+	return nodes
+}
+
+func FromRef(ref ast.Ref) []PathNode {
+	path := make([]PathNode, 0, len(ref))
+	for _, term := range ref {
+		if str, ok := term.Value.(ast.String); ok {
+			path = append(path, PathNode{
+				Key:      string(str),
+				IsGround: true,
+			})
+		} else {
+			path = append(path, PathNode{
+				Key:      term.String(),
+				IsGround: term.Value.IsGround(),
+			})
+		}
+	}
+	return path
+}
+
+//----------------------------------------------------------------
 
 // NewAtomicType creates a new RegoTypeDef for an atomic type
 func NewAtomicType(atomicType AtomicType) RegoTypeDef {
@@ -210,25 +252,52 @@ func (t *RegoTypeDef) IsMorePrecise(other *RegoTypeDef) bool {
 	return false
 }
 
-// GetTypeFromPath traverses the type definition using a path of field names or array indices.
+// GetTypeFromPath walks the type definition following the provided path of PathNode
+// values and returns the resolved type if it can be determined.
 //
-// Parameters:
+// Behavior summary:
+// - An empty path returns the receiver type.
+// - For object types:
+//   - If the current path node is ground (IsGround == true) the named field is looked up.
+//   - If the current path node is non-ground (variable) the method will only succeed
+//     if all object field types are identical; in that case traversal continues using
+//     the common field type. If field types differ, the type cannot be determined.
+//   - For array types any index (ground or non-ground) resolves to the array element type
+//     and traversal continues on that element type.
+//   - For atomic or unknown kinds traversal cannot continue and the function returns
+//     (nil, false).
 //
-//	path []string: The path to traverse.
-//
-// Returns:
-//
-//	(*RegoTypeDef, bool): The type at the given path and true if found, otherwise nil and false.
-func (t *RegoTypeDef) GetTypeFromPath(path []string) (*RegoTypeDef, bool) {
+// The boolean return value is true when a deterministic type was found for the full
+// path, and false otherwise.
+func (t *RegoTypeDef) GetTypeFromPath(path []PathNode) (*RegoTypeDef, bool) {
 	if len(path) == 0 {
 		return t, true
 	}
 
-	currentKey := path[0]
+	currentKey := path[0].Key
 	remainingPath := path[1:]
 
 	switch t.Kind {
 	case KindObject:
+		// for non-ground keys (= variables), we need to check all values for all
+		// keys have the same type. If not, we cannot determine the type.
+		if !path[0].IsGround {
+			if len(t.ObjectFields) == 0 {
+				return nil, false
+			}
+			var allFieldType *RegoTypeDef
+			for _, v := range t.ObjectFields {
+				if allFieldType == nil {
+					allFieldType = &v
+				} else {
+					if !allFieldType.IsEqual(&v) {
+						return nil, false // Different field types, cannot determine
+					}
+				}
+			}
+			return allFieldType.GetTypeFromPath(remainingPath)
+		}
+
 		fieldType, exists := t.ObjectFields[currentKey]
 		if !exists {
 			return nil, false

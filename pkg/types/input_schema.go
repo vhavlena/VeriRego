@@ -84,13 +84,13 @@ func (s *InputSchema) processNode(node interface{}) RegoTypeDef {
 //
 // Parameters:
 //
-//	path ([]string): A slice of strings representing nested field names.
+//	path ([]PathNode): A slice of PathNode representing nested field names.
 //
 // Returns:
 //
 //	*RegoTypeDef: The type definition for the path, if found.
 //	bool: True if the path exists, false otherwise.
-func (s *InputSchema) GetType(path []string) (*RegoTypeDef, bool) {
+func (s *InputSchema) GetType(path []PathNode) (*RegoTypeDef, bool) {
 	return s.types.GetTypeFromPath(path)
 }
 
@@ -104,7 +104,7 @@ func (s *InputSchema) GetType(path []string) (*RegoTypeDef, bool) {
 //
 //	bool: True if the field exists, false otherwise.
 func (s *InputSchema) HasField(path []string) bool {
-	typ, exists := s.GetType(path)
+	typ, exists := s.GetType(FromGroundPath(path))
 	return exists && typ != nil
 }
 

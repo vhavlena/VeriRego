@@ -164,59 +164,66 @@ func TestGetTypeFromPath(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		path          []string
+		path          []PathNode
 		expectedKind  TypeKind
 		expectedType  AtomicType
 		shouldSucceed bool
 	}{
 		{
 			name:          "empty path",
-			path:          []string{},
+			path:          FromGroundPath([]string{}),
 			shouldSucceed: true,
 			expectedKind:  KindObject,
 		},
 		{
 			name:          "top level object field",
-			path:          []string{"settings"},
+			path:          FromGroundPath([]string{"settings"}),
 			expectedKind:  KindObject,
 			shouldSucceed: true,
 		},
 		{
 			name:          "nested atomic field",
-			path:          []string{"users", "0", "name"},
+			path:          FromGroundPath([]string{"users", "0", "name"}),
 			expectedKind:  KindAtomic,
 			expectedType:  AtomicString,
 			shouldSucceed: true,
 		},
 		{
 			name:          "array type",
-			path:          []string{"users"},
+			path:          FromGroundPath([]string{"users"}),
 			expectedKind:  KindArray,
 			shouldSucceed: true,
 		},
 		{
 			name:          "deeply nested field",
-			path:          []string{"users", "0", "address", "street"},
+			path:          FromGroundPath([]string{"users", "0", "address", "street"}),
 			expectedKind:  KindAtomic,
 			expectedType:  AtomicString,
 			shouldSucceed: true,
 		},
 		{
 			name:          "array of atomic types",
-			path:          []string{"settings", "flags", "0"},
+			path:          FromGroundPath([]string{"settings", "flags", "0"}),
 			expectedKind:  KindAtomic,
 			expectedType:  AtomicString,
 			shouldSucceed: true,
 		},
 		{
 			name:          "invalid path",
-			path:          []string{"nonexistent"},
+			path:          FromGroundPath([]string{"nonexistent"}),
 			shouldSucceed: false,
 		},
 		{
 			name:          "invalid nested path",
-			path:          []string{"users", "0", "nonexistent"},
+			path:          FromGroundPath([]string{"users", "0", "nonexistent"}),
 			shouldSucceed: false,
+		},
+		{
+			name:          "variable path",
+			path:          []PathNode{{Key: "users", IsGround: true}, {Key: "0", IsGround: true}, {Key: "address", IsGround: true}, {Key: "__var__", IsGround: false}},
+			expectedKind:  KindAtomic,
+			expectedType:  AtomicString,
+			shouldSucceed: true,
 		},
 	}
 
