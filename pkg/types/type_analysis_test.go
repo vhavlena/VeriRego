@@ -356,8 +356,6 @@ func TestInferType(t *testing.T) {
 
 func TestInferExprType(t *testing.T) {
 	t.Parallel()
-	schema := NewInputSchema()
-	analyzer := NewTypeAnalyzer(schema)
 
 	tests := []struct {
 		name     string
@@ -419,6 +417,9 @@ test { x = y }`,
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			schema := NewInputSchema()
+			analyzer := NewTypeAnalyzer(schema)
+
 			module, err := ast.ParseModule("test.rego", tt.rule)
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
@@ -436,8 +437,6 @@ test { x = y }`,
 
 func TestInferExprTypeEdgeCases(t *testing.T) {
 	t.Parallel()
-	schema := NewInputSchema()
-	analyzer := NewTypeAnalyzer(schema)
 
 	tests := []struct {
 		name     string
@@ -479,6 +478,9 @@ test { [1, "two", true] }`,
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			schema := NewInputSchema()
+			analyzer := NewTypeAnalyzer(schema)
+
 			module, err := ast.ParseModule("test.rego", tt.rule)
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
