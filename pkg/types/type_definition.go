@@ -190,12 +190,7 @@ func (t *RegoTypeDef) IsEqual(other *RegoTypeDef) bool {
 		if len(t.Union) != len(other.Union) {
 			return false
 		}
-		for i := range t.Union {
-			if !t.Union[i].IsEqual(&other.Union[i]) {
-				return false
-			}
-		}
-		return true
+		return t.subsetUnion(other.Union) && other.subsetUnion(t.Union)
 	case KindUnknown:
 		return true
 	}
