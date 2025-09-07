@@ -3,6 +3,7 @@ package smt
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"time"
 
@@ -260,7 +261,14 @@ func (t *Translator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) 
 	}
 
 	andConstr := make([]string, 0, 64)
-	for key, val := range tp.ObjectFields {
+	// Ensure deterministic enumeration of object fields by sorting keys.
+	keys := make([]string, 0, len(tp.ObjectFields))
+	for k := range tp.ObjectFields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		val := tp.ObjectFields[key]
 		sel := fmt.Sprintf("(select (obj %s) \"%s\")", smtValue, key)
 		if !val.IsAtomic() {
 			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(&val), sel))
