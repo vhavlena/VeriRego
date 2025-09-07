@@ -276,3 +276,165 @@ func TestTranslator_getSmtArrConstr(t *testing.T) {
 		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedConstr[1])
 	}
 }
+
+func TestTranslator_getSmtConstr_Union(t *testing.T) {
+	t.Parallel()
+	tr := &Translator{}
+
+	// Test simple union: string | int
+	simpleUnionType := &types.RegoTypeDef{
+		Kind: types.KindUnion,
+		Union: []types.RegoTypeDef{
+			{
+				Kind:       types.KindAtomic,
+				AtomicType: types.AtomicString,
+			},
+			{
+				Kind:       types.KindAtomic,
+				AtomicType: types.AtomicInt,
+			},
+		},
+	}
+	constr, err := tr.getSmtConstr("u", simpleUnionType)
+	if err != nil {
+		t.Fatalf("unexpected error for simple union: %v", err)
+	}
+	if len(constr) != 1 {
+		t.Errorf("expected 1 constraint for simple union, got %d", len(constr))
+	}
+	if !strings.Contains(constr[0], "(or ") {
+		t.Errorf("union constraint should contain 'or': %v", constr[0])
+	}
+	if !strings.Contains(constr[0], "(is-OString (atom u))") {
+		t.Errorf("missing string constraint in union: %v", constr[0])
+	}
+	if !strings.Contains(constr[0], "(is-ONumber (atom u))") {
+		t.Errorf("missing int constraint in union: %v", constr[0])
+	}
+
+	// Test complex union: string | object | array
+	complexUnionType := &types.RegoTypeDef{
+		Kind: types.KindUnion,
+		Union: []types.RegoTypeDef{
+			{
+				Kind:       types.KindAtomic,
+				AtomicType: types.AtomicString,
+			},
+			{
+				Kind: types.KindObject,
+				ObjectFields: map[string]types.RegoTypeDef{
+					"field1": {
+						Kind:       types.KindAtomic,
+						AtomicType: types.AtomicBoolean,
+					},
+				},
+			},
+			{
+				Kind: types.KindArray,
+				ArrayType: &types.RegoTypeDef{
+					Kind:       types.KindAtomic,
+					AtomicType: types.AtomicInt,
+				},
+			},
+		},
+	}
+	complexConstr, err := tr.getSmtConstr("v", complexUnionType)
+	if err != nil {
+		t.Fatalf("unexpected error for complex union: %v", err)
+	}
+	if len(complexConstr) != 1 {
+		t.Errorf("expected 1 constraint for complex union, got %d", len(complexConstr))
+	}
+	complexConstraintStr := complexConstr[0]
+	if !strings.Contains(complexConstraintStr, "(or ") {
+		t.Errorf("complex union constraint should contain 'or': %v", complexConstraintStr)
+	}
+	// Check that it contains all member constraints
+	if !strings.Contains(complexConstraintStr, "(is-OString (atom v))") {
+		t.Errorf("missing string constraint in complex union: %v", complexConstraintStr)
+	}
+	if !strings.Contains(complexConstraintStr, "(is-OBoolean (atom (select (obj v) \"field1\")))") {
+		t.Errorf("missing object field constraint in complex union: %v", complexConstraintStr)
+	}
+	if !strings.Contains(complexConstraintStr, "(is-OArray v)") {
+		t.Errorf("missing array constraint in complex union: %v", complexConstraintStr)
+	}
+
+	// Test nested union: (string | int) | boolean
+	nestedUnionType := &types.RegoTypeDef{
+		Kind: types.KindUnion,
+		Union: []types.RegoTypeDef{
+			{
+				Kind: types.KindUnion,
+				Union: []types.RegoTypeDef{
+					{
+						Kind:       types.KindAtomic,
+						AtomicType: types.AtomicString,
+					},
+					{
+						Kind:       types.KindAtomic,
+						AtomicType: types.AtomicInt,
+					},
+				},
+			},
+			{
+				Kind:       types.KindAtomic,
+				AtomicType: types.AtomicBoolean,
+			},
+		},
+	}
+	nestedConstr, err := tr.getSmtConstr("w", nestedUnionType)
+	if err != nil {
+		t.Fatalf("unexpected error for nested union: %v", err)
+	}
+	if len(nestedConstr) != 1 {
+		t.Errorf("expected 1 constraint for nested union, got %d", len(nestedConstr))
+	}
+	nestedConstraintStr := nestedConstr[0]
+	if !strings.Contains(nestedConstraintStr, "(or ") {
+		t.Errorf("nested union constraint should contain 'or': %v", nestedConstraintStr)
+	}
+	// Should contain all flattened constraints
+	if !strings.Contains(nestedConstraintStr, "(is-OString (atom w))") {
+		t.Errorf("missing string constraint in nested union: %v", nestedConstraintStr)
+	}
+	if !strings.Contains(nestedConstraintStr, "(is-ONumber (atom w))") {
+		t.Errorf("missing int constraint in nested union: %v", nestedConstraintStr)
+	}
+	if !strings.Contains(nestedConstraintStr, "(is-OBoolean (atom w))") {
+		t.Errorf("missing boolean constraint in nested union: %v", nestedConstraintStr)
+	}
+}
+
+func TestTranslator_getSmtConstr_UnionWithError(t *testing.T) {
+	t.Parallel()
+	tr := &Translator{}
+
+	// Test union with unsupported member type
+	badUnionType := &types.RegoTypeDef{
+		Kind: types.KindUnion,
+		Union: []types.RegoTypeDef{
+			{
+				Kind:       types.KindAtomic,
+				AtomicType: types.AtomicString,
+			},
+			{
+				Kind: types.KindUnknown, // This should cause an error
+			},
+		},
+	}
+	_, err := tr.getSmtConstr("x", badUnionType)
+	if err == nil {
+		t.Error("expected error for union with unsupported member type, got nil")
+	}
+
+	// Test non-union type passed to getSmtUnionConstr
+	nonUnionType := &types.RegoTypeDef{
+		Kind:       types.KindAtomic,
+		AtomicType: types.AtomicString,
+	}
+	_, err = tr.getSmtUnionConstr("y", nonUnionType)
+	if err == nil {
+		t.Error("expected error for non-union type passed to getSmtUnionConstr, got nil")
+	}
+}
