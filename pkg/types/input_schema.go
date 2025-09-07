@@ -75,6 +75,8 @@ func (s *InputSchema) processNode(node interface{}) RegoTypeDef {
 		return NewAtomicType(AtomicInt)
 	case bool:
 		return NewAtomicType(AtomicBoolean)
+	case nil:
+		return NewAtomicType(AtomicNull)
 	default:
 		return NewUnknownType()
 	}

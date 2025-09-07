@@ -186,6 +186,59 @@ test { x := input.review.object.metadata }`,
 	}
 }
 
+func TestInputSchemaBasedInferenceComplex(t *testing.T) {
+	t.Parallel()
+
+	// Sample YAML input
+	yamlInput := []byte("kind: \"Pod\"\n" +
+		"metadata:\n" +
+		"  name: \"test-pod\"\n" +
+		"  image: null\n" +
+		"spec:\n" +
+		"  containers:\n" +
+		"    - name: \"container1\"\n" +
+		"      image: \"nginx\"\n")
+
+	schema := NewInputSchema()
+	err := schema.ProcessYAMLInput(yamlInput)
+	if err != nil {
+		t.Fatalf("Failed to process YAML input: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "input object reference",
+			rule: `package test
+test { x := input.review.object.metadata[_] }`,
+			varName:  "x",
+			expected: NewUnionType([]RegoTypeDef{NewAtomicType(AtomicNull), NewAtomicType(AtomicString)}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+
+			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
+			}
+		})
+	}
+}
+
 func TestEqualityBasedInference(t *testing.T) {
 	t.Parallel()
 	schema := NewInputSchema()
