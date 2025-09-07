@@ -581,13 +581,145 @@ func TestTypeDepth(t *testing.T) {
 			}),
 			expected: 2,
 		},
+		{
+			name: "union of atomic and array",
+			typeDef: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewArrayType(NewAtomicType(AtomicInt)),
+			}),
+			expected: 1,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			depth := tt.typeDef.TypeDepth()
 			if depth != tt.expected {
 				t.Errorf("TypeDepth() = %d, want %d", depth, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCanonizeUnion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    RegoTypeDef
+		expected RegoTypeDef
+	}{
+		{
+			name:     "non-union type should be unchanged",
+			input:    NewAtomicType(AtomicString),
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "union with no duplicates should remain unchanged",
+			input: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicInt),
+				NewArrayType(NewAtomicType(AtomicBoolean)),
+			}),
+			expected: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicInt),
+				NewArrayType(NewAtomicType(AtomicBoolean)),
+			}),
+		},
+		{
+			name: "union with duplicate atomic types should remove duplicates",
+			input: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicInt),
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicBoolean),
+				NewAtomicType(AtomicInt),
+			}),
+			expected: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicInt),
+				NewAtomicType(AtomicBoolean),
+			}),
+		},
+		{
+			name: "union with duplicate complex types should remove duplicates",
+			input: NewUnionType([]RegoTypeDef{
+				NewArrayType(NewAtomicType(AtomicString)),
+				NewObjectType(map[string]RegoTypeDef{
+					"field": NewAtomicType(AtomicInt),
+				}),
+				NewArrayType(NewAtomicType(AtomicString)),
+				NewAtomicType(AtomicBoolean),
+			}),
+			expected: NewUnionType([]RegoTypeDef{
+				NewArrayType(NewAtomicType(AtomicString)),
+				NewObjectType(map[string]RegoTypeDef{
+					"field": NewAtomicType(AtomicInt),
+				}),
+				NewAtomicType(AtomicBoolean),
+			}),
+		},
+		{
+			name: "single-member union should simplify to that member",
+			input: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+			}),
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "union with all duplicate members should simplify to single member",
+			input: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicString),
+			}),
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name:     "empty union should remain empty",
+			input:    NewUnionType([]RegoTypeDef{}),
+			expected: NewUnionType([]RegoTypeDef{}),
+		},
+		{
+			name: "union with nested objects should handle duplicates correctly",
+			input: NewUnionType([]RegoTypeDef{
+				NewObjectType(map[string]RegoTypeDef{
+					"a": NewAtomicType(AtomicString),
+					"b": NewObjectType(map[string]RegoTypeDef{
+						"nested": NewAtomicType(AtomicInt),
+					}),
+				}),
+				NewAtomicType(AtomicBoolean),
+				NewObjectType(map[string]RegoTypeDef{
+					"a": NewAtomicType(AtomicString),
+					"b": NewObjectType(map[string]RegoTypeDef{
+						"nested": NewAtomicType(AtomicInt),
+					}),
+				}),
+			}),
+			expected: NewUnionType([]RegoTypeDef{
+				NewObjectType(map[string]RegoTypeDef{
+					"a": NewAtomicType(AtomicString),
+					"b": NewObjectType(map[string]RegoTypeDef{
+						"nested": NewAtomicType(AtomicInt),
+					}),
+				}),
+				NewAtomicType(AtomicBoolean),
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Make a copy to test in-place modification
+			input := tt.input
+			input.CanonizeUnion()
+
+			if !input.IsEqual(&tt.expected) {
+				t.Errorf("CanonizeUnion() resulted in %v, want %v", input, tt.expected)
 			}
 		})
 	}

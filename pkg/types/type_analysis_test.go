@@ -720,7 +720,7 @@ test { arr := ["a", "b"]; x := arr[_] }`,
 			rule: `package test
 test { obj := {"foo": 1, "bar": "baz"}; x := obj[_] }`,
 			varName:  "x",
-			expected: NewUnknownType(), // Mixed types, should be unknown
+			expected: NewUnionType([]RegoTypeDef{NewAtomicType(AtomicString), NewAtomicType(AtomicInt)}),
 		},
 		{
 			name: "nested array indexing",

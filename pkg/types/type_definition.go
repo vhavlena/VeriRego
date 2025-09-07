@@ -13,6 +13,7 @@ const (
 	KindArray   TypeKind = "array"
 	KindObject  TypeKind = "object"
 	KindUnknown TypeKind = "unknown"
+	KindUnion   TypeKind = "union"
 )
 
 // AtomicType represents atomic types in Rego
@@ -24,6 +25,7 @@ const (
 	AtomicBoolean  AtomicType = "boolean"
 	AtomicFunction AtomicType = "function"
 	AtomicSet      AtomicType = "set"
+	AtomicNull     AtomicType = "null"
 )
 
 // RegoTypeDef represents a full type definition in Rego
@@ -32,6 +34,7 @@ type RegoTypeDef struct {
 	AtomicType   AtomicType             // The specific atomic type if Kind is atomic
 	ArrayType    *RegoTypeDef           // The type of array elements if Kind is array
 	ObjectFields map[string]RegoTypeDef // The field types if Kind is object
+	Union        []RegoTypeDef          // If KindUnion, this holds union member types
 }
 
 //----------------------------------------------------------------
@@ -96,6 +99,14 @@ func NewObjectType(fields map[string]RegoTypeDef) RegoTypeDef {
 	}
 }
 
+// NewUnionType creates a new RegoTypeDef for a union type
+func NewUnionType(types []RegoTypeDef) RegoTypeDef {
+	return RegoTypeDef{
+		Kind:  KindUnion,
+		Union: types,
+	}
+}
+
 // NewUnknownType creates a new RegoTypeDef for an unknown type
 func NewUnknownType() RegoTypeDef {
 	return RegoTypeDef{
@@ -121,6 +132,11 @@ func (t *RegoTypeDef) IsObject() bool {
 // IsUnknown returns true if the type is unknown
 func (t *RegoTypeDef) IsUnknown() bool {
 	return t.Kind == KindUnknown
+}
+
+// IsUnion returns true if the type is a union
+func (t *RegoTypeDef) IsUnion() bool {
+	return t.Kind == KindUnion
 }
 
 // GetArrayElementType returns the type of array elements
@@ -166,6 +182,16 @@ func (t *RegoTypeDef) IsEqual(other *RegoTypeDef) bool {
 		for field, type1 := range t.ObjectFields {
 			type2, exists := other.ObjectFields[field]
 			if !exists || !type1.IsEqual(&type2) {
+				return false
+			}
+		}
+		return true
+	case KindUnion:
+		if len(t.Union) != len(other.Union) {
+			return false
+		}
+		for i := range t.Union {
+			if !t.Union[i].IsEqual(&other.Union[i]) {
 				return false
 			}
 		}
@@ -221,16 +247,32 @@ func hasMorePreciseField(t1, t2 *RegoTypeDef) bool {
 	return false
 }
 
-// IsMorePrecise returns true if this type is more precise than the other type.
-// An atomic type is more precise than non-atomic types.
-// For objects, having more fields (recursively) means more precise.
-// For arrays, having more precise element type means more precise.
+// IsMorePrecise reports whether t is strictly more precise than other.
+//
+// Precision rules (summary):
+//   - Unknown is the least precise type. If t is unknown, it is not more precise
+//     than any type. If other is unknown and t is not, t is considered more precise.
+//   - If kinds differ, an atomic type is treated as more precise than non-atomic kinds.
+//   - For arrays, precision is determined by the element type: an array is more
+//     precise if its element type is more precise than the other's element type.
+//   - For objects, a type is more precise if it has at least the same fields as
+//     the other and each corresponding field type is at least as precise, and
+//     either it has strictly more fields or at least one corresponding field is
+//     strictly more precise (see compareObjects and hasMorePreciseField).
+//   - For unions, the receiver delegates to isMorePreciseUnion: a union is more
+//     precise than another union when every member of the receiver is present in
+//     the other (subset relation).
+//
+// Returns true when t can be considered strictly more precise than other.
 func (t *RegoTypeDef) IsMorePrecise(other *RegoTypeDef) bool {
 	if t.IsUnknown() {
 		return false
 	}
 	if other.IsUnknown() {
 		return true
+	}
+	if t.IsUnion() {
+		return t.isMorePreciseUnion(other)
 	}
 	if t.Kind != other.Kind {
 		return t.IsAtomic()
@@ -248,8 +290,49 @@ func (t *RegoTypeDef) IsMorePrecise(other *RegoTypeDef) bool {
 		return t.compareObjects(other)
 	case KindUnknown:
 		return false
+	case KindUnion:
+		panic("unreachable")
 	}
 	return false
+}
+
+// subsetUnion reports whether the receiver (which must be a union type)
+// is a subset of the provided slice of union members. It returns true when
+// every member of the receiver's union has an equal member in `other`.
+// The method panics if called on a non-union receiver.
+func (t *RegoTypeDef) subsetUnion(other []RegoTypeDef) bool {
+	if !t.IsUnion() {
+		panic("subsetUnion called on non-union type")
+	}
+
+	for _, u := range t.Union {
+		found := false
+		for _, o := range other {
+			if u.IsEqual(&o) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// isMorePreciseUnion compares two union types for precision. The receiver
+// must be a union; the function returns true when every member of the
+// receiver's union appears (by equality) in `other`'s union. If `other`
+// is not a union the function returns false. It panics if called on a
+// non-union receiver.
+func (t *RegoTypeDef) isMorePreciseUnion(other *RegoTypeDef) bool {
+	if !t.IsUnion() {
+		panic("isMorePreciseUnion called on non-union type")
+	}
+	if !other.IsUnion() {
+		return false
+	}
+	return t.subsetUnion(other.Union)
 }
 
 // GetTypeFromPath walks the type definition following the provided path of PathNode
@@ -279,23 +362,18 @@ func (t *RegoTypeDef) GetTypeFromPath(path []PathNode) (*RegoTypeDef, bool) {
 
 	switch t.Kind {
 	case KindObject:
-		// for non-ground keys (= variables), we need to check all values for all
-		// keys have the same type. If not, we cannot determine the type.
+		// for non-ground keys (= variables), we take union of all field types.
 		if !path[0].IsGround {
 			if len(t.ObjectFields) == 0 {
 				return nil, false
 			}
-			var allFieldType *RegoTypeDef
+			var allFieldTypes []RegoTypeDef
 			for _, v := range t.ObjectFields {
-				if allFieldType == nil {
-					allFieldType = &v
-				} else {
-					if !allFieldType.IsEqual(&v) {
-						return nil, false // Different field types, cannot determine
-					}
-				}
+				allFieldTypes = append(allFieldTypes, v)
 			}
-			return allFieldType.GetTypeFromPath(remainingPath)
+			unionType := NewUnionType(allFieldTypes)
+			unionType.CanonizeUnion()
+			return unionType.GetTypeFromPath(remainingPath)
 		}
 
 		fieldType, exists := t.ObjectFields[currentKey]
@@ -314,7 +392,7 @@ func (t *RegoTypeDef) GetTypeFromPath(path []PathNode) (*RegoTypeDef, bool) {
 			return t.ArrayType, true
 		}
 		return t.ArrayType.GetTypeFromPath(remainingPath)
-	case KindAtomic, KindUnknown:
+	case KindAtomic, KindUnknown, KindUnion:
 		return nil, false
 	}
 	return nil, false
@@ -375,6 +453,19 @@ func (t *RegoTypeDef) prettyPrintWithIndentShort(indent int, short bool) string 
 			result += ind + spaces + k + ": " + v.prettyPrintWithIndentShort(indent+1, short) + "\n"
 		}
 		result += ind + "}"
+		return result
+	case KindUnion:
+		if short {
+			return "union"
+		}
+		if len(t.Union) == 0 {
+			return "union{}"
+		}
+		result := "union[\n"
+		for _, m := range t.Union {
+			result += ind + spaces + m.prettyPrintWithIndentShort(indent+1, short) + "\n"
+		}
+		result += ind + "]"
 		return result
 	case KindUnknown:
 		return "unknown"
@@ -445,6 +536,43 @@ func (t *RegoTypeDef) TypeDepth() int {
 			}
 		}
 		return 1 + maxDepth
+	case KindUnion:
+		maxDepth := 0
+		for _, memberType := range t.Union {
+			depth := memberType.TypeDepth()
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+		}
+		return maxDepth
 	}
 	return 0
+}
+
+// CanonizeUnion removes duplicate equivalent members from the union in-place.
+// The operation preserves the first occurrence order of unique members and is
+// a no-op when the receiver is not a union.
+func (t *RegoTypeDef) CanonizeUnion() {
+	if !t.IsUnion() {
+		return
+	}
+	unique := make([]RegoTypeDef, 0, len(t.Union))
+	for i := range t.Union {
+		item := t.Union[i]
+		found := false
+		for j := range unique {
+			if unique[j].IsEqual(&item) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			unique = append(unique, item)
+		}
+	}
+	t.Union = unique
+	if len(t.Union) == 1 {
+		// Simplify single-member union to that member type
+		*t = t.Union[0]
+	}
 }
