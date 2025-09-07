@@ -3,6 +3,7 @@ package smt
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"time"
 
@@ -198,14 +199,49 @@ func (t *Translator) getSmtConstrAssert(smtValue string, tp *types.RegoTypeDef) 
 //	[]string: A slice of SMT-LIB constraint strings.
 //	error: An error if constraints could not be generated.
 func (t *Translator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
-	if tp.IsAtomic() {
+	switch {
+	case tp.IsAtomic():
 		return t.getSmtAtomConstr(smtValue, tp)
-	} else if tp.IsObject() {
+	case tp.IsObject():
 		return t.getSmtObjectConstr(smtValue, tp)
-	} else if tp.IsArray() {
+	case tp.IsArray():
 		return t.getSmtArrConstr(smtValue, tp)
+	case tp.IsUnion():
+		return t.getSmtUnionConstr(smtValue, tp)
+	default:
+		return nil, err.ErrUnsupportedType
 	}
-	return nil, err.ErrUnsupportedType
+}
+
+// getSmtUnionConstr generates SMT-LIB constraints for a union type by combining
+// the constraints of each union member with a logical 'or'.
+//
+// Parameters:
+//
+//	smtValue string: The SMT variable or value name.
+//	tp *types.RegoTypeDef: The Rego union type definition.
+//
+// Returns:
+//
+//	[]string: A slice containing a single SMT-LIB 'or' expression that
+//		combines member constraints, or an empty slice on error.
+//	error: An error if any member constraint generation fails or if the
+//		type is not a union.
+
+func (t *Translator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+	if !tp.IsUnion() {
+		return nil, err.ErrUnsupportedType
+	}
+
+	orConstr := make([]string, 0, 64)
+	for _, member := range tp.Union {
+		memberConstr, err := t.getSmtConstr(smtValue, &member)
+		if err != nil {
+			return nil, err
+		}
+		orConstr = append(orConstr, memberConstr...)
+	}
+	return []string{fmt.Sprintf("(or %s)", strings.Join(orConstr, " "))}, nil
 }
 
 // getSmtObjectConstr generates SMT-LIB constraints for an object value and type.
@@ -225,7 +261,14 @@ func (t *Translator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) 
 	}
 
 	andConstr := make([]string, 0, 64)
-	for key, val := range tp.ObjectFields {
+	// Ensure deterministic enumeration of object fields by sorting keys.
+	keys := make([]string, 0, len(tp.ObjectFields))
+	for k := range tp.ObjectFields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		val := tp.ObjectFields[key]
 		sel := fmt.Sprintf("(select (obj %s) \"%s\")", smtValue, key)
 		if !val.IsAtomic() {
 			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(&val), sel))
@@ -263,6 +306,8 @@ func (t *Translator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) ([
 		return []string{fmt.Sprintf("(is-ONumber (atom %s))", smtValue)}, nil
 	case types.AtomicBoolean:
 		return []string{fmt.Sprintf("(is-OBoolean (atom %s))", smtValue)}, nil
+	case types.AtomicNull:
+		return []string{fmt.Sprintf("(is-ONull (atom %s))", smtValue)}, nil
 	default:
 		return nil, err.ErrUnsupportedAtomic
 	}

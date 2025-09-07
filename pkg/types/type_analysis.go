@@ -203,7 +203,10 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value, inherType *RegoTypeDef) Rego
 	// Use GetType to check for existing type (caching)
 	key := ta.getValueKey(val)
 	if typ, exists := ta.Types[key]; exists {
-		return typ
+		// if type is unknown, try to make it more precise
+		if !typ.IsUnknown() {
+			return typ
+		}
 	}
 
 	var typ RegoTypeDef
@@ -290,7 +293,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 		}
 		// Fallback to schema for other input references
 		if len(ref) > 3 {
-			path := refToPath(ref[3:])
+			path := FromRef(ref[3:])
 			if typ, exists := ta.Schema.GetType(path); exists && typ != nil {
 				return *typ
 			}
@@ -302,7 +305,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 		strRule := ref[len(ta.packagePath)].Value.String()
 		key := strRule[1 : len(strRule)-1]
 		if typ, exists := ta.Types[key]; exists {
-			path := refToPath(ref[len(ta.packagePath)+1:])
+			path := FromRef(ref[len(ta.packagePath)+1:])
 			if pathType, exists := typ.GetTypeFromPath(path); exists {
 				return *pathType
 			}
@@ -312,7 +315,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	// handle references to variables (arrays)
 	refHead := ref[0].Value.String()
 	if typ, exists := ta.Types[refHead]; exists {
-		path := refToPath(ref[1:])
+		path := FromRef(ref[1:])
 		if pathType, exists := typ.GetTypeFromPath(path); exists {
 			return *pathType
 		}
@@ -499,25 +502,4 @@ func AnalyzeTypes(rule *ast.Rule, schema *InputSchema, params Parameters) *TypeA
 	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema, params)
 	analyzer.AnalyzeRule(rule)
 	return analyzer
-}
-
-// refToPath converts a Rego AST reference to a slice of strings representing the path.
-//
-// Parameters:
-//
-//	ref ast.Ref: The reference to convert.
-//
-// Returns:
-//
-//	[]string: The path as a slice of strings.
-func refToPath(ref ast.Ref) []string {
-	path := make([]string, 0, len(ref))
-	for _, term := range ref {
-		if str, ok := term.Value.(ast.String); ok {
-			path = append(path, string(str))
-		} else {
-			path = append(path, term.String())
-		}
-	}
-	return path
 }
