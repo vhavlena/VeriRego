@@ -24,50 +24,109 @@ func RandString(n int) string {
 	return string(b)
 }
 
-// GenerateTypeDefs generates SMT-LIB datatype and sort declarations, variable declarations, and constraints for all variables.
+//----------------------------------------------------------------
+
+type Bucket struct {
+	TypeDecls []string // SMT type declarations
+	Decls     []string // SMT variable declarations
+	Asserts   []string // SMT assertions
+}
+
+func NewBucket() *Bucket {
+	return &Bucket{
+		Decls:     make([]string, 0, 64),
+		Asserts:   make([]string, 0, 128),
+		TypeDecls: make([]string, 0, 32),
+	}
+}
+
+func (b *Bucket) Append(other *Bucket) {
+	b.Decls = append(b.Decls, other.Decls...)
+	b.Asserts = append(b.Asserts, other.Asserts...)
+	b.TypeDecls = append(b.TypeDecls, other.TypeDecls...)
+}
+
+//----------------------------------------------------------------
+
+// GenerateTypeDecls generates SMT-LIB datatype and sort declarations
+// required by the types of the variables listed in usedVars.
 //
-// It determines the maximum type depth, generates the necessary SMT-LIB type and sort definitions,
-// declares each variable, and asserts the SMT constraints for each variable according to its type.
-// The generated lines are appended to the Translator's smtLines field.
+// Parameters:
+//
+//	usedVars map[string]any: map whose keys are variable names that should be considered.
 //
 // Returns:
 //
-//	error: An error if any variable declaration or constraint generation fails.
-func (t *Translator) GenerateTypeDefs(usedVars map[string]any) error {
+//	*Bucket: Bucket containing TypeDecls (datatype and sort definitions).
+//	error: An error if generation fails.
+func (t *Translator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, error) {
+	bucket := NewBucket()
+
 	datatypes := t.getDatatypesDeclaration()
-	t.smtTypeDecls = append(t.smtTypeDecls, datatypes...)
+	bucket.TypeDecls = append(bucket.TypeDecls, datatypes...)
 
 	maxDepth := 0
-	vars := make([]string, 0, len(t.TypeInfo.Types))
 	for name, tp := range t.TypeInfo.Types {
 		if _, ok := usedVars[name]; !ok {
 			continue
 		}
-		vars = append(vars, name)
 		maxDepth = max(maxDepth, tp.TypeDepth())
 	}
 	sortDefs := t.getSortDefinitions(maxDepth)
-	t.smtTypeDecls = append(t.smtTypeDecls, sortDefs...)
+	bucket.TypeDecls = append(bucket.TypeDecls, sortDefs...)
+	return bucket, nil
+}
 
-	for _, name := range vars {
-		tp := t.TypeInfo.Types[name]
-		smtVar, er := getVarDeclaration(name, &tp)
-		if er != nil {
-			return er
-		}
-		t.smtDecls = append(t.smtDecls, smtVar)
+// GenerateVarDecl generates the SMT-LIB declaration and constraint assertion
+// for a single variable named varName.
+//
+// Parameters:
+//
+//	varName string: The variable name. Must exist in t.TypeInfo.Types.
+//
+// Returns:
+//
+//	*Bucket: A Bucket with one entry in Decls (declare-fun) and one in Asserts (constraint assertion).
+//	error: An error if generation fails.
+func (t *Translator) GenerateVarDecl(varName string) (*Bucket, error) {
+	bucket := NewBucket()
+	tp := t.TypeInfo.Types[varName]
+	smtVar, er := getVarDeclaration(varName, &tp)
+	if er != nil {
+		return nil, er
 	}
+	bucket.Decls = append(bucket.Decls, smtVar)
 
-	for _, name := range vars {
-		tp := t.TypeInfo.Types[name]
-		smtConstr, er := t.getSmtConstrAssert(name, &tp)
-		if er != nil {
-			return er
-		}
-		t.smtAsserts = append(t.smtAsserts, smtConstr)
+	smtConstr, er := t.getSmtConstrAssert(varName, &tp)
+	if er != nil {
+		return nil, er
 	}
+	bucket.Asserts = append(bucket.Asserts, smtConstr)
 
-	return nil
+	return bucket, nil
+}
+
+// GenerateVarDecls generates SMT-LIB variable declarations and constraint
+// assertions for every variable whose name appears as a key in usedVars.
+//
+// Parameters:
+//
+//	usedVars map[string]any: map with variable names to generate declarations for.
+//
+// Returns:
+//
+//	*Bucket: Aggregated Bucket of declarations and assertions.
+//	error: An error if any generation fails.
+func (t *Translator) GenerateVarDecls(usedVars map[string]any) (*Bucket, error) {
+	bucket := NewBucket()
+	for name, _ := range usedVars {
+		varBucket, er := t.GenerateVarDecl(name)
+		if er != nil {
+			return nil, er
+		}
+		bucket.Append(varBucket)
+	}
+	return bucket, nil
 }
 
 // getTypeConstr returns the SMT type constraint function name for a given Rego type.

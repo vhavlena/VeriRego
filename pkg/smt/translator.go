@@ -42,6 +42,19 @@ func (t *Translator) SmtLines() []string {
 	return lines
 }
 
+// AppendBucket appends the contents of the provided Bucket into the
+// Translator's internal SMT-LIB buffers.
+//
+// Parameters:
+//
+//	bucket *Bucket: Bucket whose TypeDecls, Decls and Asserts will be appended
+//	to the Translator's internal slices (t.smtTypeDecls, t.smtDecls, t.smtAsserts).
+func (t *Translator) AppendBucket(bucket *Bucket) {
+	t.smtTypeDecls = append(t.smtTypeDecls, bucket.TypeDecls...)
+	t.smtDecls = append(t.smtDecls, bucket.Decls...)
+	t.smtAsserts = append(t.smtAsserts, bucket.Asserts...)
+}
+
 // InputParameterVars returns the string names of variables occurring as rule input parameters.
 //
 // Returns:
@@ -105,9 +118,19 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 func (t *Translator) GenerateSmtContent() error {
 	// Gather input parameter variables
 	globalVars := t.getSmtVarsDeclare()
-	if err := t.GenerateTypeDefs(globalVars); err != nil {
+
+	bucket, err := t.GenerateTypeDecls(globalVars)
+	if err != nil {
 		return err
 	}
+	t.AppendBucket(bucket)
+
+	bucket, err = t.GenerateVarDecls(globalVars)
+	if err != nil {
+		return err
+	}
+	t.AppendBucket(bucket)
+
 	if err := t.TranslateModuleToSmt(); err != nil {
 		return err
 	}
