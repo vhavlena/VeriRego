@@ -191,7 +191,7 @@ func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
 				baseVar = getSchemaVar(ref)
 			}
 		}
-		tp, ok := t.TypeInfo.Types[baseVar]
+		tp, ok := t.TypeDefs.TypeInfo.Types[baseVar]
 		if !ok {
 			return "", verr.ErrTypeNotFound
 		}
@@ -219,7 +219,7 @@ func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
 func (t *Translator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 	varName := t.getFreshVariable("const_arr")
 	termStr := arr.String()
-	tp, ok := t.TypeInfo.Types[termStr]
+	tp, ok := t.TypeDefs.TypeInfo.Types[termStr]
 	if !ok {
 		return "", verr.ErrTypeNotFound
 	}
@@ -229,7 +229,7 @@ func (t *Translator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 	}
 	// store the variable in VarMap to store the fresh variable name
 	t.VarMap[termStr] = varName
-	varAssert, err := t.getSmtConstrAssert(varName, &tp)
+	varAssert, err := t.TypeDefs.getSmtConstrAssert(varName, &tp)
 	if err != nil {
 		return "", err
 	}
@@ -263,14 +263,14 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 	// gather parameter types
 	pars := make([]string, len(terms)-1)
 	for i := 1; i < len(terms); i++ {
-		tp, ok := t.TypeInfo.Types[terms[i].String()]
+		tp, ok := t.TypeDefs.TypeInfo.Types[terms[i].String()]
 		if !ok {
 			return verr.ErrTypeNotFound
 		}
 		pars[i-1] = getSmtType(&tp)
 	}
 	// gather return type
-	rtype, ok := t.TypeInfo.Types[terms[0].String()]
+	rtype, ok := t.TypeDefs.TypeInfo.Types[terms[0].String()]
 	if !ok {
 		return verr.ErrTypeNotFound
 	}
@@ -292,7 +292,7 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 //	error: An error if type information is missing or conversion fails.
 func (t *Translator) handleConstObject(obj ast.Object) (string, error) {
 	varName := t.getFreshVariable("const_obj")
-	tp, ok := t.TypeInfo.Types[obj.String()]
+	tp, ok := t.TypeDefs.TypeInfo.Types[obj.String()]
 	if !ok {
 		return "", verr.ErrTypeNotFound
 	}
@@ -303,7 +303,7 @@ func (t *Translator) handleConstObject(obj ast.Object) (string, error) {
 	}
 	t.smtDecls = append(t.smtDecls, decl)
 
-	smtConstr, er := t.getSmtConstrAssert(varName, &tp)
+	smtConstr, er := t.TypeDefs.getSmtConstrAssert(varName, &tp)
 	if er != nil {
 		return "", er
 	}

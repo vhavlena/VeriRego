@@ -9,18 +9,18 @@ import (
 
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
-	TypeInfo     *types.TypeAnalyzer // Type information for Rego terms
-	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
-	smtTypeDecls []string            // SMT type declarations
-	smtDecls     []string            // SMT variable declarations
-	smtAsserts   []string            // SMT assertions
+	TypeDefs     *TypeDefs         // Type definitions and type-related operations
+	VarMap       map[string]string // Mapping of Rego term keys to SMT variable names
+	smtTypeDecls []string          // SMT type declarations
+	smtDecls     []string          // SMT variable declarations
+	smtAsserts   []string          // SMT assertions
 	mod          *ast.Module
 }
 
 // NewTranslator creates a new Translator instance with the given TypeAnalyzer.
 func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 	return &Translator{
-		TypeInfo:     typeInfo,
+		TypeDefs:     NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
 		smtTypeDecls: make([]string, 0, 32),
 		smtDecls:     make([]string, 0, 64),
@@ -92,10 +92,10 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 	}
 
 	globalVars := make(map[string]any)
-	if t.TypeInfo != nil {
-		for name := range t.TypeInfo.Types {
+	if t.TypeDefs.TypeInfo != nil {
+		for name := range t.TypeDefs.TypeInfo.Types {
 			if _, isParam := inputParamSet[name]; !isParam {
-				_, okVar := t.TypeInfo.Refs[name].(ast.Var)
+				_, okVar := t.TypeDefs.TypeInfo.Refs[name].(ast.Var)
 				if okVar {
 					globalVars[name] = struct{}{}
 				}
@@ -119,13 +119,13 @@ func (t *Translator) GenerateSmtContent() error {
 	// Gather input parameter variables
 	globalVars := t.getSmtVarsDeclare()
 
-	bucket, err := t.GenerateTypeDecls(globalVars)
+	bucket, err := t.TypeDefs.GenerateTypeDecls(globalVars)
 	if err != nil {
 		return err
 	}
 	t.AppendBucket(bucket)
 
-	bucket, err = t.GenerateVarDecls(globalVars)
+	bucket, err = t.TypeDefs.GenerateVarDecls(globalVars)
 	if err != nil {
 		return err
 	}
@@ -166,10 +166,10 @@ func (t *Translator) TranslateModuleToSmt() error {
 //
 //	string: A fresh variable name with the given prefix, guaranteed not to conflict with existing variables.
 func (t *Translator) getFreshVariable(prefix string) string {
-	// Collect all used names: keys in TypeInfo.Types and values in VarMap
+	// Collect all used names: keys in TypeDefs.TypeInfo.Types and values in VarMap
 	used := make(map[string]struct{})
-	if t.TypeInfo != nil {
-		for name := range t.TypeInfo.Types {
+	if t.TypeDefs.TypeInfo != nil {
+		for name := range t.TypeDefs.TypeInfo.Types {
 			used[name] = struct{}{}
 		}
 	}

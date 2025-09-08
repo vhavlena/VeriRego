@@ -19,17 +19,17 @@ func newDummyTranslator() *Translator {
 		Refs: map[string]ast.Value{},
 	}
 	return &Translator{
-		TypeInfo: ta,
+		TypeDefs: NewTypeDefs(ta),
 		VarMap:   make(map[string]string),
 	}
 }
 
 func newTestTranslatorWithTypes(typeMap map[string]types.RegoTypeDef) *Translator {
 	return &Translator{
-		TypeInfo: &types.TypeAnalyzer{
+		TypeDefs: NewTypeDefs(&types.TypeAnalyzer{
 			Types: typeMap,
 			Refs:  map[string]ast.Value{},
-		},
+		}),
 		VarMap: make(map[string]string),
 	}
 }
@@ -62,7 +62,7 @@ func TestRefToSmt_InputSchemaPath(t *testing.T) {
 	t.Parallel()
 	tr := newDummyTranslator()
 	ref := ast.MustParseRef("input.parameters.foo.bar.baz")
-	tr.TypeInfo.Types["input.parameters.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
+	tr.TypeDefs.TypeInfo.Types["input.parameters.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
 		"bar": types.NewObjectType(map[string]types.RegoTypeDef{
 			"baz": types.NewAtomicType(types.AtomicString),
 		}),
@@ -106,7 +106,7 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 	t.Parallel()
 	tr := newDummyTranslator()
 	// Setup nested type: input.data.review.foo.bar.baz
-	tr.TypeInfo.Types["input.data.review.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
+	tr.TypeDefs.TypeInfo.Types["input.data.review.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
 		"bar": types.NewObjectType(map[string]types.RegoTypeDef{
 			"baz": types.NewAtomicType(types.AtomicString),
 		}),
@@ -303,7 +303,7 @@ func TestExplicitArrayToSmt_Success(t *testing.T) {
 	// Add type info for the array string representation
 	arr := ast.NewArray(ast.IntNumberTerm(1), ast.IntNumberTerm(2), ast.IntNumberTerm(3))
 	arrStr := arr.String()
-	tr.TypeInfo.Types[arrStr] = types.NewArrayType(types.NewAtomicType(types.AtomicInt))
+	tr.TypeDefs.TypeInfo.Types[arrStr] = types.NewArrayType(types.NewAtomicType(types.AtomicInt))
 	got, err := tr.explicitArrayToSmt(arr)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
