@@ -26,14 +26,14 @@ func RandString(n int) string {
 
 //----------------------------------------------------------------
 
-// TypeDefs handles SMT type definitions and type-related operations
-type TypeDefs struct {
+// TypeTranslator handles SMT type definitions and type-related operations
+type TypeTranslator struct {
 	TypeInfo *types.TypeAnalyzer // Type information for Rego terms
 }
 
 // NewTypeDefs creates a new TypeDefs instance with the given TypeAnalyzer.
-func NewTypeDefs(typeInfo *types.TypeAnalyzer) *TypeDefs {
-	return &TypeDefs{
+func NewTypeDefs(typeInfo *types.TypeAnalyzer) *TypeTranslator {
+	return &TypeTranslator{
 		TypeInfo: typeInfo,
 	}
 }
@@ -73,7 +73,7 @@ func (b *Bucket) Append(other *Bucket) {
 //
 //	*Bucket: Bucket containing TypeDecls (datatype and sort definitions).
 //	error: An error if generation fails.
-func (td *TypeDefs) GenerateTypeDecls(usedVars map[string]any) (*Bucket, error) {
+func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, error) {
 	bucket := NewBucket()
 
 	datatypes := td.getDatatypesDeclaration()
@@ -102,7 +102,7 @@ func (td *TypeDefs) GenerateTypeDecls(usedVars map[string]any) (*Bucket, error) 
 //
 //	*Bucket: A Bucket with one entry in Decls (declare-fun) and one in Asserts (constraint assertion).
 //	error: An error if generation fails.
-func (td *TypeDefs) GenerateVarDecl(varName string) (*Bucket, error) {
+func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 	bucket := NewBucket()
 	tp := td.TypeInfo.Types[varName]
 	smtVar, er := getVarDeclaration(varName, &tp)
@@ -131,7 +131,7 @@ func (td *TypeDefs) GenerateVarDecl(varName string) (*Bucket, error) {
 //
 //	*Bucket: Aggregated Bucket of declarations and assertions.
 //	error: An error if any generation fails.
-func (td *TypeDefs) GenerateVarDecls(usedVars map[string]any) (*Bucket, error) {
+func (td *TypeTranslator) GenerateVarDecls(usedVars map[string]any) (*Bucket, error) {
 	bucket := NewBucket()
 	for name, _ := range usedVars {
 		varBucket, er := td.GenerateVarDecl(name)
@@ -166,7 +166,7 @@ func getTypeConstr(tp *types.RegoTypeDef) string {
 // Returns:
 //
 //	[]string: A slice of SMT-LIB datatype declaration strings.
-func (td *TypeDefs) getDatatypesDeclaration() []string {
+func (td *TypeTranslator) getDatatypesDeclaration() []string {
 	oatom := `
 (declare-datatypes ()
 	((OAtom
@@ -228,7 +228,7 @@ func getSmtType(tp *types.RegoTypeDef) string {
 // Returns:
 //
 //	[]string: A slice of SMT-LIB sort definition strings.
-func (td *TypeDefs) getSortDefinitions(maxDepth int) []string {
+func (td *TypeTranslator) getSortDefinitions(maxDepth int) []string {
 	defs := make([]string, 0, maxDepth+1)
 	for i := 0; i <= maxDepth; i++ {
 		if i == 0 {
@@ -251,7 +251,7 @@ func (td *TypeDefs) getSortDefinitions(maxDepth int) []string {
 //
 //	string: The SMT-LIB assertion string.
 //	error: An error if constraints could not be generated.
-func (td *TypeDefs) getSmtConstrAssert(smtValue string, tp *types.RegoTypeDef) (string, error) {
+func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoTypeDef) (string, error) {
 	andArr, er := td.getSmtConstr(smtValue, tp)
 	if er != nil {
 		return "", err.ErrSmtConstraints(er)
@@ -271,7 +271,7 @@ func (td *TypeDefs) getSmtConstrAssert(smtValue string, tp *types.RegoTypeDef) (
 //
 //	[]string: A slice of SMT-LIB constraint strings.
 //	error: An error if constraints could not be generated.
-func (td *TypeDefs) getSmtConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
 	switch {
 	case tp.IsAtomic():
 		return td.getSmtAtomConstr(smtValue, tp)
@@ -301,7 +301,7 @@ func (td *TypeDefs) getSmtConstr(smtValue string, tp *types.RegoTypeDef) ([]stri
 //	error: An error if any member constraint generation fails or if the
 //		type is not a union.
 
-func (td *TypeDefs) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
 	if !tp.IsUnion() {
 		return nil, err.ErrUnsupportedType
 	}
@@ -328,7 +328,7 @@ func (td *TypeDefs) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) ([
 //
 //	[]string: A slice of SMT-LIB constraint strings for the object fields.
 //	error: An error if constraints could not be generated.
-func (td *TypeDefs) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
 	if !tp.IsObject() {
 		return nil, err.ErrUnsupportedType
 	}
@@ -367,7 +367,7 @@ func (td *TypeDefs) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) (
 //
 //	[]string: A slice with a single SMT-LIB constraint string for the atomic value.
 //	error: An error if the atomic type is unsupported.
-func (td *TypeDefs) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
 	if !tp.IsAtomic() {
 		return nil, err.ErrUnsupportedType
 	}
@@ -397,7 +397,7 @@ func (td *TypeDefs) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) ([]
 //
 //	[]string: A slice of SMT-LIB constraint strings for the array and its elements.
 //	error: An error if constraints could not be generated.
-func (td *TypeDefs) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
 	if !tp.IsArray() {
 		return nil, err.ErrUnsupportedType
 	}

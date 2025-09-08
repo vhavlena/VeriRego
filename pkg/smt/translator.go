@@ -9,7 +9,7 @@ import (
 
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
-	TypeDefs     *TypeDefs         // Type definitions and type-related operations
+	TypeTrans    *TypeTranslator   // Type definitions and type-related operations
 	VarMap       map[string]string // Mapping of Rego term keys to SMT variable names
 	smtTypeDecls []string          // SMT type declarations
 	smtDecls     []string          // SMT variable declarations
@@ -20,7 +20,7 @@ type Translator struct {
 // NewTranslator creates a new Translator instance with the given TypeAnalyzer.
 func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 	return &Translator{
-		TypeDefs:     NewTypeDefs(typeInfo),
+		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
 		smtTypeDecls: make([]string, 0, 32),
 		smtDecls:     make([]string, 0, 64),
@@ -92,10 +92,10 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 	}
 
 	globalVars := make(map[string]any)
-	if t.TypeDefs.TypeInfo != nil {
-		for name := range t.TypeDefs.TypeInfo.Types {
+	if t.TypeTrans.TypeInfo != nil {
+		for name := range t.TypeTrans.TypeInfo.Types {
 			if _, isParam := inputParamSet[name]; !isParam {
-				_, okVar := t.TypeDefs.TypeInfo.Refs[name].(ast.Var)
+				_, okVar := t.TypeTrans.TypeInfo.Refs[name].(ast.Var)
 				if okVar {
 					globalVars[name] = struct{}{}
 				}
@@ -119,13 +119,13 @@ func (t *Translator) GenerateSmtContent() error {
 	// Gather input parameter variables
 	globalVars := t.getSmtVarsDeclare()
 
-	bucket, err := t.TypeDefs.GenerateTypeDecls(globalVars)
+	bucket, err := t.TypeTrans.GenerateTypeDecls(globalVars)
 	if err != nil {
 		return err
 	}
 	t.AppendBucket(bucket)
 
-	bucket, err = t.TypeDefs.GenerateVarDecls(globalVars)
+	bucket, err = t.TypeTrans.GenerateVarDecls(globalVars)
 	if err != nil {
 		return err
 	}
@@ -168,8 +168,8 @@ func (t *Translator) TranslateModuleToSmt() error {
 func (t *Translator) getFreshVariable(prefix string) string {
 	// Collect all used names: keys in TypeDefs.TypeInfo.Types and values in VarMap
 	used := make(map[string]struct{})
-	if t.TypeDefs.TypeInfo != nil {
-		for name := range t.TypeDefs.TypeInfo.Types {
+	if t.TypeTrans.TypeInfo != nil {
+		for name := range t.TypeTrans.TypeInfo.Types {
 			used[name] = struct{}{}
 		}
 	}

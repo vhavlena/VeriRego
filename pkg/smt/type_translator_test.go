@@ -9,7 +9,7 @@ import (
 
 func TestTypeDefs_getSmtConstr_AtomicString(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 	typeDef := &types.RegoTypeDef{
 		Kind:       types.KindAtomic,
 		AtomicType: types.AtomicString,
@@ -25,7 +25,7 @@ func TestTypeDefs_getSmtConstr_AtomicString(t *testing.T) {
 
 func TestTypeDefs_getSmtConstr_AtomicInt(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 	typeDef := &types.RegoTypeDef{
 		Kind:       types.KindAtomic,
 		AtomicType: types.AtomicInt,
@@ -41,7 +41,7 @@ func TestTypeDefs_getSmtConstr_AtomicInt(t *testing.T) {
 
 func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 	objType := &types.RegoTypeDef{
 		Kind: types.KindObject,
 		ObjectFields: map[string]types.RegoTypeDef{
@@ -98,7 +98,7 @@ func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 
 func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 	nestedType := &types.RegoTypeDef{
 		Kind: types.KindObject,
 		ObjectFields: map[string]types.RegoTypeDef{
@@ -155,7 +155,7 @@ func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 
 func TestTypeDefs_getSmtConstr_UnsupportedType(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 	unknownType := &types.RegoTypeDef{Kind: types.KindUnknown}
 	_, err := td.getSmtConstr("v", unknownType)
 	if err == nil {
@@ -165,7 +165,7 @@ func TestTypeDefs_getSmtConstr_UnsupportedType(t *testing.T) {
 
 func TestTypeDefs_getSmtConstr_UnsupportedAtomic(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 	badAtomic := &types.RegoTypeDef{
 		Kind:       types.KindAtomic,
 		AtomicType: "invalid-atomic-type", // invalid atomic type
@@ -178,7 +178,7 @@ func TestTypeDefs_getSmtConstr_UnsupportedAtomic(t *testing.T) {
 
 func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 	nestedType := &types.RegoTypeDef{
 		Kind: types.KindObject,
 		ObjectFields: map[string]types.RegoTypeDef{
@@ -223,7 +223,7 @@ func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 
 func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 
 	// Test simple array of atomic strings
 	arrType := &types.RegoTypeDef{
@@ -279,7 +279,7 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 
 func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 
 	// Test simple union: string | int
 	simpleUnionType := &types.RegoTypeDef{
@@ -408,7 +408,7 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 
 func TestTypeDefs_getSmtConstr_UnionWithError(t *testing.T) {
 	t.Parallel()
-	td := &TypeDefs{}
+	td := &TypeTranslator{}
 
 	// Test union with unsupported member type
 	badUnionType := &types.RegoTypeDef{
