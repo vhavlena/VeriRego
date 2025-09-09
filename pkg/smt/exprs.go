@@ -13,15 +13,16 @@ import (
 // Parameters:
 //
 //	expr *ast.Expr: The Rego AST expression to convert.
+//	bucket *Bucket: Bucket to collect any generated SMT declarations and assertions.
 //
 // Returns:
 //
 //	string: The SMT-LIB string representation of the expression.
 //	error: An error if the expression cannot be converted.
-func (t *Translator) exprToSmt(expr *ast.Expr) (string, error) {
+func (t *Translator) exprToSmt(expr *ast.Expr, bucket *Bucket) (string, error) {
 	// If the expression is a single term, just convert it
 	if term, ok := expr.Terms.(*ast.Term); ok {
-		smtStr, err := t.termToSmt(term)
+		smtStr, err := t.termToSmt(term, bucket)
 		if err != nil {
 			return "", err
 		}
@@ -39,7 +40,7 @@ func (t *Translator) exprToSmt(expr *ast.Expr) (string, error) {
 	// Convert all arguments
 	args := make([]string, len(terms)-1)
 	for i := 1; i < len(terms); i++ {
-		argStr, err := t.termToSmt(terms[i])
+		argStr, err := t.termToSmt(terms[i], bucket)
 		if err != nil {
 			return "", err
 		}
@@ -60,12 +61,13 @@ func (t *Translator) exprToSmt(expr *ast.Expr) (string, error) {
 // Parameters:
 //
 //	term *ast.Term: The Rego AST term to convert.
+//	bucket *Bucket: Bucket to collect any generated SMT declarations and assertions.
 //
 // Returns:
 //
 //	string: The SMT-LIB string representation of the term.
 //	error: An error if the term cannot be converted.
-func (t *Translator) termToSmt(term *ast.Term) (string, error) {
+func (t *Translator) termToSmt(term *ast.Term, bucket *Bucket) (string, error) {
 	switch v := term.Value.(type) {
 	case ast.String:
 		// Convert Rego string to SMT-LIB string literal
@@ -80,9 +82,9 @@ func (t *Translator) termToSmt(term *ast.Term) (string, error) {
 		return "false", nil
 	case *ast.Array:
 		// convert to a fresh variable with the array type
-		return t.explicitArrayToSmt(v)
+		return t.explicitArrayToSmt(v, bucket)
 	case ast.Object:
-		return t.handleConstObject(v)
+		return t.handleConstObject(v, bucket)
 	case ast.Set:
 		// Not directly supported in SMT-LIB, return error
 		return "", verr.ErrSetConversionNotSupported
@@ -96,7 +98,7 @@ func (t *Translator) termToSmt(term *ast.Term) (string, error) {
 		op := removeQuotes(v[0].String())
 		args := make([]string, len(v)-1)
 		for i := 1; i < len(v); i++ {
-			s, err := t.termToSmt(v[i])
+			s, err := t.termToSmt(v[i], bucket)
 			if err != nil {
 				return "", err
 			}
@@ -211,19 +213,20 @@ func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
 // Parameters:
 //
 //	arr *ast.Array: The Rego array to convert.
+//	bucket *Bucket: Bucket to collect the generated SMT variable declaration and assertions.
 //
 // Returns:
 //
 //	string: The SMT-LIB variable name representing the array.
 //	error: An error if the type information is missing or conversion fails.
-func (t *Translator) explicitArrayToSmt(arr *ast.Array) (string, error) {
+func (t *Translator) explicitArrayToSmt(arr *ast.Array, bucket *Bucket) (string, error) {
 	varName := t.getFreshVariable("const_arr")
 	termStr := arr.String()
 	tp, ok := t.TypeTrans.TypeInfo.Types[termStr]
 	if !ok {
 		return "", verr.ErrTypeNotFound
 	}
-	varDecl, err := getVarDeclaration(varName, &tp)
+	varDecl, err := t.TypeTrans.getVarDeclaration(varName, &tp)
 	if err != nil {
 		return "", err
 	}
@@ -233,17 +236,17 @@ func (t *Translator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	t.smtDecls = append(t.smtDecls, varDecl)
-	t.smtAsserts = append(t.smtAsserts, varAssert)
+	bucket.Decls = append(bucket.Decls, varDecl)
+	bucket.Asserts = append(bucket.Asserts, varAssert)
 
 	for i := 0; i < arr.Len(); i++ {
 		elem := arr.Elem(i)
-		elemSmt, err := t.termToSmt(elem)
+		elemSmt, err := t.termToSmt(elem, bucket)
 		if err != nil {
 			return "", err
 		}
 		smtAssert := fmt.Sprintf("(assert (= (select (arr %s) %d) %s))", varName, i, elemSmt)
-		t.smtAsserts = append(t.smtAsserts, smtAssert)
+		bucket.Asserts = append(bucket.Asserts, smtAssert)
 	}
 
 	return varName, nil
@@ -267,7 +270,7 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 		if !ok {
 			return verr.ErrTypeNotFound
 		}
-		pars[i-1] = getSmtType(&tp)
+		pars[i-1] = t.TypeTrans.getSmtType(&tp)
 	}
 	// gather return type
 	rtype, ok := t.TypeTrans.TypeInfo.Types[terms[0].String()]
@@ -275,7 +278,7 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 		return verr.ErrTypeNotFound
 	}
 
-	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), getSmtType(&rtype))
+	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), t.TypeTrans.getSmtType(&rtype))
 	t.smtDecls = append(t.smtDecls, decls)
 	return nil
 }
@@ -285,29 +288,30 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 // Parameters:
 //
 //	obj ast.Object: The Rego object to convert.
+//	bucket *Bucket: Bucket to collect the generated SMT variable declaration and assertions.
 //
 // Returns:
 //
 //	string: The SMT-LIB variable name representing the object.
 //	error: An error if type information is missing or conversion fails.
-func (t *Translator) handleConstObject(obj ast.Object) (string, error) {
+func (t *Translator) handleConstObject(obj ast.Object, bucket *Bucket) (string, error) {
 	varName := t.getFreshVariable("const_obj")
 	tp, ok := t.TypeTrans.TypeInfo.Types[obj.String()]
 	if !ok {
 		return "", verr.ErrTypeNotFound
 	}
 
-	decl, err := getVarDeclaration(varName, &tp)
+	decl, err := t.TypeTrans.getVarDeclaration(varName, &tp)
 	if err != nil {
 		return "", err
 	}
-	t.smtDecls = append(t.smtDecls, decl)
+	bucket.Decls = append(bucket.Decls, decl)
 
 	smtConstr, er := t.TypeTrans.getSmtConstrAssert(varName, &tp)
 	if er != nil {
 		return "", er
 	}
-	t.smtAsserts = append(t.smtAsserts, smtConstr)
+	bucket.Asserts = append(bucket.Asserts, smtConstr)
 
 	return varName, nil
 }

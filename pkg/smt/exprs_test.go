@@ -166,7 +166,8 @@ func TestTermToSmt_BasicTypes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tr.termToSmt(tt.term)
+			bucket := NewBucket()
+			got, err := tr.termToSmt(tt.term, bucket)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("termToSmt() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -180,6 +181,7 @@ func TestTermToSmt_BasicTypes(t *testing.T) {
 
 func TestExprToSmt_BasicOps(t *testing.T) {
 	tr := newDummyTranslator()
+	bucket := NewBucket()
 	// expr: plus(1, 2) => (+ 1 2)
 	plusExpr := ast.Expr{
 		Terms: []*ast.Term{
@@ -188,7 +190,7 @@ func TestExprToSmt_BasicOps(t *testing.T) {
 			ast.NewTerm(ast.Number("2")),
 		},
 	}
-	got, err := tr.exprToSmt(&plusExpr)
+	got, err := tr.exprToSmt(&plusExpr, bucket)
 	if err != nil {
 		t.Errorf("exprToSmt() error = %v", err)
 	}
@@ -205,7 +207,7 @@ func TestExprToSmt_BasicOps(t *testing.T) {
 			ast.NewTerm(ast.String("foo")),
 		},
 	}
-	got, err = tr.exprToSmt(eqExpr)
+	got, err = tr.exprToSmt(eqExpr, bucket)
 	if err != nil {
 		t.Errorf("exprToSmt() error = %v", err)
 	}
@@ -287,7 +289,8 @@ func TestExprToSmt_Advanced(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tr.exprToSmt(&tt.expr)
+			bucket := NewBucket()
+			got, err := tr.exprToSmt(&tt.expr, bucket)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("exprToSmt() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -300,14 +303,16 @@ func TestExprToSmt_Advanced(t *testing.T) {
 
 func TestExplicitArrayToSmt_Success(t *testing.T) {
 	tr := newDummyTranslator()
+	bucket := NewBucket()
 	// Add type info for the array string representation
 	arr := ast.NewArray(ast.IntNumberTerm(1), ast.IntNumberTerm(2), ast.IntNumberTerm(3))
 	arrStr := arr.String()
 	tr.TypeTrans.TypeInfo.Types[arrStr] = types.NewArrayType(types.NewAtomicType(types.AtomicInt))
-	got, err := tr.explicitArrayToSmt(arr)
+	got, err := tr.explicitArrayToSmt(arr, bucket)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
+	tr.AppendBucket(bucket)
 	if got == "" {
 		t.Errorf("expected non-empty SMT var name, got empty string")
 	}
@@ -326,8 +331,9 @@ func TestExplicitArrayToSmt_Success(t *testing.T) {
 
 func TestExplicitArrayToSmt_TypeNotFound(t *testing.T) {
 	tr := newDummyTranslator()
+	bucket := NewBucket()
 	arr := ast.NewArray(ast.IntNumberTerm(1), ast.IntNumberTerm(2))
-	_, err := tr.explicitArrayToSmt(arr)
+	_, err := tr.explicitArrayToSmt(arr, bucket)
 	if err == nil {
 		t.Fatalf("expected error for missing type info, got nil")
 	}
@@ -343,8 +349,9 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			"2":    types.NewAtomicType(types.AtomicInt),
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
+		bucket := NewBucket()
 		expr := ast.MustParseExpr("plus(1,2)")
-		smt, err := tr.exprToSmt(expr)
+		smt, err := tr.exprToSmt(expr, bucket)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -362,8 +369,9 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			"2":   types.NewAtomicType(types.AtomicInt),
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
+		bucket := NewBucket()
 		expr := ast.MustParseExpr("neq(1,2)")
-		smt, err := tr.exprToSmt(expr)
+		smt, err := tr.exprToSmt(expr, bucket)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -381,8 +389,9 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			"2":   types.NewAtomicType(types.AtomicInt),
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
+		bucket := NewBucket()
 		expr := ast.MustParseExpr("foo(1,2)")
-		smt, err := tr.exprToSmt(expr)
+		smt, err := tr.exprToSmt(expr, bucket)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -406,8 +415,9 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			// missing type for "1"
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
+		bucket := NewBucket()
 		expr := ast.MustParseExpr("foo(1)")
-		_, err := tr.exprToSmt(expr)
+		_, err := tr.exprToSmt(expr, bucket)
 		if err == nil {
 			t.Errorf("expected error for missing type, got nil")
 		}
@@ -425,11 +435,13 @@ func TestExplicitArrayToSmt_CompareFullSmtLib(t *testing.T) {
 		arr.String(): types.NewArrayType(types.NewAtomicType(types.AtomicInt)),
 	}
 	tr := newTestTranslatorWithTypes(typeMap)
+	bucket := NewBucket()
 
-	varName, err := tr.explicitArrayToSmt(arr)
+	varName, err := tr.explicitArrayToSmt(arr, bucket)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	tr.AppendBucket(bucket)
 	if varName == "" {
 		t.Fatalf("expected non-empty SMT var name")
 	}
@@ -480,10 +492,12 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			}),
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		bucket := NewBucket()
+		varName, err := tr.handleConstObject(obj, bucket)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		tr.AppendBucket(bucket)
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
@@ -501,7 +515,8 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			t.Fatalf("expected ast.Object, got %T", objTerm.Value)
 		}
 		tr := newDummyTranslator()
-		_, err := tr.handleConstObject(obj)
+		bucket := NewBucket()
+		_, err := tr.handleConstObject(obj, bucket)
 		if err == nil {
 			t.Fatalf("expected error for missing type info, got nil")
 		}
@@ -523,10 +538,12 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			}),
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		bucket := NewBucket()
+		varName, err := tr.handleConstObject(obj, bucket)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		tr.AppendBucket(bucket)
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
@@ -547,10 +564,12 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			obj.String(): types.NewObjectType(map[string]types.RegoTypeDef{}),
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		bucket := NewBucket()
+		varName, err := tr.handleConstObject(obj, bucket)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		tr.AppendBucket(bucket)
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
@@ -575,10 +594,12 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			}),
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		bucket := NewBucket()
+		varName, err := tr.handleConstObject(obj, bucket)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		tr.AppendBucket(bucket)
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
@@ -618,10 +639,12 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			}),
 		}
 		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		bucket := NewBucket()
+		varName, err := tr.handleConstObject(obj, bucket)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		tr.AppendBucket(bucket)
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}

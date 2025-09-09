@@ -105,7 +105,7 @@ func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, e
 func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 	bucket := NewBucket()
 	tp := td.TypeInfo.Types[varName]
-	smtVar, er := getVarDeclaration(varName, &tp)
+	smtVar, er := td.getVarDeclaration(varName, &tp)
 	if er != nil {
 		return nil, er
 	}
@@ -202,8 +202,8 @@ func (td *TypeTranslator) getDatatypesDeclaration() []string {
 //
 //	string: The SMT-LIB variable declaration string.
 //	error: An error if the declaration could not be generated.
-func getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
-	return fmt.Sprintf("(declare-fun %s () %s)", name, getSmtType(tp)), nil
+func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
+	return fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType(tp)), nil
 }
 
 // getSmtType returns the SMT-LIB sort name for a given Rego type definition based on its type depth.
@@ -215,7 +215,7 @@ func getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
 // Returns:
 //
 //	string: The SMT-LIB sort name corresponding to the type depth.
-func getSmtType(tp *types.RegoTypeDef) string {
+func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
 	return fmt.Sprintf("OTypeD%d", tp.TypeDepth())
 }
 
