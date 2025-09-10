@@ -509,3 +509,40 @@ func getParamVar(ref ast.Ref) string {
 	// input.parameters.<name>
 	return fmt.Sprintf("%s.%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()), removeQuotes(ref[2].String()))
 }
+
+// getFreshVariable returns a fresh temporary variable name that does not
+// clash with any existing variable tracked in the translator or with any
+// names provided in the supplied map.
+//
+// Parameters:
+//
+//	prefix string: the prefix to use for the generated variable name.
+//	usedVars map[string]string: map of names to avoid (values are variable names)
+//
+// Returns:
+//
+//	string: a fresh variable name beginning with the given prefix. If the
+//	prefix is already taken the function appends an underscore and a numeric
+//	suffix ("_1", "_2", ...) until an unused name is found.
+func (td *TypeTranslator) getFreshVariable(prefix string, usedVars map[string]string) string {
+	// Collect all used names: keys in TypeDefs.TypeInfo.Types and values in VarMap
+	used := make(map[string]struct{})
+	if td.TypeInfo != nil {
+		for name := range td.TypeInfo.Types {
+			used[name] = struct{}{}
+		}
+	}
+	for _, v := range usedVars {
+		used[v] = struct{}{}
+	}
+	// Try to find a fresh variable name
+	for i := 0; ; i++ {
+		varName := prefix
+		if i > 0 {
+			varName = prefix + fmt.Sprintf("_%d", i)
+		}
+		if _, exists := used[varName]; !exists {
+			return varName
+		}
+	}
+}

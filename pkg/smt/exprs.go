@@ -19,10 +19,10 @@ import (
 //
 //	string: The SMT-LIB string representation of the expression.
 //	error: An error if the expression cannot be converted.
-func (t *Translator) exprToSmt(expr *ast.Expr, bucket *Bucket) (string, error) {
+func (t *Translator) exprToSmt(expr *ast.Expr, context *TransContext) (string, error) {
 	// If the expression is a single term, just convert it
 	if term, ok := expr.Terms.(*ast.Term); ok {
-		smtStr, err := t.termToSmt(term, bucket)
+		smtStr, err := t.termToSmt(term, context)
 		if err != nil {
 			return "", err
 		}
@@ -40,7 +40,7 @@ func (t *Translator) exprToSmt(expr *ast.Expr, bucket *Bucket) (string, error) {
 	// Convert all arguments
 	args := make([]string, len(terms)-1)
 	for i := 1; i < len(terms); i++ {
-		argStr, err := t.termToSmt(terms[i], bucket)
+		argStr, err := t.termToSmt(terms[i], context)
 		if err != nil {
 			return "", err
 		}
@@ -48,7 +48,7 @@ func (t *Translator) exprToSmt(expr *ast.Expr, bucket *Bucket) (string, error) {
 	}
 
 	// Use regoFuncToSmt to get the SMT-LIB string for the operator
-	smtStr, err := t.regoFuncToSmt(opStr, args, terms)
+	smtStr, err := t.regoFuncToSmt(opStr, args, terms, context)
 	if err != nil {
 		return "", err
 	}
@@ -67,7 +67,7 @@ func (t *Translator) exprToSmt(expr *ast.Expr, bucket *Bucket) (string, error) {
 //
 //	string: The SMT-LIB string representation of the term.
 //	error: An error if the term cannot be converted.
-func (t *Translator) termToSmt(term *ast.Term, bucket *Bucket) (string, error) {
+func (t *Translator) termToSmt(term *ast.Term, context *TransContext) (string, error) {
 	switch v := term.Value.(type) {
 	case ast.String:
 		// Convert Rego string to SMT-LIB string literal
@@ -82,9 +82,9 @@ func (t *Translator) termToSmt(term *ast.Term, bucket *Bucket) (string, error) {
 		return "false", nil
 	case *ast.Array:
 		// convert to a fresh variable with the array type
-		return t.explicitArrayToSmt(v, bucket)
+		return t.explicitArrayToSmt(v, context)
 	case ast.Object:
-		return t.handleConstObject(v, bucket)
+		return t.handleConstObject(v, context)
 	case ast.Set:
 		// Not directly supported in SMT-LIB, return error
 		return "", verr.ErrSetConversionNotSupported
@@ -98,13 +98,13 @@ func (t *Translator) termToSmt(term *ast.Term, bucket *Bucket) (string, error) {
 		op := removeQuotes(v[0].String())
 		args := make([]string, len(v)-1)
 		for i := 1; i < len(v); i++ {
-			s, err := t.termToSmt(v[i], bucket)
+			s, err := t.termToSmt(v[i], context)
 			if err != nil {
 				return "", err
 			}
 			args[i-1] = s
 		}
-		return t.regoFuncToSmt(op, args, v)
+		return t.regoFuncToSmt(op, args, v, context)
 	default:
 		return "", fmt.Errorf("%w: %T", verr.ErrUnsupportedTermType, v)
 	}
@@ -124,7 +124,7 @@ func (t *Translator) termToSmt(term *ast.Term, bucket *Bucket) (string, error) {
 //
 //	string: The SMT-LIB function application string.
 //	error: An error if the function/operator is not supported or type information is missing.
-func (t *Translator) regoFuncToSmt(op string, args []string, terms []*ast.Term) (string, error) {
+func (t *Translator) regoFuncToSmt(op string, args []string, terms []*ast.Term, context *TransContext) (string, error) {
 	// Map of rego function/operator names to SMT-LIB function names
 	funcMap := map[string]string{
 		"plus":       "+",
@@ -152,7 +152,7 @@ func (t *Translator) regoFuncToSmt(op string, args []string, terms []*ast.Term) 
 		return fmt.Sprintf("(%s %s)", smtFunc, strings.Join(args, " ")), nil
 	}
 
-	funcName := t.getFreshVariable(op)
+	funcName := t.TypeTrans.getFreshVariable(op, context.VarMap)
 	if err := t.declareUnintFunc(funcName, terms); err != nil {
 		return "", err
 	}
@@ -219,8 +219,8 @@ func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
 //
 //	string: The SMT-LIB variable name representing the array.
 //	error: An error if the type information is missing or conversion fails.
-func (t *Translator) explicitArrayToSmt(arr *ast.Array, bucket *Bucket) (string, error) {
-	varName := t.getFreshVariable("const_arr")
+func (t *Translator) explicitArrayToSmt(arr *ast.Array, context *TransContext) (string, error) {
+	varName := t.TypeTrans.getFreshVariable("const_arr", context.VarMap)
 	termStr := arr.String()
 	tp, ok := t.TypeTrans.TypeInfo.Types[termStr]
 	if !ok {
@@ -236,17 +236,17 @@ func (t *Translator) explicitArrayToSmt(arr *ast.Array, bucket *Bucket) (string,
 	if err != nil {
 		return "", err
 	}
-	bucket.Decls = append(bucket.Decls, varDecl)
-	bucket.Asserts = append(bucket.Asserts, varAssert)
+	context.Bucket.Decls = append(context.Bucket.Decls, varDecl)
+	context.Bucket.Asserts = append(context.Bucket.Asserts, varAssert)
 
 	for i := 0; i < arr.Len(); i++ {
 		elem := arr.Elem(i)
-		elemSmt, err := t.termToSmt(elem, bucket)
+		elemSmt, err := t.termToSmt(elem, context)
 		if err != nil {
 			return "", err
 		}
 		smtAssert := fmt.Sprintf("(assert (= (select (arr %s) %d) %s))", varName, i, elemSmt)
-		bucket.Asserts = append(bucket.Asserts, smtAssert)
+		context.Bucket.Asserts = append(context.Bucket.Asserts, smtAssert)
 	}
 
 	return varName, nil
@@ -294,8 +294,8 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 //
 //	string: The SMT-LIB variable name representing the object.
 //	error: An error if type information is missing or conversion fails.
-func (t *Translator) handleConstObject(obj ast.Object, bucket *Bucket) (string, error) {
-	varName := t.getFreshVariable("const_obj")
+func (t *Translator) handleConstObject(obj ast.Object, context *TransContext) (string, error) {
+	varName := t.TypeTrans.getFreshVariable("const_obj", context.VarMap)
 	tp, ok := t.TypeTrans.TypeInfo.Types[obj.String()]
 	if !ok {
 		return "", verr.ErrTypeNotFound
@@ -305,13 +305,13 @@ func (t *Translator) handleConstObject(obj ast.Object, bucket *Bucket) (string, 
 	if err != nil {
 		return "", err
 	}
-	bucket.Decls = append(bucket.Decls, decl)
+	context.Bucket.Decls = append(context.Bucket.Decls, decl)
 
 	smtConstr, er := t.TypeTrans.getSmtConstrAssert(varName, &tp)
 	if er != nil {
 		return "", er
 	}
-	bucket.Asserts = append(bucket.Asserts, smtConstr)
+	context.Bucket.Asserts = append(context.Bucket.Asserts, smtConstr)
 
 	return varName, nil
 }

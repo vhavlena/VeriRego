@@ -30,7 +30,7 @@ import (
 //
 //	smtHead string: The SMT-LIB representation of the rule head (e.g., (= var val)).
 //	error: An error if the head cannot be converted.
-func (t *Translator) ruleHeadToSmt(rule *ast.Rule, bucket *Bucket) (string, error) {
+func (t *Translator) ruleHeadToSmt(rule *ast.Rule, context *TransContext) (string, error) {
 	if rule == nil || rule.Head == nil {
 		return "", fmt.Errorf("invalid rule: nil head")
 	}
@@ -40,7 +40,7 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, bucket *Bucket) (string, erro
 	if rule.Head.Value == nil {
 		if rule.Head.Key != nil && rule.Head.Reference != nil {
 			var err error
-			if ruleVar, err = t.termToSmt(rule.Head.Key, bucket); err != nil {
+			if ruleVar, err = t.termToSmt(rule.Head.Key, context); err != nil {
 				return "", fmt.Errorf("failed to convert rule head key: %w", err)
 			}
 			ruleValSmt, err := t.refToSmt(rule.Head.Reference)
@@ -51,7 +51,7 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, bucket *Bucket) (string, erro
 		}
 		return "", fmt.Errorf("rule head value is nil for %s", ruleVar)
 	}
-	ruleValSmt, err := t.termToSmt(rule.Head.Value, bucket)
+	ruleValSmt, err := t.termToSmt(rule.Head.Value, context)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert rule head value: %w", err)
 	}
@@ -71,8 +71,8 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, bucket *Bucket) (string, erro
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
 // The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
 func (t *Translator) RuleToSmt(rule *ast.Rule) error {
-	bucket := NewBucket()
-	smtHead, err := t.ruleHeadToSmt(rule, bucket)
+	context := NewTransContext()
+	smtHead, err := t.ruleHeadToSmt(rule, context)
 	if err != nil {
 		return err
 	}
@@ -80,13 +80,13 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 	// Convert all body expressions to SMT
 	bodySmts := make([]string, 0, len(rule.Body))
 	for _, expr := range rule.Body {
-		smtStr, err := t.exprToSmt(expr, bucket)
+		smtStr, err := t.exprToSmt(expr, context)
 		if err != nil {
 			return fmt.Errorf("failed to convert rule body expr: %w", err)
 		}
 		bodySmts = append(bodySmts, smtStr)
 	}
-	t.AppendBucket(bucket)
+	t.AddTransContext(context)
 
 	var bodySmt string
 	switch len(bodySmts) {

@@ -1,11 +1,26 @@
 package smt
 
 import (
-	"fmt"
+	"maps"
 
 	"github.com/open-policy-agent/opa/ast"
+
 	"github.com/vhavlena/verirego/pkg/types"
 )
+
+type TransContext struct {
+	VarMap map[string]string // Mapping of Rego term keys to SMT variable names
+	Bucket *Bucket           // Bucket to collect generated SMT declarations and assertions
+}
+
+func NewTransContext() *TransContext {
+	return &TransContext{
+		VarMap: make(map[string]string),
+		Bucket: NewBucket(),
+	}
+}
+
+//-------------------------------------------------------------
 
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
@@ -53,6 +68,24 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 	t.smtTypeDecls = append(t.smtTypeDecls, bucket.TypeDecls...)
 	t.smtDecls = append(t.smtDecls, bucket.Decls...)
 	t.smtAsserts = append(t.smtAsserts, bucket.Asserts...)
+}
+
+// AddTransContext merges the provided translation context into the
+// current Translator instance.
+//
+// Parameters:
+//
+//	context *TransContext: the translation context whose VarMap and
+//	Bucket contents should be merged into the translator.
+//
+// Behavior:
+//
+//	Copies all entries from context.VarMap into t.VarMap (overwriting any
+//	existing keys), and appends context.Bucket into the translator's
+//	internal SMT buffers via AppendBucket.
+func (t *Translator) AddTransContext(context *TransContext) {
+	maps.Copy(t.VarMap, context.VarMap)
+	t.AppendBucket(context.Bucket)
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.
@@ -154,36 +187,4 @@ func (t *Translator) TranslateModuleToSmt() error {
 		}
 	}
 	return nil
-}
-
-// getFreshVariable returns a fresh temporary variable name that does not clash with any variable in TypeInfo or any value in VarMap.
-//
-// Args:
-//
-//	prefix (string): The prefix to use for the generated variable name.
-//
-// Returns:
-//
-//	string: A fresh variable name with the given prefix, guaranteed not to conflict with existing variables.
-func (t *Translator) getFreshVariable(prefix string) string {
-	// Collect all used names: keys in TypeDefs.TypeInfo.Types and values in VarMap
-	used := make(map[string]struct{})
-	if t.TypeTrans.TypeInfo != nil {
-		for name := range t.TypeTrans.TypeInfo.Types {
-			used[name] = struct{}{}
-		}
-	}
-	for _, v := range t.VarMap {
-		used[v] = struct{}{}
-	}
-	// Try to find a fresh variable name
-	for i := 0; ; i++ {
-		varName := prefix
-		if i > 0 {
-			varName = prefix + fmt.Sprintf("_%d", i)
-		}
-		if _, exists := used[varName]; !exists {
-			return varName
-		}
-	}
 }
