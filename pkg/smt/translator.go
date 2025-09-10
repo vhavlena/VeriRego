@@ -20,6 +20,13 @@ func NewTransContext() *TransContext {
 	}
 }
 
+func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
+	return &TransContext{
+		VarMap: varMap,
+		Bucket: NewBucket(),
+	}
+}
+
 //-------------------------------------------------------------
 
 // Translator is responsible for translating Rego terms to SMT expressions.
@@ -34,7 +41,7 @@ type Translator struct {
 
 // NewTranslator creates a new Translator instance with the given TypeAnalyzer.
 func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
-	return &Translator{
+	t := &Translator{
 		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
 		smtTypeDecls: make([]string, 0, 32),
@@ -42,6 +49,7 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		smtAsserts:   make([]string, 0, 128),
 		mod:          mod,
 	}
+	return t
 }
 
 // SmtLines returns the generated SMT-LIB lines collected during translation, in the correct order.
