@@ -8,7 +8,47 @@ import (
 	verr "github.com/vhavlena/verirego/pkg/err"
 )
 
-// exprToSmt converts a Rego AST expression to its SMT-LIB string representation.
+// ExprTranslator handles the translation of Rego expressions to SMT-LIB format.
+type ExprTranslator struct {
+	TypeTrans *TypeTranslator // Type definitions and type-related operations
+	context   *TransContext   // Context to collect generated SMT declarations, assertions, and variable mappings
+}
+
+// NewExprTranslator creates a new ExprTranslator instance.
+func NewExprTranslator(typeTrans *TypeTranslator) *ExprTranslator {
+	return &ExprTranslator{
+		TypeTrans: typeTrans,
+		context:   NewTransContext(),
+	}
+}
+
+func NewExprTranslatorWithVarMap(typeTrans *TypeTranslator, varMap map[string]string) *ExprTranslator {
+	return &ExprTranslator{
+		TypeTrans: typeTrans,
+		context:   NewTransContextWithVarMap(varMap),
+	}
+}
+
+// GetTransContext returns the current translation context used by the
+// ExprTranslator.
+//
+// Returns:
+//
+//	*TransContext: The current translation context containing collected
+//	SMT declarations, assertions, and variable mappings created during
+//	translation.
+func (et *ExprTranslator) GetTransContext() *TransContext {
+	return et.context
+}
+
+// ClearTransContext resets the translator's translation context to a
+// fresh TransContext, discarding any previously collected declarations,
+// assertions, and variable mappings.
+func (et *ExprTranslator) ClearTransContext() {
+	et.context = NewTransContext()
+}
+
+// ExprToSmt converts a Rego AST expression to its SMT-LIB string representation.
 //
 // Parameters:
 //
@@ -18,10 +58,10 @@ import (
 //
 //	string: The SMT-LIB string representation of the expression.
 //	error: An error if the expression cannot be converted.
-func (t *Translator) exprToSmt(expr *ast.Expr) (string, error) {
+func (et *ExprTranslator) ExprToSmt(expr *ast.Expr) (string, error) {
 	// If the expression is a single term, just convert it
 	if term, ok := expr.Terms.(*ast.Term); ok {
-		smtStr, err := t.termToSmt(term)
+		smtStr, err := et.termToSmt(term)
 		if err != nil {
 			return "", err
 		}
@@ -39,7 +79,7 @@ func (t *Translator) exprToSmt(expr *ast.Expr) (string, error) {
 	// Convert all arguments
 	args := make([]string, len(terms)-1)
 	for i := 1; i < len(terms); i++ {
-		argStr, err := t.termToSmt(terms[i])
+		argStr, err := et.termToSmt(terms[i])
 		if err != nil {
 			return "", err
 		}
@@ -47,7 +87,7 @@ func (t *Translator) exprToSmt(expr *ast.Expr) (string, error) {
 	}
 
 	// Use regoFuncToSmt to get the SMT-LIB string for the operator
-	smtStr, err := t.regoFuncToSmt(opStr, args, terms)
+	smtStr, err := et.regoFuncToSmt(opStr, args, terms)
 	if err != nil {
 		return "", err
 	}
@@ -65,7 +105,7 @@ func (t *Translator) exprToSmt(expr *ast.Expr) (string, error) {
 //
 //	string: The SMT-LIB string representation of the term.
 //	error: An error if the term cannot be converted.
-func (t *Translator) termToSmt(term *ast.Term) (string, error) {
+func (et *ExprTranslator) termToSmt(term *ast.Term) (string, error) {
 	switch v := term.Value.(type) {
 	case ast.String:
 		// Convert Rego string to SMT-LIB string literal
@@ -80,9 +120,9 @@ func (t *Translator) termToSmt(term *ast.Term) (string, error) {
 		return "false", nil
 	case *ast.Array:
 		// convert to a fresh variable with the array type
-		return t.explicitArrayToSmt(v)
+		return et.explicitArrayToSmt(v)
 	case ast.Object:
-		return t.handleConstObject(v)
+		return et.handleConstObject(v)
 	case ast.Set:
 		// Not directly supported in SMT-LIB, return error
 		return "", verr.ErrSetConversionNotSupported
@@ -90,19 +130,19 @@ func (t *Translator) termToSmt(term *ast.Term) (string, error) {
 		// Variable name
 		return v.String(), nil
 	case ast.Ref:
-		return t.refToSmt(v)
+		return et.refToSmt(v)
 	case ast.Call:
 		// Handle string functions and other builtins
 		op := removeQuotes(v[0].String())
 		args := make([]string, len(v)-1)
 		for i := 1; i < len(v); i++ {
-			s, err := t.termToSmt(v[i])
+			s, err := et.termToSmt(v[i])
 			if err != nil {
 				return "", err
 			}
 			args[i-1] = s
 		}
-		return t.regoFuncToSmt(op, args, v)
+		return et.regoFuncToSmt(op, args, v)
 	default:
 		return "", fmt.Errorf("%w: %T", verr.ErrUnsupportedTermType, v)
 	}
@@ -122,7 +162,7 @@ func (t *Translator) termToSmt(term *ast.Term) (string, error) {
 //
 //	string: The SMT-LIB function application string.
 //	error: An error if the function/operator is not supported or type information is missing.
-func (t *Translator) regoFuncToSmt(op string, args []string, terms []*ast.Term) (string, error) {
+func (et *ExprTranslator) regoFuncToSmt(op string, args []string, terms []*ast.Term) (string, error) {
 	// Map of rego function/operator names to SMT-LIB function names
 	funcMap := map[string]string{
 		"plus":       "+",
@@ -150,8 +190,8 @@ func (t *Translator) regoFuncToSmt(op string, args []string, terms []*ast.Term) 
 		return fmt.Sprintf("(%s %s)", smtFunc, strings.Join(args, " ")), nil
 	}
 
-	funcName := t.getFreshVariable(op)
-	if err := t.declareUnintFunc(funcName, terms); err != nil {
+	funcName := et.TypeTrans.getFreshVariable(op, et.context.VarMap)
+	if err := et.declareUnintFunc(funcName, terms); err != nil {
 		return "", err
 	}
 
@@ -168,7 +208,7 @@ func (t *Translator) regoFuncToSmt(op string, args []string, terms []*ast.Term) 
 //
 //	string: The SMT-LIB string representation of the reference.
 //	error: An error if the reference cannot be converted.
-func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
+func (et *ExprTranslator) refToSmt(ref ast.Ref) (string, error) {
 	if len(ref) == 0 {
 		return "", verr.ErrEmptyReferenceConv
 	}
@@ -191,7 +231,7 @@ func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
 				baseVar = getSchemaVar(ref)
 			}
 		}
-		tp, ok := t.TypeInfo.Types[baseVar]
+		tp, ok := et.TypeTrans.TypeInfo.Types[baseVar]
 		if !ok {
 			return "", verr.ErrTypeNotFound
 		}
@@ -216,34 +256,34 @@ func (t *Translator) refToSmt(ref ast.Ref) (string, error) {
 //
 //	string: The SMT-LIB variable name representing the array.
 //	error: An error if the type information is missing or conversion fails.
-func (t *Translator) explicitArrayToSmt(arr *ast.Array) (string, error) {
-	varName := t.getFreshVariable("const_arr")
+func (et *ExprTranslator) explicitArrayToSmt(arr *ast.Array) (string, error) {
+	varName := et.TypeTrans.getFreshVariable("const_arr", et.context.VarMap)
 	termStr := arr.String()
-	tp, ok := t.TypeInfo.Types[termStr]
+	tp, ok := et.TypeTrans.TypeInfo.Types[termStr]
 	if !ok {
 		return "", verr.ErrTypeNotFound
 	}
-	varDecl, err := getVarDeclaration(varName, &tp)
+	varDecl, err := et.TypeTrans.getVarDeclaration(varName, &tp)
 	if err != nil {
 		return "", err
 	}
 	// store the variable in VarMap to store the fresh variable name
-	t.VarMap[termStr] = varName
-	varAssert, err := t.getSmtConstrAssert(varName, &tp)
+	et.context.VarMap[termStr] = varName
+	varAssert, err := et.TypeTrans.getSmtConstrAssert(varName, &tp)
 	if err != nil {
 		return "", err
 	}
-	t.smtDecls = append(t.smtDecls, varDecl)
-	t.smtAsserts = append(t.smtAsserts, varAssert)
+	et.context.Bucket.Decls = append(et.context.Bucket.Decls, varDecl)
+	et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, varAssert)
 
 	for i := 0; i < arr.Len(); i++ {
 		elem := arr.Elem(i)
-		elemSmt, err := t.termToSmt(elem)
+		elemSmt, err := et.termToSmt(elem)
 		if err != nil {
 			return "", err
 		}
 		smtAssert := fmt.Sprintf("(assert (= (select (arr %s) %d) %s))", varName, i, elemSmt)
-		t.smtAsserts = append(t.smtAsserts, smtAssert)
+		et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, smtAssert)
 	}
 
 	return varName, nil
@@ -254,29 +294,29 @@ func (t *Translator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 // Parameters:
 //
 //	name string: The name of the function to declare.
-//	terms []*ast.Term: The terms representing the function/operator and its arguments. The types are inferred from t.TypeInfo.
+//	terms []*ast.Term: The terms representing the function/operator and its arguments. The types are inferred from et.TypeTrans.TypeInfo.
 //
 // Returns:
 //
 //	error: An error if type information for any term is missing.
-func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
+func (et *ExprTranslator) declareUnintFunc(name string, terms []*ast.Term) error {
 	// gather parameter types
 	pars := make([]string, len(terms)-1)
 	for i := 1; i < len(terms); i++ {
-		tp, ok := t.TypeInfo.Types[terms[i].String()]
+		tp, ok := et.TypeTrans.TypeInfo.Types[terms[i].String()]
 		if !ok {
 			return verr.ErrTypeNotFound
 		}
-		pars[i-1] = getSmtType(&tp)
+		pars[i-1] = et.TypeTrans.getSmtType(&tp)
 	}
 	// gather return type
-	rtype, ok := t.TypeInfo.Types[terms[0].String()]
+	rtype, ok := et.TypeTrans.TypeInfo.Types[terms[0].String()]
 	if !ok {
 		return verr.ErrTypeNotFound
 	}
 
-	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), getSmtType(&rtype))
-	t.smtDecls = append(t.smtDecls, decls)
+	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), et.TypeTrans.getSmtType(&rtype))
+	et.context.Bucket.Decls = append(et.context.Bucket.Decls, decls)
 	return nil
 }
 
@@ -290,24 +330,24 @@ func (t *Translator) declareUnintFunc(name string, terms []*ast.Term) error {
 //
 //	string: The SMT-LIB variable name representing the object.
 //	error: An error if type information is missing or conversion fails.
-func (t *Translator) handleConstObject(obj ast.Object) (string, error) {
-	varName := t.getFreshVariable("const_obj")
-	tp, ok := t.TypeInfo.Types[obj.String()]
+func (et *ExprTranslator) handleConstObject(obj ast.Object) (string, error) {
+	varName := et.TypeTrans.getFreshVariable("const_obj", et.context.VarMap)
+	tp, ok := et.TypeTrans.TypeInfo.Types[obj.String()]
 	if !ok {
 		return "", verr.ErrTypeNotFound
 	}
 
-	decl, err := getVarDeclaration(varName, &tp)
+	decl, err := et.TypeTrans.getVarDeclaration(varName, &tp)
 	if err != nil {
 		return "", err
 	}
-	t.smtDecls = append(t.smtDecls, decl)
+	et.context.Bucket.Decls = append(et.context.Bucket.Decls, decl)
 
-	smtConstr, er := t.getSmtConstrAssert(varName, &tp)
+	smtConstr, er := et.TypeTrans.getSmtConstrAssert(varName, &tp)
 	if er != nil {
 		return "", er
 	}
-	t.smtAsserts = append(t.smtAsserts, smtConstr)
+	et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, smtConstr)
 
 	return varName, nil
 }

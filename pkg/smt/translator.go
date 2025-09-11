@@ -1,32 +1,55 @@
 package smt
 
 import (
-	"fmt"
+	"maps"
 
 	"github.com/open-policy-agent/opa/ast"
+
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
+type TransContext struct {
+	VarMap map[string]string // Mapping of Rego term keys to SMT variable names
+	Bucket *Bucket           // Bucket to collect generated SMT declarations and assertions
+}
+
+func NewTransContext() *TransContext {
+	return &TransContext{
+		VarMap: make(map[string]string),
+		Bucket: NewBucket(),
+	}
+}
+
+func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
+	return &TransContext{
+		VarMap: varMap,
+		Bucket: NewBucket(),
+	}
+}
+
+//-------------------------------------------------------------
+
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
-	TypeInfo     *types.TypeAnalyzer // Type information for Rego terms
-	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
-	smtTypeDecls []string            // SMT type declarations
-	smtDecls     []string            // SMT variable declarations
-	smtAsserts   []string            // SMT assertions
+	TypeTrans    *TypeTranslator   // Type definitions and type-related operations
+	VarMap       map[string]string // Mapping of Rego term keys to SMT variable names
+	smtTypeDecls []string          // SMT type declarations
+	smtDecls     []string          // SMT variable declarations
+	smtAsserts   []string          // SMT assertions
 	mod          *ast.Module
 }
 
 // NewTranslator creates a new Translator instance with the given TypeAnalyzer.
 func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
-	return &Translator{
-		TypeInfo:     typeInfo,
+	t := &Translator{
+		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
 		smtTypeDecls: make([]string, 0, 32),
 		smtDecls:     make([]string, 0, 64),
 		smtAsserts:   make([]string, 0, 128),
 		mod:          mod,
 	}
+	return t
 }
 
 // SmtLines returns the generated SMT-LIB lines collected during translation, in the correct order.
@@ -40,6 +63,37 @@ func (t *Translator) SmtLines() []string {
 	lines = append(lines, t.smtDecls...)
 	lines = append(lines, t.smtAsserts...)
 	return lines
+}
+
+// AppendBucket appends the contents of the provided Bucket into the
+// Translator's internal SMT-LIB buffers.
+//
+// Parameters:
+//
+//	bucket *Bucket: Bucket whose TypeDecls, Decls and Asserts will be appended
+//	to the Translator's internal slices (t.smtTypeDecls, t.smtDecls, t.smtAsserts).
+func (t *Translator) AppendBucket(bucket *Bucket) {
+	t.smtTypeDecls = append(t.smtTypeDecls, bucket.TypeDecls...)
+	t.smtDecls = append(t.smtDecls, bucket.Decls...)
+	t.smtAsserts = append(t.smtAsserts, bucket.Asserts...)
+}
+
+// AddTransContext merges the provided translation context into the
+// current Translator instance.
+//
+// Parameters:
+//
+//	context *TransContext: the translation context whose VarMap and
+//	Bucket contents should be merged into the translator.
+//
+// Behavior:
+//
+//	Copies all entries from context.VarMap into t.VarMap (overwriting any
+//	existing keys), and appends context.Bucket into the translator's
+//	internal SMT buffers via AppendBucket.
+func (t *Translator) AddTransContext(context *TransContext) {
+	maps.Copy(t.VarMap, context.VarMap)
+	t.AppendBucket(context.Bucket)
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.
@@ -79,10 +133,10 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 	}
 
 	globalVars := make(map[string]any)
-	if t.TypeInfo != nil {
-		for name := range t.TypeInfo.Types {
+	if t.TypeTrans.TypeInfo != nil {
+		for name := range t.TypeTrans.TypeInfo.Types {
 			if _, isParam := inputParamSet[name]; !isParam {
-				_, okVar := t.TypeInfo.Refs[name].(ast.Var)
+				_, okVar := t.TypeTrans.TypeInfo.Refs[name].(ast.Var)
 				if okVar {
 					globalVars[name] = struct{}{}
 				}
@@ -105,9 +159,19 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 func (t *Translator) GenerateSmtContent() error {
 	// Gather input parameter variables
 	globalVars := t.getSmtVarsDeclare()
-	if err := t.GenerateTypeDefs(globalVars); err != nil {
+
+	bucket, err := t.TypeTrans.GenerateTypeDecls(globalVars)
+	if err != nil {
 		return err
 	}
+	t.AppendBucket(bucket)
+
+	bucket, err = t.TypeTrans.GenerateVarDecls(globalVars)
+	if err != nil {
+		return err
+	}
+	t.AppendBucket(bucket)
+
 	if err := t.TranslateModuleToSmt(); err != nil {
 		return err
 	}
@@ -131,36 +195,4 @@ func (t *Translator) TranslateModuleToSmt() error {
 		}
 	}
 	return nil
-}
-
-// getFreshVariable returns a fresh temporary variable name that does not clash with any variable in TypeInfo or any value in VarMap.
-//
-// Args:
-//
-//	prefix (string): The prefix to use for the generated variable name.
-//
-// Returns:
-//
-//	string: A fresh variable name with the given prefix, guaranteed not to conflict with existing variables.
-func (t *Translator) getFreshVariable(prefix string) string {
-	// Collect all used names: keys in TypeInfo.Types and values in VarMap
-	used := make(map[string]struct{})
-	if t.TypeInfo != nil {
-		for name := range t.TypeInfo.Types {
-			used[name] = struct{}{}
-		}
-	}
-	for _, v := range t.VarMap {
-		used[v] = struct{}{}
-	}
-	// Try to find a fresh variable name
-	for i := 0; ; i++ {
-		varName := prefix
-		if i > 0 {
-			varName = prefix + fmt.Sprintf("_%d", i)
-		}
-		if _, exists := used[varName]; !exists {
-			return varName
-		}
-	}
 }

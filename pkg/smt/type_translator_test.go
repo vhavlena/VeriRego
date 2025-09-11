@@ -7,14 +7,14 @@ import (
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
-func TestTranslator_getSmtConstr_AtomicString(t *testing.T) {
+func TestTypeDefs_getSmtConstr_AtomicString(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 	typeDef := &types.RegoTypeDef{
 		Kind:       types.KindAtomic,
 		AtomicType: types.AtomicString,
 	}
-	constr, err := tr.getSmtConstr("x", typeDef)
+	constr, err := td.getSmtConstr("x", typeDef)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -23,14 +23,14 @@ func TestTranslator_getSmtConstr_AtomicString(t *testing.T) {
 	}
 }
 
-func TestTranslator_getSmtConstr_AtomicInt(t *testing.T) {
+func TestTypeDefs_getSmtConstr_AtomicInt(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 	typeDef := &types.RegoTypeDef{
 		Kind:       types.KindAtomic,
 		AtomicType: types.AtomicInt,
 	}
-	constr, err := tr.getSmtConstr("y", typeDef)
+	constr, err := td.getSmtConstr("y", typeDef)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,9 +39,9 @@ func TestTranslator_getSmtConstr_AtomicInt(t *testing.T) {
 	}
 }
 
-func TestTranslator_getSmtConstr_Object(t *testing.T) {
+func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 	objType := &types.RegoTypeDef{
 		Kind: types.KindObject,
 		ObjectFields: map[string]types.RegoTypeDef{
@@ -64,7 +64,7 @@ func TestTranslator_getSmtConstr_Object(t *testing.T) {
 			},
 		},
 	}
-	constr, err := tr.getSmtConstr("z", objType)
+	constr, err := td.getSmtConstr("z", objType)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -96,9 +96,9 @@ func TestTranslator_getSmtConstr_Object(t *testing.T) {
 	}
 }
 
-func TestTranslator_getSmtConstr_NestedObject(t *testing.T) {
+func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 	nestedType := &types.RegoTypeDef{
 		Kind: types.KindObject,
 		ObjectFields: map[string]types.RegoTypeDef{
@@ -121,7 +121,7 @@ func TestTranslator_getSmtConstr_NestedObject(t *testing.T) {
 			},
 		},
 	}
-	constr, err := tr.getSmtConstr("n", nestedType)
+	constr, err := td.getSmtConstr("n", nestedType)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,32 +153,32 @@ func TestTranslator_getSmtConstr_NestedObject(t *testing.T) {
 	}
 }
 
-func TestTranslator_getSmtConstr_UnsupportedType(t *testing.T) {
+func TestTypeDefs_getSmtConstr_UnsupportedType(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 	unknownType := &types.RegoTypeDef{Kind: types.KindUnknown}
-	_, err := tr.getSmtConstr("v", unknownType)
+	_, err := td.getSmtConstr("v", unknownType)
 	if err == nil {
 		t.Error("expected error for unsupported type, got nil")
 	}
 }
 
-func TestTranslator_getSmtConstr_UnsupportedAtomic(t *testing.T) {
+func TestTypeDefs_getSmtConstr_UnsupportedAtomic(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 	badAtomic := &types.RegoTypeDef{
 		Kind:       types.KindAtomic,
 		AtomicType: "invalid-atomic-type", // invalid atomic type
 	}
-	_, err := tr.getSmtConstr("w", badAtomic)
+	_, err := td.getSmtConstr("w", badAtomic)
 	if err == nil {
 		t.Error("expected error for unsupported atomic type, got nil")
 	}
 }
 
-func TestTranslator_getSmtConstrAssert_NestedObject(t *testing.T) {
+func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 	nestedType := &types.RegoTypeDef{
 		Kind: types.KindObject,
 		ObjectFields: map[string]types.RegoTypeDef{
@@ -201,7 +201,7 @@ func TestTranslator_getSmtConstrAssert_NestedObject(t *testing.T) {
 			},
 		},
 	}
-	assertStr, err := tr.getSmtConstrAssert("n", nestedType)
+	assertStr, err := td.getSmtConstrAssert("n", nestedType)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -221,9 +221,9 @@ func TestTranslator_getSmtConstrAssert_NestedObject(t *testing.T) {
 	}
 }
 
-func TestTranslator_getSmtArrConstr(t *testing.T) {
+func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 
 	// Test simple array of atomic strings
 	arrType := &types.RegoTypeDef{
@@ -233,7 +233,7 @@ func TestTranslator_getSmtArrConstr(t *testing.T) {
 			AtomicType: types.AtomicString,
 		},
 	}
-	constr, err := tr.getSmtArrConstr("a", arrType)
+	constr, err := td.getSmtArrConstr("a", arrType)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestTranslator_getSmtArrConstr(t *testing.T) {
 			},
 		},
 	}
-	nestedConstr, err := tr.getSmtArrConstr("b", nestedArrType)
+	nestedConstr, err := td.getSmtArrConstr("b", nestedArrType)
 
 	if err != nil {
 		t.Fatalf("unexpected error for nested array: %v", err)
@@ -277,9 +277,9 @@ func TestTranslator_getSmtArrConstr(t *testing.T) {
 	}
 }
 
-func TestTranslator_getSmtConstr_Union(t *testing.T) {
+func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 
 	// Test simple union: string | int
 	simpleUnionType := &types.RegoTypeDef{
@@ -295,7 +295,7 @@ func TestTranslator_getSmtConstr_Union(t *testing.T) {
 			},
 		},
 	}
-	constr, err := tr.getSmtConstr("u", simpleUnionType)
+	constr, err := td.getSmtConstr("u", simpleUnionType)
 	if err != nil {
 		t.Fatalf("unexpected error for simple union: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestTranslator_getSmtConstr_Union(t *testing.T) {
 			},
 		},
 	}
-	complexConstr, err := tr.getSmtConstr("v", complexUnionType)
+	complexConstr, err := td.getSmtConstr("v", complexUnionType)
 	if err != nil {
 		t.Fatalf("unexpected error for complex union: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestTranslator_getSmtConstr_Union(t *testing.T) {
 			},
 		},
 	}
-	nestedConstr, err := tr.getSmtConstr("w", nestedUnionType)
+	nestedConstr, err := td.getSmtConstr("w", nestedUnionType)
 	if err != nil {
 		t.Fatalf("unexpected error for nested union: %v", err)
 	}
@@ -406,9 +406,9 @@ func TestTranslator_getSmtConstr_Union(t *testing.T) {
 	}
 }
 
-func TestTranslator_getSmtConstr_UnionWithError(t *testing.T) {
+func TestTypeDefs_getSmtConstr_UnionWithError(t *testing.T) {
 	t.Parallel()
-	tr := &Translator{}
+	td := &TypeTranslator{}
 
 	// Test union with unsupported member type
 	badUnionType := &types.RegoTypeDef{
@@ -423,7 +423,7 @@ func TestTranslator_getSmtConstr_UnionWithError(t *testing.T) {
 			},
 		},
 	}
-	_, err := tr.getSmtConstr("x", badUnionType)
+	_, err := td.getSmtConstr("x", badUnionType)
 	if err == nil {
 		t.Error("expected error for union with unsupported member type, got nil")
 	}
@@ -433,7 +433,7 @@ func TestTranslator_getSmtConstr_UnionWithError(t *testing.T) {
 		Kind:       types.KindAtomic,
 		AtomicType: types.AtomicString,
 	}
-	_, err = tr.getSmtUnionConstr("y", nonUnionType)
+	_, err = td.getSmtUnionConstr("y", nonUnionType)
 	if err == nil {
 		t.Error("expected error for non-union type passed to getSmtUnionConstr, got nil")
 	}

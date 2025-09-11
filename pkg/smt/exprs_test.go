@@ -8,6 +8,29 @@ import (
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
+func newDummyExprTranslator() *ExprTranslator {
+	// Setup a dummy type analyzer with some schema variables
+	ta := &types.TypeAnalyzer{
+		Types: map[string]types.RegoTypeDef{
+			"input.parameters.foo": types.NewAtomicType(types.AtomicString),
+			"input.parameters.bar": types.NewAtomicType(types.AtomicInt),
+			"input.data.x":         types.NewObjectType(map[string]types.RegoTypeDef{"y": types.NewAtomicType(types.AtomicBoolean)}),
+		},
+		Refs: map[string]ast.Value{},
+	}
+	typeTrans := NewTypeDefs(ta)
+	return NewExprTranslator(typeTrans)
+}
+
+func newTestExprTranslatorWithTypes(typeMap map[string]types.RegoTypeDef) *ExprTranslator {
+	ta := &types.TypeAnalyzer{
+		Types: typeMap,
+		Refs:  map[string]ast.Value{},
+	}
+	typeTrans := NewTypeDefs(ta)
+	return NewExprTranslator(typeTrans)
+}
+
 func newDummyTranslator() *Translator {
 	// Setup a dummy type analyzer with some schema variables
 	ta := &types.TypeAnalyzer{
@@ -18,27 +41,21 @@ func newDummyTranslator() *Translator {
 		},
 		Refs: map[string]ast.Value{},
 	}
-	return &Translator{
-		TypeInfo: ta,
-		VarMap:   make(map[string]string),
-	}
+	return NewTranslator(ta, nil)
 }
 
 func newTestTranslatorWithTypes(typeMap map[string]types.RegoTypeDef) *Translator {
-	return &Translator{
-		TypeInfo: &types.TypeAnalyzer{
-			Types: typeMap,
-			Refs:  map[string]ast.Value{},
-		},
-		VarMap: make(map[string]string),
-	}
+	return NewTranslator(&types.TypeAnalyzer{
+		Types: typeMap,
+		Refs:  map[string]ast.Value{},
+	}, nil)
 }
 
 func TestRefToSmt_InputSimple(t *testing.T) {
 	t.Parallel()
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	ref := ast.MustParseRef("input.foo")
-	_, err := tr.refToSmt(ref)
+	_, err := et.refToSmt(ref)
 	if err == nil {
 		t.Errorf("expected error for missing type, got nil")
 	}
@@ -46,9 +63,9 @@ func TestRefToSmt_InputSimple(t *testing.T) {
 
 func TestRefToSmt_InputParameters(t *testing.T) {
 	t.Parallel()
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	ref := ast.MustParseRef("input.parameters.foo")
-	smt, err := tr.refToSmt(ref)
+	smt, err := et.refToSmt(ref)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,14 +77,14 @@ func TestRefToSmt_InputParameters(t *testing.T) {
 
 func TestRefToSmt_InputSchemaPath(t *testing.T) {
 	t.Parallel()
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	ref := ast.MustParseRef("input.parameters.foo.bar.baz")
-	tr.TypeInfo.Types["input.parameters.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
+	et.TypeTrans.TypeInfo.Types["input.parameters.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
 		"bar": types.NewObjectType(map[string]types.RegoTypeDef{
 			"baz": types.NewAtomicType(types.AtomicString),
 		}),
 	})
-	smt, err := tr.refToSmt(ref)
+	smt, err := et.refToSmt(ref)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,9 +95,9 @@ func TestRefToSmt_InputSchemaPath(t *testing.T) {
 
 func TestRefToSmt_EmptyRef(t *testing.T) {
 	t.Parallel()
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	ref := ast.Ref{}
-	smt, err := tr.refToSmt(ref)
+	smt, err := et.refToSmt(ref)
 	if err == nil {
 		t.Errorf("expected error for empty ref, got nil")
 	}
@@ -91,9 +108,9 @@ func TestRefToSmt_EmptyRef(t *testing.T) {
 
 func TestRefToSmt_NonInputRef(t *testing.T) {
 	t.Parallel()
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	ref := ast.MustParseRef("data.x.y")
-	smt, err := tr.refToSmt(ref)
+	smt, err := et.refToSmt(ref)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,9 +121,9 @@ func TestRefToSmt_NonInputRef(t *testing.T) {
 
 func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 	t.Parallel()
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	// Setup nested type: input.data.review.foo.bar.baz
-	tr.TypeInfo.Types["input.data.review.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
+	et.TypeTrans.TypeInfo.Types["input.data.review.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
 		"bar": types.NewObjectType(map[string]types.RegoTypeDef{
 			"baz": types.NewAtomicType(types.AtomicString),
 		}),
@@ -114,7 +131,7 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 
 	// Test direct field
 	ref1 := ast.MustParseRef("input.data.review.foo")
-	smt1, err1 := tr.refToSmt(ref1)
+	smt1, err1 := et.refToSmt(ref1)
 	if err1 != nil {
 		t.Fatalf("unexpected error: %v", err1)
 	}
@@ -124,7 +141,7 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 
 	// Test deeper nested field
 	ref2 := ast.MustParseRef("input.data.review.foo.bar")
-	smt2, err2 := tr.refToSmt(ref2)
+	smt2, err2 := et.refToSmt(ref2)
 	if err2 != nil {
 		t.Fatalf("unexpected error: %v", err2)
 	}
@@ -134,7 +151,7 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 
 	// Test full path
 	ref3 := ast.MustParseRef("input.data.review.foo.bar.baz")
-	smt3, err3 := tr.refToSmt(ref3)
+	smt3, err3 := et.refToSmt(ref3)
 	if err3 != nil {
 		t.Fatalf("unexpected error: %v", err3)
 	}
@@ -144,14 +161,13 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 
 	// Test missing type for nested path
 	ref4 := ast.MustParseRef("input.data.review.unknownfield")
-	_, err4 := tr.refToSmt(ref4)
+	_, err4 := et.refToSmt(ref4)
 	if err4 == nil {
 		t.Errorf("expected error for missing type in nested path, got nil")
 	}
 }
 
 func TestTermToSmt_BasicTypes(t *testing.T) {
-	tr := newDummyTranslator()
 	tests := []struct {
 		name    string
 		term    *ast.Term
@@ -166,7 +182,8 @@ func TestTermToSmt_BasicTypes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tr.termToSmt(tt.term)
+			et := newDummyExprTranslator()
+			got, err := et.termToSmt(tt.term)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("termToSmt() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -179,7 +196,7 @@ func TestTermToSmt_BasicTypes(t *testing.T) {
 }
 
 func TestExprToSmt_BasicOps(t *testing.T) {
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	// expr: plus(1, 2) => (+ 1 2)
 	plusExpr := ast.Expr{
 		Terms: []*ast.Term{
@@ -188,7 +205,7 @@ func TestExprToSmt_BasicOps(t *testing.T) {
 			ast.NewTerm(ast.Number("2")),
 		},
 	}
-	got, err := tr.exprToSmt(&plusExpr)
+	got, err := et.ExprToSmt(&plusExpr)
 	if err != nil {
 		t.Errorf("exprToSmt() error = %v", err)
 	}
@@ -205,7 +222,7 @@ func TestExprToSmt_BasicOps(t *testing.T) {
 			ast.NewTerm(ast.String("foo")),
 		},
 	}
-	got, err = tr.exprToSmt(eqExpr)
+	got, err = et.ExprToSmt(eqExpr)
 	if err != nil {
 		t.Errorf("exprToSmt() error = %v", err)
 	}
@@ -216,7 +233,6 @@ func TestExprToSmt_BasicOps(t *testing.T) {
 }
 
 func TestExprToSmt_Advanced(t *testing.T) {
-	tr := newDummyTranslator()
 
 	cases := []struct {
 		name    string
@@ -287,7 +303,8 @@ func TestExprToSmt_Advanced(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tr.exprToSmt(&tt.expr)
+			et := newDummyExprTranslator()
+			got, err := et.ExprToSmt(&tt.expr)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("exprToSmt() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -299,15 +316,20 @@ func TestExprToSmt_Advanced(t *testing.T) {
 }
 
 func TestExplicitArrayToSmt_Success(t *testing.T) {
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	// Add type info for the array string representation
 	arr := ast.NewArray(ast.IntNumberTerm(1), ast.IntNumberTerm(2), ast.IntNumberTerm(3))
 	arrStr := arr.String()
-	tr.TypeInfo.Types[arrStr] = types.NewArrayType(types.NewAtomicType(types.AtomicInt))
-	got, err := tr.explicitArrayToSmt(arr)
+	et.TypeTrans.TypeInfo.Types[arrStr] = types.NewArrayType(types.NewAtomicType(types.AtomicInt))
+	got, err := et.explicitArrayToSmt(arr)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
+
+	// Create a translator to test the context merging
+	tr := newDummyTranslator()
+	tr.AddTransContext(et.GetTransContext())
+
 	if got == "" {
 		t.Errorf("expected non-empty SMT var name, got empty string")
 	}
@@ -325,9 +347,9 @@ func TestExplicitArrayToSmt_Success(t *testing.T) {
 }
 
 func TestExplicitArrayToSmt_TypeNotFound(t *testing.T) {
-	tr := newDummyTranslator()
+	et := newDummyExprTranslator()
 	arr := ast.NewArray(ast.IntNumberTerm(1), ast.IntNumberTerm(2))
-	_, err := tr.explicitArrayToSmt(arr)
+	_, err := et.explicitArrayToSmt(arr)
 	if err == nil {
 		t.Fatalf("expected error for missing type info, got nil")
 	}
@@ -342,9 +364,9 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			"1":    types.NewAtomicType(types.AtomicInt),
 			"2":    types.NewAtomicType(types.AtomicInt),
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
+		et := newTestExprTranslatorWithTypes(typeMap)
 		expr := ast.MustParseExpr("plus(1,2)")
-		smt, err := tr.exprToSmt(expr)
+		smt, err := et.ExprToSmt(expr)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -361,9 +383,9 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			"1":   types.NewAtomicType(types.AtomicInt),
 			"2":   types.NewAtomicType(types.AtomicInt),
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
+		et := newTestExprTranslatorWithTypes(typeMap)
 		expr := ast.MustParseExpr("neq(1,2)")
-		smt, err := tr.exprToSmt(expr)
+		smt, err := et.ExprToSmt(expr)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -380,17 +402,17 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			"1":   types.NewAtomicType(types.AtomicInt),
 			"2":   types.NewAtomicType(types.AtomicInt),
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
+		et := newTestExprTranslatorWithTypes(typeMap)
 		expr := ast.MustParseExpr("foo(1,2)")
-		smt, err := tr.exprToSmt(expr)
+		smt, err := et.ExprToSmt(expr)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		// The function name will be a fresh variable, so just check the format
-		if len(tr.smtDecls) == 0 {
+		if len(et.context.Bucket.Decls) == 0 {
 			t.Errorf("expected a function declaration in smtDecls")
 		}
-		decl := tr.smtDecls[len(tr.smtDecls)-1]
+		decl := et.context.Bucket.Decls[len(et.context.Bucket.Decls)-1]
 		if decl == "" || decl[:13] != "(declare-fun " {
 			t.Errorf("expected function declaration, got %q", decl)
 		}
@@ -405,9 +427,9 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			"foo": types.NewAtomicType(types.AtomicFunction),
 			// missing type for "1"
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
+		et := newTestExprTranslatorWithTypes(typeMap)
 		expr := ast.MustParseExpr("foo(1)")
-		_, err := tr.exprToSmt(expr)
+		_, err := et.ExprToSmt(expr)
 		if err == nil {
 			t.Errorf("expected error for missing type, got nil")
 		}
@@ -424,12 +446,16 @@ func TestExplicitArrayToSmt_CompareFullSmtLib(t *testing.T) {
 	typeMap := map[string]types.RegoTypeDef{
 		arr.String(): types.NewArrayType(types.NewAtomicType(types.AtomicInt)),
 	}
-	tr := newTestTranslatorWithTypes(typeMap)
-
-	varName, err := tr.explicitArrayToSmt(arr)
+	et := newTestExprTranslatorWithTypes(typeMap)
+	varName, err := et.explicitArrayToSmt(arr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	// Create a translator to test the context merging
+	tr := newDummyTranslator()
+	tr.AddTransContext(et.GetTransContext())
+
 	if varName == "" {
 		t.Fatalf("expected non-empty SMT var name")
 	}
@@ -479,11 +505,16 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 				"value": types.NewAtomicType(types.AtomicInt),
 			}),
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		et := newTestExprTranslatorWithTypes(typeMap)
+		varName, err := et.handleConstObject(obj)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
+		// Create a translator to test the context merging
+		tr := newDummyTranslator()
+		tr.AddTransContext(et.GetTransContext())
+
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
@@ -500,8 +531,8 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected ast.Object, got %T", objTerm.Value)
 		}
-		tr := newDummyTranslator()
-		_, err := tr.handleConstObject(obj)
+		et := newDummyExprTranslator()
+		_, err := et.handleConstObject(obj)
 		if err == nil {
 			t.Fatalf("expected error for missing type info, got nil")
 		}
@@ -522,11 +553,16 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 				"active": types.NewAtomicType(types.AtomicBoolean),
 			}),
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		et := newTestExprTranslatorWithTypes(typeMap)
+		varName, err := et.handleConstObject(obj)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
+		// Create a translator to test the context merging
+		tr := newDummyTranslator()
+		tr.AddTransContext(et.GetTransContext())
+
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
@@ -546,11 +582,16 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 		typeMap := map[string]types.RegoTypeDef{
 			obj.String(): types.NewObjectType(map[string]types.RegoTypeDef{}),
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		et := newTestExprTranslatorWithTypes(typeMap)
+		varName, err := et.handleConstObject(obj)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
+		// Create a translator to test the context merging
+		tr := newDummyTranslator()
+		tr.AddTransContext(et.GetTransContext())
+
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
@@ -574,11 +615,16 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 				"count":  types.NewAtomicType(types.AtomicInt),
 			}),
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		et := newTestExprTranslatorWithTypes(typeMap)
+		varName, err := et.handleConstObject(obj)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
+		// Create a translator to test the context merging
+		tr := newDummyTranslator()
+		tr.AddTransContext(et.GetTransContext())
+
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
@@ -617,11 +663,16 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 				"name":  types.NewAtomicType(types.AtomicString),
 			}),
 		}
-		tr := newTestTranslatorWithTypes(typeMap)
-		varName, err := tr.handleConstObject(obj)
+		et := newTestExprTranslatorWithTypes(typeMap)
+		varName, err := et.handleConstObject(obj)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
+		// Create a translator to test the context merging
+		tr := newDummyTranslator()
+		tr.AddTransContext(et.GetTransContext())
+
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}

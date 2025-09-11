@@ -24,12 +24,13 @@ import (
 // Parameters:
 //
 //	rule *ast.Rule: The Rego rule whose head is to be converted.
+//	exprTrans *ExprTranslator: The expression translator to use for converting terms and references.
 //
 // Returns:
 //
 //	smtHead string: The SMT-LIB representation of the rule head (e.g., (= var val)).
 //	error: An error if the head cannot be converted.
-func (t *Translator) ruleHeadToSmt(rule *ast.Rule) (string, error) {
+func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (string, error) {
 	if rule == nil || rule.Head == nil {
 		return "", fmt.Errorf("invalid rule: nil head")
 	}
@@ -39,10 +40,10 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule) (string, error) {
 	if rule.Head.Value == nil {
 		if rule.Head.Key != nil && rule.Head.Reference != nil {
 			var err error
-			if ruleVar, err = t.termToSmt(rule.Head.Key); err != nil {
+			if ruleVar, err = exprTrans.termToSmt(rule.Head.Key); err != nil {
 				return "", fmt.Errorf("failed to convert rule head key: %w", err)
 			}
-			ruleValSmt, err := t.refToSmt(rule.Head.Reference)
+			ruleValSmt, err := exprTrans.refToSmt(rule.Head.Reference)
 			if err != nil {
 				return "", fmt.Errorf("failed to convert rule head reference: %w", err)
 			}
@@ -50,7 +51,7 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule) (string, error) {
 		}
 		return "", fmt.Errorf("rule head value is nil for %s", ruleVar)
 	}
-	ruleValSmt, err := t.termToSmt(rule.Head.Value)
+	ruleValSmt, err := exprTrans.termToSmt(rule.Head.Value)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert rule head value: %w", err)
 	}
@@ -70,7 +71,8 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule) (string, error) {
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
 // The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
 func (t *Translator) RuleToSmt(rule *ast.Rule) error {
-	smtHead, err := t.ruleHeadToSmt(rule)
+	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
+	smtHead, err := t.ruleHeadToSmt(rule, exprTrans)
 	if err != nil {
 		return err
 	}
@@ -78,12 +80,14 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 	// Convert all body expressions to SMT
 	bodySmts := make([]string, 0, len(rule.Body))
 	for _, expr := range rule.Body {
-		smtStr, err := t.exprToSmt(expr)
+		smtStr, err := exprTrans.ExprToSmt(expr)
 		if err != nil {
 			return fmt.Errorf("failed to convert rule body expr: %w", err)
 		}
 		bodySmts = append(bodySmts, smtStr)
 	}
+	t.AddTransContext(exprTrans.GetTransContext())
+
 	var bodySmt string
 	switch len(bodySmts) {
 	case 0:
