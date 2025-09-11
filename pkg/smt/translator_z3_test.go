@@ -1,7 +1,6 @@
 package smt
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -65,8 +64,6 @@ p = x {
 	}
 
 	smt := strings.Join(tr.SmtLines(), "\n")
-
-	fmt.Printf("Generated SMT-LIB:\n%s\n", smt) // For debugging
 
 	// Z3: assert SMT-LIB2 string and check SAT
 	ctx := z3.NewContext(nil)
