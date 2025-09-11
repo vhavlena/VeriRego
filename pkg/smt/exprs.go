@@ -128,7 +128,7 @@ func (et *ExprTranslator) termToSmt(term *ast.Term) (string, error) {
 		return "", verr.ErrSetConversionNotSupported
 	case ast.Var:
 		// Variable name
-		return v.String(), nil
+		return et.TypeTrans.getVarValue(v.String())
 	case ast.Ref:
 		return et.refToSmt(v)
 	case ast.Call:
@@ -235,15 +235,15 @@ func (et *ExprTranslator) refToSmt(ref ast.Ref) (string, error) {
 		if !ok {
 			return "", verr.ErrTypeNotFound
 		}
-		smt, err := getSmtRef(baseVar, path, &tp)
+		smt, actType, err := getSmtRef(baseVar, path, &tp)
 		if err != nil {
 			return "", fmt.Errorf("error converting reference to SMT: %w", err)
 		}
-		return smt, nil
+		return et.TypeTrans.getSmtValue(smt, actType)
 	}
 
 	// TODO: handle most general references
-	return ref.String(), nil
+	return et.TypeTrans.getVarValue(ref.String())
 }
 
 // explicitArrayToSmt converts an explicit Rego array to an SMT-LIB variable and adds its declaration and assertion.

@@ -24,6 +24,7 @@ var (
 	ErrEmptyReferenceConv           = errors.New("Cannot convert empty reference")
 	ErrInvalidEmptyTerm             = errors.New("invalid or empty expression terms")
 	ErrTypeNotFound                 = errors.New("type not found")
+	ErrNotImplemented               = errors.New("not implemented")
 )
 
 // ErrSmtConstraints returns an error for SMT constraint generation failure.

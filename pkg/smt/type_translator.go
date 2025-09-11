@@ -428,18 +428,18 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 //
 //	string: The SMT-LIB reference string for the given path.
 //	error: An error if the path cannot be traversed due to type mismatches.
-func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, error) {
+func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *types.RegoTypeDef, error) {
 	smtref := smtvar
 	actType := tp
 	for _, p := range path {
 		if !actType.IsObject() {
-			return "", fmt.Errorf("only object types can be used in references")
+			return "", nil, fmt.Errorf("only object types can be used in references")
 		}
 		val := actType.ObjectFields[p]
 		actType = &val
 		smtref = fmt.Sprintf("(select (obj %s) \"%s\")", smtref, p)
 	}
-	return smtref, nil
+	return smtref, actType, nil
 }
 
 // refToPath converts a Rego AST reference to a slice of strings representing the path.
@@ -545,4 +545,78 @@ func (td *TypeTranslator) getFreshVariable(prefix string, usedVars map[string]st
 			return varName
 		}
 	}
+}
+
+// getAtomValue returns the SMT-LIB atomic representation for a named value
+// according to the provided Rego atomic type. The returned string is the
+// textual SMT expression representing the atom wrapper (for example,
+// "(num (atom x))" for integers or "(str (atom s))" for strings).
+//
+// Parameters:
+//   name string: the variable name or SMT expression to wrap (e.g. "x" or a
+//                select-chain).
+//   tp *types.RegoTypeDef: the Rego type definition which must be atomic.
+//
+// Returns:
+//   string: the SMT-LIB expression representing the atomic wrapper.
+//   error: an error if the atomic type is unsupported.
+
+func (td *TypeTranslator) getAtomValue(name string, tp *types.RegoTypeDef) (string, error) {
+	if tp.AtomicType == types.AtomicString {
+		return fmt.Sprintf("(str (atom %s))", name), nil
+	} else if tp.AtomicType == types.AtomicInt {
+		return fmt.Sprintf("(num (atom %s))", name), nil
+	} else if tp.AtomicType == types.AtomicBoolean {
+		return fmt.Sprintf("(bool (atom %s))", name), nil
+	} else if tp.AtomicType == types.AtomicNull {
+		return "ONull", nil
+	}
+	return "", err.ErrUnsupportedAtomic
+}
+
+// getSmtValue returns the SMT-LIB expression for a value given its Rego type.
+// For atomic types this wraps the provided name into the appropriate atom
+// constructor (e.g. num/str/bool). For non-atomic types (objects, arrays,
+// unions) the function returns the provided SMT expression unchanged because
+// object/array expressions are represented by select-chains or variables.
+//
+// Parameters:
+//   smt string: the base SMT expression or variable name.
+//   tp *types.RegoTypeDef: the Rego type definition for the value.
+//
+// Returns:
+//   string: the SMT-LIB expression appropriate for the type.
+//   error: an error if conversion is not possible.
+
+func (td *TypeTranslator) getSmtValue(smt string, tp *types.RegoTypeDef) (string, error) {
+	// If the type is atomic, convert to the wrapped atom form (num/str/bool etc.).
+	// For non-atomic types (object, array, union) return the SMT expression
+	// as-is (e.g. select chains or variable names) so callers can use it
+	// directly in generated SMT assertions.
+	if tp.IsAtomic() {
+		return td.getAtomValue(smt, tp)
+	}
+	// For objects/arrays/unions we don't wrap into atom constructors here;
+	// the SMT expression (smt) already represents the proper select/var form.
+	return smt, nil
+}
+
+// getVarValue looks up the type for the given variable name in the
+// TypeTranslator's TypeInfo and returns the SMT-LIB expression representing
+// that variable according to its type (atoms are wrapped; non-atomic types
+// are returned as the variable name / select expression).
+//
+// Parameters:
+//   name string: the variable name to translate.
+//
+// Returns:
+//   string: the SMT-LIB expression for the variable.
+//   error: an error if the variable type is not found or cannot be converted.
+
+func (td *TypeTranslator) getVarValue(name string) (string, error) {
+	tp, ok := td.TypeInfo.Types[name]
+	if !ok {
+		return "", err.ErrTypeNotFound
+	}
+	return td.getSmtValue(name, &tp)
 }
