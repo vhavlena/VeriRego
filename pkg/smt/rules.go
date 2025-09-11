@@ -35,6 +35,10 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 		return "", fmt.Errorf("invalid rule: nil head")
 	}
 	ruleVar := rule.Head.Name.String()
+	ruleVarSmt, err := t.TypeTrans.getVarValue(ruleVar)
+	if err != nil {
+		return "", fmt.Errorf("failed to get SMT var for rule head %s: %w", ruleVar, err)
+	}
 	// TODO: simplification: violation[result] should be converted to violation contains result
 	// for now, we translate it to violation = result (assume only singletons)
 	if rule.Head.Value == nil {
@@ -47,7 +51,7 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 			if err != nil {
 				return "", fmt.Errorf("failed to convert rule head reference: %w", err)
 			}
-			return fmt.Sprintf("(= %s %s)", ruleVar, ruleValSmt), nil
+			return fmt.Sprintf("(= %s %s)", ruleVarSmt, ruleValSmt), nil
 		}
 		return "", fmt.Errorf("rule head value is nil for %s", ruleVar)
 	}
@@ -55,7 +59,7 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 	if err != nil {
 		return "", fmt.Errorf("failed to convert rule head value: %w", err)
 	}
-	return fmt.Sprintf("(= %s %s)", ruleVar, ruleValSmt), nil
+	return fmt.Sprintf("(= %s %s)", ruleVarSmt, ruleValSmt), nil
 }
 
 // RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.

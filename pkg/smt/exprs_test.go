@@ -44,13 +44,6 @@ func newDummyTranslator() *Translator {
 	return NewTranslator(ta, nil)
 }
 
-func newTestTranslatorWithTypes(typeMap map[string]types.RegoTypeDef) *Translator {
-	return NewTranslator(&types.TypeAnalyzer{
-		Types: typeMap,
-		Refs:  map[string]ast.Value{},
-	}, nil)
-}
-
 func TestRefToSmt_InputSimple(t *testing.T) {
 	t.Parallel()
 	et := newDummyExprTranslator()
@@ -110,12 +103,17 @@ func TestRefToSmt_NonInputRef(t *testing.T) {
 	t.Parallel()
 	et := newDummyExprTranslator()
 	ref := ast.MustParseRef("data.x.y")
+	// Ensure the type translator knows the type for this non-input reference
+	et.TypeTrans.TypeInfo.Types[ref.String()] = types.NewAtomicType(types.AtomicInt)
+
 	smt, err := et.refToSmt(ref)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if smt != ref.String() {
-		t.Errorf("expected %q, got %q", ref.String(), smt)
+	// For an atomic int the SMT representation should be (num (atom <name>))
+	expected := "(num (atom " + ref.String() + "))"
+	if smt != expected {
+		t.Errorf("expected %q, got %q", expected, smt)
 	}
 }
 
@@ -178,11 +176,16 @@ func TestTermToSmt_BasicTypes(t *testing.T) {
 		{"number", ast.NewTerm(ast.Number("42")), "42", false},
 		{"boolean true", ast.NewTerm(ast.Boolean(true)), "true", false},
 		{"boolean false", ast.NewTerm(ast.Boolean(false)), "false", false},
-		{"var", ast.NewTerm(ast.Var("x")), "x", false},
+		{"var", ast.NewTerm(ast.Var("x")), "(num (atom x))", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			et := newDummyExprTranslator()
+
+			// If the term is a variable, ensure the type analyzer knows its type
+			if _, isVar := tt.term.Value.(ast.Var); isVar {
+				et.TypeTrans.TypeInfo.Types[tt.term.Value.String()] = types.NewAtomicType(types.AtomicInt)
+			}
 			got, err := et.termToSmt(tt.term)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("termToSmt() error = %v, wantErr %v", err, tt.wantErr)
