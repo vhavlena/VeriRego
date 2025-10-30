@@ -324,21 +324,58 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	return NewUnknownType()
 }
 
-// AnalyzeRule performs type analysis on a Rego rule.
+// AnalyzeRule analyzes the given Rego rule and records the inferred type for the rule head.
+//
+// AnalyzeRule constructs a union type to collect possible return types produced by the
+// rule's body (including any else branches). It delegates the body analysis to
+// AnalyzeRuleBody which appends discovered return types into the union. After analysis
+// the union is canonicalized and stored in the analyzer's type map under the rule head's
+// name via ta.setType.
+//
+// Side effects:
+//   - mutates the provided TypeAnalyzer by recording the inferred type for the rule head
+//     (via ta.setType and ta.Refs).
 //
 // Parameters:
-//
-//	rule *ast.Rule: The Rego rule to analyze.
+//   - rule *ast.Rule: the Rego rule to analyze. The function expects a valid rule with a
+//     head; behavior for malformed rules follows the underlying setType logic.
 func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
+	tp := NewUnionType([]RegoTypeDef{})
+	ta.AnalyzeRuleBody(rule, &tp)
+	tp.CanonizeUnion()
+	ta.setType(rule.Head.Name, tp)
+}
+
+// AnalyzeRuleBody analyzes the body (and else branches) of a rule and appends discovered
+// return types to the provided union type `tp`.
+//
+// tp must be a union type. This method infers types for each expression in the rule body
+// (calling InferExprType) and, if the rule has a head value, infers the head's type and
+// appends it to the union. If the rule contains an else branch, that branch is analyzed
+// recursively and its return types are appended to the same union.
+//
+// The function mutates `tp` (by adding to tp.Union) and has no return value. It will
+// panic if `tp` is not a union type.
+//
+// Parameters:
+//   - rule *ast.Rule: the Rego rule whose body to analyze.
+//   - tp *RegoTypeDef: pointer to a union RegoTypeDef that will be populated with the
+//     possible return types discovered while analyzing the rule body and else branches.
+func (ta *TypeAnalyzer) AnalyzeRuleBody(rule *ast.Rule, tp *RegoTypeDef) {
+	if !tp.IsUnion() {
+		panic("AnalyzeRuleBody: expected union type for rule with else branches")
+	}
 	// Analyze rule body
 	for _, expr := range rule.Body {
 		ta.InferExprType(expr)
 	}
-
 	// Analyze rule head value if it exists
 	if rule.Head.Value != nil {
-		tp := ta.inferAstType(rule.Head.Value.Value, nil)
-		ta.setType(rule.Head.Name, tp)
+		returnType := ta.inferAstType(rule.Head.Value.Value, nil)
+		tp.Union = append(tp.Union, returnType)
+	}
+	if rule.Else != nil {
+		ta.AnalyzeRuleBody(rule.Else, tp)
 	}
 }
 
@@ -378,58 +415,19 @@ func (ta *TypeAnalyzer) GetAllTypes() map[string]RegoTypeDef {
 	return result
 }
 
-// isStringFunction checks if a function name corresponds to a string operation.
-//
-// Parameters:
-//
-//	name string: The function name to check.
-//
-// Returns:
-//
-//	bool: True if the function is a string operation, false otherwise.
-func isStringFunction(name string) bool {
-	stringOps := map[string]bool{
-		"trim": true, "replace": true, "concat": true,
-		"format": true, "lower": true, "upper": true,
-		"split": true,
+// predefFunction applies predefined typing rules for a function if available.
+// It mutates 'pars' in-place to set expected parameter types and returns the
+// expected return type (or Unknown if not a predefined function or arity mismatch).
+func predefFunction(name string, pars []RegoTypeDef) RegoTypeDef {
+	if pf, ok := getPredefFunctions()[name]; ok {
+		if pf.CheckArity == nil || pf.CheckArity(len(pars)) {
+			if pf.UpdateParams != nil {
+				pf.UpdateParams(pars)
+			}
+			return pf.ReturnType
+		}
 	}
-	return stringOps[name]
-}
-
-// isNumericFunction checks if a function name corresponds to a numeric operation.
-//
-// Parameters:
-//
-//	name string: The function name to check.
-//
-// Returns:
-//
-//	bool: True if the function is a numeric operation, false otherwise.
-func isNumericFunction(name string) bool {
-	numericOps := map[string]bool{
-		"plus": true, "minus": true, "mul": true,
-		"div": true,
-	}
-	return numericOps[name]
-}
-
-// isBooleanFunction checks if a function name corresponds to a boolean operation.
-//
-// Parameters:
-//
-//	name string: The function name to check.
-//
-// Returns:
-//
-//	bool: True if the function is a boolean operation, false otherwise.
-func isBooleanFunction(name string) bool {
-	booleanOps := map[string]bool{
-		"neq": true, "and": true,
-		"or": true, "not": true,
-		"lt": true, "contains": true,
-		"startswith": true, "endswith": true,
-	}
-	return booleanOps[name]
+	return NewUnknownType()
 }
 
 // funcParamsType returns the expected return type and parameter types for a given function name and parameter count.
@@ -448,26 +446,9 @@ func funcParamsType(name string, params int) (RegoTypeDef, []RegoTypeDef) {
 	for i := 0; i < params; i++ {
 		pars[i] = NewUnknownType()
 	}
-	switch {
-	case isStringFunction(name):
-		for i := 0; i < params; i++ {
-			pars[i] = NewAtomicType(AtomicString)
-		}
-		return NewAtomicType(AtomicString), pars
-	case name == "sprintf":
-		// format string
-		pars[0] = NewAtomicType(AtomicString)
-		// last parameter is a result
-		pars[len(pars)-1] = NewAtomicType(AtomicString)
-		return NewAtomicType(AtomicBoolean), pars
-
-	case isNumericFunction(name):
-		for i := 0; i < params; i++ {
-			pars[i] = NewAtomicType(AtomicInt)
-		}
-		return NewAtomicType(AtomicInt), pars
-	case isBooleanFunction(name):
-		return NewAtomicType(AtomicBoolean), pars
+	// First, try predefined function registry which can refine param and return types
+	if ret := predefFunction(name, pars); !ret.IsUnknown() {
+		return ret, pars
 	}
 	return NewUnknownType(), pars
 }

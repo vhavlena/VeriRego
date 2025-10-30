@@ -639,6 +639,20 @@ my_rule = var { var := {"a": 1, "b": 2} }`,
 				"b": NewAtomicType(AtomicInt),
 			}),
 		},
+		{
+			name: "rule head with else branches",
+			rule: `package test
+my_rule = var { var := {"a": 1, "b": 2} } else = x { x := 5 } else = y { y := "abc" }`,
+			ruleName: "my_rule",
+			expected: NewUnionType([]RegoTypeDef{
+				NewObjectType(map[string]RegoTypeDef{
+					"a": NewAtomicType(AtomicInt),
+					"b": NewAtomicType(AtomicInt),
+				}),
+				NewAtomicType(AtomicInt),
+				NewAtomicType(AtomicString),
+			}),
+		},
 	}
 
 	for _, tt := range tests {
