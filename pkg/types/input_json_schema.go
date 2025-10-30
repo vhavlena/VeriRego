@@ -15,6 +15,10 @@ type InputJsonSchema struct {
 }
 
 // NewInputJsonSchema creates and returns a new InputJsonSchema instance with an empty object type definition.
+//
+// Returns:
+//
+//	*InputJsonSchema: A new instance with an empty object type definition.
 func NewInputJsonSchema() *InputJsonSchema {
 	return &InputJsonSchema{
 		types: NewObjectType(make(map[string]RegoTypeDef)),
@@ -22,14 +26,27 @@ func NewInputJsonSchema() *InputJsonSchema {
 }
 
 // ProcessJSONSchema parses a JSON Schema (Draft-07-like subset) and stores an internal
-// RegoTypeDef approximation. It supports the following schema keywords:
-// - type (string or array of strings: "object", "array", "string", "integer"/"number", "boolean", "null")
-// - properties (object) for object types
-// - items (schema or array of schemas) for array types
-// - anyOf / oneOf (array of schemas) -> union of member types
-// - allOf (array of schemas) -> merged object/array types where possible; otherwise union approximation
-// - enum / const -> union of the value types
-// Unsupported or unrecognized keywords are ignored. $ref is not resolved and results in unknown type.
+// RegoTypeDef approximation.
+//
+// Supported keywords include (non-exhaustive):
+//   - type (string or array of strings: "object", "array", "string", "integer"/"number", "boolean", "null")
+//   - properties (object) for object types
+//   - items (schema or array of schemas) for array types
+//   - anyOf / oneOf (array of schemas) -> union of member types
+//   - allOf (array of schemas) -> merged object/array types where possible; otherwise union approximation
+//   - enum / const -> union of the value types
+//
+// Notes:
+//   - Unsupported or unrecognized keywords are ignored.
+//   - $ref is not resolved and results in an unknown type.
+//
+// Parameters:
+//
+//	schemaJSON []byte: The JSON bytes of a JSON Schema document to process.
+//
+// Returns:
+//
+//	error: An error if the schema cannot be parsed; otherwise nil.
 func (s *InputJsonSchema) ProcessJSONSchema(schemaJSON []byte) error {
 	// Parse with qri-io/jsonschema to respect JSON Schema structure & keywords
 	rs := &qjsonschema.Schema{}
@@ -42,16 +59,41 @@ func (s *InputJsonSchema) ProcessJSONSchema(schemaJSON []byte) error {
 
 // ProcessInput implements InputSchemaAPI by delegating to ProcessJSONSchema.
 // The input is expected to be a JSON Schema document (Draft-07-like subset).
+//
+// Parameters:
+//
+//	b []byte: The JSON bytes representing a JSON Schema document.
+//
+// Returns:
+//
+//	error: An error if parsing fails; otherwise nil.
 func (s *InputJsonSchema) ProcessInput(b []byte) error { return s.ProcessJSONSchema(b) }
 
 // GetType returns the RegoTypeDef for a given path in the input schema.
 // Semantics match InputSchema.GetType.
+//
+// Parameters:
+//
+//	path []PathNode: The path to look up within the input schema.
+//
+// Returns:
+//
+//	*RegoTypeDef: The type definition found at the given path (if any).
+//	bool: True if a type is found at the given path; otherwise false.
 func (s *InputJsonSchema) GetType(path []PathNode) (*RegoTypeDef, bool) {
 	return s.types.GetTypeFromPath(path)
 }
 
 // HasField checks if a field exists at the given path in the input schema.
 // Semantics match InputSchema.HasField.
+//
+// Parameters:
+//
+//	path []string: The simple path segments to check.
+//
+// Returns:
+//
+//	bool: True if a field exists at the given path; otherwise false.
 func (s *InputJsonSchema) HasField(path []string) bool {
 	typ, ok := s.GetType(FromGroundPath(path))
 	return ok && typ != nil
@@ -59,6 +101,10 @@ func (s *InputJsonSchema) HasField(path []string) bool {
 
 // GetTypes returns the complete type definition structure for the input schema.
 // Semantics match InputSchema.GetTypes.
+//
+// Returns:
+//
+//	RegoTypeDef: The root type definition derived from the JSON Schema.
 func (s *InputJsonSchema) GetTypes() RegoTypeDef {
 	return s.types
 }
@@ -70,6 +116,14 @@ func (s *InputJsonSchema) GetTypes() RegoTypeDef {
 // processQriSchema converts a qri-io/jsonschema Schema into a RegoTypeDef by
 // interpreting core JSON Schema keywords (type, properties, items, anyOf, oneOf, allOf).
 // Unknown or unsupported shapes are mapped to an unknown type.
+//
+// Parameters:
+//
+//	rs *qjsonschema.Schema: The parsed JSON Schema node to convert.
+//
+// Returns:
+//
+//	RegoTypeDef: The approximated Rego type for the given schema node.
 func (s *InputJsonSchema) processQriSchema(rs *qjsonschema.Schema) RegoTypeDef {
 	if rs == nil {
 		return NewUnknownType()
@@ -117,9 +171,17 @@ func (s *InputJsonSchema) processQriSchema(rs *qjsonschema.Schema) RegoTypeDef {
 	return s.processByTypeName(rs, typeNames[0])
 }
 
-// extractTypeNames returns the list of JSON Schema type names (e.g. "object",
+// extractTypeNames returns the list of JSON Schema type names (e.g., "object",
 // "array", "string") from a qri Type, handling both single-string and array
 // representations.
+//
+// Parameters:
+//
+//	t *qjsonschema.Type: The qri type wrapper to inspect.
+//
+// Returns:
+//
+//	[]string: The list of type names; empty if none could be determined.
 func extractTypeNames(t *qjsonschema.Type) []string {
 	if t == nil {
 		return nil
@@ -148,6 +210,15 @@ func extractTypeNames(t *qjsonschema.Type) []string {
 
 // processByTypeName builds a RegoTypeDef for a specific JSON Schema "type"
 // value, delegating to object/array helpers when applicable.
+//
+// Parameters:
+//
+//	rs *qjsonschema.Schema: The schema node whose type is being interpreted.
+//	typ string: The JSON Schema type name (e.g., "object", "array").
+//
+// Returns:
+//
+//	RegoTypeDef: The approximated type for the provided JSON Schema type name.
 func (s *InputJsonSchema) processByTypeName(rs *qjsonschema.Schema, typ string) RegoTypeDef {
 	switch typ {
 	case "object":
@@ -174,6 +245,15 @@ func (s *InputJsonSchema) processByTypeName(rs *qjsonschema.Schema, typ string) 
 }
 
 // tryCombinators handles anyOf/oneOf/allOf branches.
+//
+// Parameters:
+//
+//	rs *qjsonschema.Schema: The schema node to inspect for combinators.
+//
+// Returns:
+//
+//	RegoTypeDef: The computed type if a combinator was applied; zero value otherwise.
+//	bool: True if a combinator was found and handled; otherwise false.
 func (s *InputJsonSchema) tryCombinators(rs *qjsonschema.Schema) (RegoTypeDef, bool) {
 	if v := rs.JSONProp("anyOf"); v != nil {
 		if arr, ok := schemaSliceFromJSONProp(v); ok && len(arr) > 0 {
@@ -197,6 +277,15 @@ func (s *InputJsonSchema) tryCombinators(rs *qjsonschema.Schema) (RegoTypeDef, b
 }
 
 // schemaSliceFromJSONProp converts anyOf/oneOf/allOf JSONProp values to a slice of schemas.
+//
+// Parameters:
+//
+//	v interface{}: The raw JSONProp value from qri's Schema.
+//
+// Returns:
+//
+//	[]*qjsonschema.Schema: The extracted list of subschemas (if any).
+//	bool: True if the conversion succeeded; otherwise false.
 func schemaSliceFromJSONProp(v interface{}) ([]*qjsonschema.Schema, bool) {
 	switch s := v.(type) {
 	case qjsonschema.AnyOf:
@@ -227,6 +316,14 @@ func schemaSliceFromJSONProp(v interface{}) ([]*qjsonschema.Schema, bool) {
 
 // unionFromSchemas converts a slice of qri schemas to their RegoTypeDef union
 // and canonizes it to remove duplicates.
+//
+// Parameters:
+//
+//	list []*qjsonschema.Schema: The list of subschemas to union.
+//
+// Returns:
+//
+//	RegoTypeDef: A union type representing the disjunction of the subschema types.
 func (s *InputJsonSchema) unionFromSchemas(list []*qjsonschema.Schema) RegoTypeDef {
 	parts := make([]RegoTypeDef, 0, len(list))
 	for _, sub := range list {
@@ -239,6 +336,14 @@ func (s *InputJsonSchema) unionFromSchemas(list []*qjsonschema.Schema) RegoTypeD
 
 // mergeAllOf merges a list of schemas as in JSON Schema allOf by converting each
 // to a RegoTypeDef and combining them with mergeTypes.
+//
+// Parameters:
+//
+//	list []*qjsonschema.Schema: The list of schemas to merge conjunctively.
+//
+// Returns:
+//
+//	RegoTypeDef: The merged type, approximating the conjunction of the input schemas.
 func (s *InputJsonSchema) mergeAllOf(list []*qjsonschema.Schema) RegoTypeDef {
 	if len(list) == 0 {
 		return NewUnknownType()
@@ -251,7 +356,16 @@ func (s *InputJsonSchema) mergeAllOf(list []*qjsonschema.Schema) RegoTypeDef {
 }
 
 // objectTypeFromProperties builds an object RegoTypeDef from the "properties"
-// keyword if present; returns (type, true) when properties are found.
+// keyword if present.
+//
+// Parameters:
+//
+//	rs *qjsonschema.Schema: The schema node potentially containing properties.
+//
+// Returns:
+//
+//	RegoTypeDef: The object type with fields derived from properties.
+//	bool: True if properties were found and processed; otherwise false.
 func (s *InputJsonSchema) objectTypeFromProperties(rs *qjsonschema.Schema) (RegoTypeDef, bool) {
 	v := rs.JSONProp("properties")
 	if v == nil {
@@ -275,8 +389,16 @@ func (s *InputJsonSchema) objectTypeFromProperties(rs *qjsonschema.Schema) (Rego
 	return NewObjectType(fields), true
 }
 
-// arrayTypeFromItems builds an array RegoTypeDef from the "items" keyword if
-// present; returns (type, true) when items are found.
+// arrayTypeFromItems builds an array RegoTypeDef from the "items" keyword if present.
+//
+// Parameters:
+//
+//	rs *qjsonschema.Schema: The schema node potentially containing items.
+//
+// Returns:
+//
+//	RegoTypeDef: The array type with element type derived from items.
+//	bool: True if items were found and processed; otherwise false.
 func (s *InputJsonSchema) arrayTypeFromItems(rs *qjsonschema.Schema) (RegoTypeDef, bool) {
 	v := rs.JSONProp("items")
 	if v == nil {
@@ -298,6 +420,15 @@ func (s *InputJsonSchema) arrayTypeFromItems(rs *qjsonschema.Schema) (RegoTypeDe
 // arrayTypeFromItemSchemas returns an array type whose element type is derived
 // from the provided item schemas (unknown for empty, direct type for one,
 // union for multiple/tuple-style).
+//
+// Parameters:
+//
+//	conv *InputJsonSchema: Converter used to process subschemas.
+//	schemas []*qjsonschema.Schema: The list of item schemas.
+//
+// Returns:
+//
+//	RegoTypeDef: The resulting array type with the computed element type.
 func arrayTypeFromItemSchemas(conv *InputJsonSchema, schemas []*qjsonschema.Schema) RegoTypeDef {
 	if len(schemas) == 0 {
 		return NewArrayType(NewUnknownType())
@@ -312,12 +443,22 @@ func arrayTypeFromItemSchemas(conv *InputJsonSchema, schemas []*qjsonschema.Sche
 }
 
 // mergeTypes attempts to combine two RegoTypeDef values into a single, more precise type.
+//
 // Heuristics:
-// - If equal, return the type.
-// - If one is more precise than the other, return the more precise one.
-// - If both are objects, merge their fields (union of field sets, merging recursively).
-// - If both are arrays, merge element types recursively.
-// - Otherwise, return a union of both and canonize.
+//   - If equal, return the type.
+//   - If one is more precise than the other, return the more precise one.
+//   - If both are objects, merge their fields (union of field sets, merging recursively).
+//   - If both are arrays, merge element types recursively.
+//   - Otherwise, return a union of both and canonize.
+//
+// Parameters:
+//
+//	a RegoTypeDef: The first type to merge.
+//	b RegoTypeDef: The second type to merge.
+//
+// Returns:
+//
+//	RegoTypeDef: The merged, more precise type (or a union if no better merge exists).
 func mergeTypes(a, b RegoTypeDef) RegoTypeDef {
 	if a.IsEqual(&b) {
 		return a
