@@ -415,58 +415,19 @@ func (ta *TypeAnalyzer) GetAllTypes() map[string]RegoTypeDef {
 	return result
 }
 
-// isStringFunction checks if a function name corresponds to a string operation.
-//
-// Parameters:
-//
-//	name string: The function name to check.
-//
-// Returns:
-//
-//	bool: True if the function is a string operation, false otherwise.
-func isStringFunction(name string) bool {
-	stringOps := map[string]bool{
-		"trim": true, "replace": true, "concat": true,
-		"format": true, "lower": true, "upper": true,
-		"split": true,
+// predefFunction applies predefined typing rules for a function if available.
+// It mutates 'pars' in-place to set expected parameter types and returns the
+// expected return type (or Unknown if not a predefined function or arity mismatch).
+func predefFunction(name string, pars []RegoTypeDef) RegoTypeDef {
+	if pf, ok := getPredefFunctions()[name]; ok {
+		if pf.CheckArity == nil || pf.CheckArity(len(pars)) {
+			if pf.UpdateParams != nil {
+				pf.UpdateParams(pars)
+			}
+			return pf.ReturnType
+		}
 	}
-	return stringOps[name]
-}
-
-// isNumericFunction checks if a function name corresponds to a numeric operation.
-//
-// Parameters:
-//
-//	name string: The function name to check.
-//
-// Returns:
-//
-//	bool: True if the function is a numeric operation, false otherwise.
-func isNumericFunction(name string) bool {
-	numericOps := map[string]bool{
-		"plus": true, "minus": true, "mul": true,
-		"div": true,
-	}
-	return numericOps[name]
-}
-
-// isBooleanFunction checks if a function name corresponds to a boolean operation.
-//
-// Parameters:
-//
-//	name string: The function name to check.
-//
-// Returns:
-//
-//	bool: True if the function is a boolean operation, false otherwise.
-func isBooleanFunction(name string) bool {
-	booleanOps := map[string]bool{
-		"neq": true, "and": true,
-		"or": true, "not": true,
-		"lt": true, "contains": true,
-		"startswith": true, "endswith": true,
-	}
-	return booleanOps[name]
+	return NewUnknownType()
 }
 
 // funcParamsType returns the expected return type and parameter types for a given function name and parameter count.
@@ -485,26 +446,9 @@ func funcParamsType(name string, params int) (RegoTypeDef, []RegoTypeDef) {
 	for i := 0; i < params; i++ {
 		pars[i] = NewUnknownType()
 	}
-	switch {
-	case isStringFunction(name):
-		for i := 0; i < params; i++ {
-			pars[i] = NewAtomicType(AtomicString)
-		}
-		return NewAtomicType(AtomicString), pars
-	case name == "sprintf":
-		// format string
-		pars[0] = NewAtomicType(AtomicString)
-		// last parameter is a result
-		pars[len(pars)-1] = NewAtomicType(AtomicString)
-		return NewAtomicType(AtomicBoolean), pars
-
-	case isNumericFunction(name):
-		for i := 0; i < params; i++ {
-			pars[i] = NewAtomicType(AtomicInt)
-		}
-		return NewAtomicType(AtomicInt), pars
-	case isBooleanFunction(name):
-		return NewAtomicType(AtomicBoolean), pars
+	// First, try predefined function registry which can refine param and return types
+	if ret := predefFunction(name, pars); !ret.IsUnknown() {
+		return ret, pars
 	}
 	return NewUnknownType(), pars
 }
