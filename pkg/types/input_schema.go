@@ -43,6 +43,11 @@ func (s *InputSchema) ProcessYAMLInput(yamlData []byte) error {
 	return nil
 }
 
+// ProcessInput implements InputSchemaAPI by delegating to ProcessYAMLInput.
+// The input is expected to be a YAML (or JSON) example document describing the
+// structure under analysis.
+func (s *InputSchema) ProcessInput(b []byte) error { return s.ProcessYAMLInput(b) }
+
 // processNode recursively processes a node in the YAML structure and returns the corresponding RegoTypeDef.
 // Handles objects, arrays, strings, numbers, booleans, and unknown types.
 //
