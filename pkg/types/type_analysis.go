@@ -324,21 +324,58 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	return NewUnknownType()
 }
 
-// AnalyzeRule performs type analysis on a Rego rule.
+// AnalyzeRule analyzes the given Rego rule and records the inferred type for the rule head.
+//
+// AnalyzeRule constructs a union type to collect possible return types produced by the
+// rule's body (including any else branches). It delegates the body analysis to
+// AnalyzeRuleBody which appends discovered return types into the union. After analysis
+// the union is canonicalized and stored in the analyzer's type map under the rule head's
+// name via ta.setType.
+//
+// Side effects:
+//   - mutates the provided TypeAnalyzer by recording the inferred type for the rule head
+//     (via ta.setType and ta.Refs).
 //
 // Parameters:
-//
-//	rule *ast.Rule: The Rego rule to analyze.
+//   - rule *ast.Rule: the Rego rule to analyze. The function expects a valid rule with a
+//     head; behavior for malformed rules follows the underlying setType logic.
 func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
+	tp := NewUnionType([]RegoTypeDef{})
+	ta.AnalyzeRuleBody(rule, &tp)
+	tp.CanonizeUnion()
+	ta.setType(rule.Head.Name, tp)
+}
+
+// AnalyzeRuleBody analyzes the body (and else branches) of a rule and appends discovered
+// return types to the provided union type `tp`.
+//
+// tp must be a union type. This method infers types for each expression in the rule body
+// (calling InferExprType) and, if the rule has a head value, infers the head's type and
+// appends it to the union. If the rule contains an else branch, that branch is analyzed
+// recursively and its return types are appended to the same union.
+//
+// The function mutates `tp` (by adding to tp.Union) and has no return value. It will
+// panic if `tp` is not a union type.
+//
+// Parameters:
+//   - rule *ast.Rule: the Rego rule whose body to analyze.
+//   - tp *RegoTypeDef: pointer to a union RegoTypeDef that will be populated with the
+//     possible return types discovered while analyzing the rule body and else branches.
+func (ta *TypeAnalyzer) AnalyzeRuleBody(rule *ast.Rule, tp *RegoTypeDef) {
+	if !tp.IsUnion() {
+		panic("AnalyzeRuleBody: expected union type for rule with else branches")
+	}
 	// Analyze rule body
 	for _, expr := range rule.Body {
 		ta.InferExprType(expr)
 	}
-
 	// Analyze rule head value if it exists
 	if rule.Head.Value != nil {
-		tp := ta.inferAstType(rule.Head.Value.Value, nil)
-		ta.setType(rule.Head.Name, tp)
+		returnType := ta.inferAstType(rule.Head.Value.Value, nil)
+		tp.Union = append(tp.Union, returnType)
+	}
+	if rule.Else != nil {
+		ta.AnalyzeRuleBody(rule.Else, tp)
 	}
 }
 
