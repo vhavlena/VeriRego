@@ -11,7 +11,7 @@ type InputSchemaAPI interface {
 	// ProcessInput ingests raw schema or example document bytes and prepares
 	// the internal type representation used by GetType/HasField/GetTypes.
 	// Implementations decide the exact format (e.g., YAML example or JSON Schema).
-	ProcessInput([]byte) error
+	ProcessInput(input []byte) error
 
 	// GetType returns the RegoTypeDef for a given path in the input schema.
 	GetType(path []PathNode) (*RegoTypeDef, bool)
