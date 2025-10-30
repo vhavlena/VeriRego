@@ -74,12 +74,12 @@ func getPredefFunctions() map[string]PredefFunction {
 		},
 		"lower": {
 			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n == arityUnary },
+			CheckArity:   func(n int) bool { return n == arityBinary }, // lower(string, ret)
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
 		"upper": {
 			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n == arityUnary },
+			CheckArity:   func(n int) bool { return n == arityBinary }, // upper(string, ret)
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
 		"split": {
