@@ -3,22 +3,24 @@ package types
 
 import (
 	"encoding/json"
-	"strings"
 
 	jptr "github.com/qri-io/jsonpointer"
 	qjsonschema "github.com/qri-io/jsonschema"
 )
 
+const (
+	// AdditionalPropertiesKey is the special key used in ObjectFields to store
+	// the type for additionalProperties from JSON Schema.
+	AdditionalPropertiesKey = "*"
+)
+
 // InputJsonSchema stores type information derived from a JSON Schema document.
 // It mirrors the semantics of InputSchema but derives the RegoTypeDef from a JSON Schema
 // instead of an example YAML/JSON instance document.
+// AdditionalProperties are stored directly in the types structure: when an object has
+// additionalProperties, we add a special AdditionalPropertiesKey to ObjectFields with the type for additional properties.
 type InputJsonSchema struct {
 	types RegoTypeDef
-	// additionalDefs maps an object path key to the type allowed for additionalProperties at that path.
-	// The path key is a '/'-joined sequence of segments where array elements are represented by "[]".
-	additionalDefs map[string]RegoTypeDef
-	// additionalPaths is a set of paths where additionalProperties is explicitly allowed (true or schema).
-	additionalPaths map[string]struct{}
 }
 
 // NewInputJsonSchema creates and returns a new InputJsonSchema instance with an empty object type definition.
@@ -28,9 +30,7 @@ type InputJsonSchema struct {
 //	*InputJsonSchema: A new instance with an empty object type definition.
 func NewInputJsonSchema() *InputJsonSchema {
 	return &InputJsonSchema{
-		types:           NewObjectType(make(map[string]RegoTypeDef)),
-		additionalDefs:  make(map[string]RegoTypeDef),
-		additionalPaths: make(map[string]struct{}),
+		types: NewObjectType(make(map[string]RegoTypeDef)),
 	}
 }
 
@@ -61,10 +61,7 @@ func (s *InputJsonSchema) ProcessJSONSchema(schemaJSON []byte) error {
 	if err := json.Unmarshal(schemaJSON, rs); err != nil {
 		return err
 	}
-	// reset additionalProperties tracking
-	s.additionalDefs = make(map[string]RegoTypeDef)
-	s.additionalPaths = make(map[string]struct{})
-	s.types = s.processQriSchemaAt(rs, nil)
+	s.types = s.processQriSchema(rs)
 	return nil
 }
 
@@ -92,74 +89,72 @@ func (s *InputJsonSchema) ProcessInput(b []byte) error { return s.ProcessJSONSch
 //	*RegoTypeDef: The type definition found at the given path (if any).
 //	bool: True if a type is found at the given path; otherwise false.
 func (s *InputJsonSchema) GetType(path []PathNode) (*RegoTypeDef, bool) {
-	// First try direct lookup.
+	// Try direct lookup first
 	if t, ok := s.types.GetTypeFromPath(path); ok && t != nil {
 		return t, true
 	}
-	// Fallback: consider JSON Schema additionalProperties along the path.
-	// We'll traverse manually and delegate a single-step resolution to GetTypeFromPath
-	// at each iteration. When a field is missing on an object that has additionalProperties,
-	// we use the recorded additional type definition and retry the same path node.
+
+	// If direct lookup fails, traverse manually to check for additionalProperties ("*" key)
 	current := s.types
-	segments := make([]string, 0, len(path))
-	for i := 0; i < len(path); {
+	for i := 0; i < len(path); i++ {
 		pn := path[i]
-		// Path key for additionalProperties lookup at this depth
-		key := s.pathKeyFromSegments(segments)
+		remainingPath := path[i+1:]
 
-		// If we're currently at a union, we cannot deterministically traverse further,
-		// unless additionalProperties applies at this level.
 		if current.IsUnion() {
-			if _, hasAP := s.additionalPaths[key]; hasAP {
-				ap := s.additionalDefs[key]
-				segments = append(segments, "*")
-				current = ap
-				// consume this path node under additionalProperties and continue
-				i++
-				continue
-			}
-			return nil, false
-		}
-
-		// Try to resolve exactly one path node using the type's own logic.
-		if stepType, ok := current.GetTypeFromPath(path[i : i+1]); ok && stepType != nil {
-			// Update segments for additionalProperties path keying.
-			if current.IsArray() {
-				segments = append(segments, "[]")
-			} else if current.IsObject() {
-				if pn.IsGround {
-					segments = append(segments, pn.Key)
+			// For unions, try to resolve through each member and collect results
+			var results []RegoTypeDef
+			for _, member := range current.Union {
+				// Create a temporary schema with this member as root
+				tempSchema := &InputJsonSchema{types: member}
+				if result, ok := tempSchema.GetType(path[i:]); ok && result != nil {
+					results = append(results, *result)
 				}
-				// For non-ground object access we don't modify segments here;
-				// if additionalProperties is needed, we will handle it when encountering a union/non-determinism.
 			}
-			current = *stepType
-			// consumed this path node
-			i++
-			continue
-		}
-
-		// One-step resolution failed. If we're on an object and have additionalProperties,
-		// switch to the additional type and retry the same path node.
-		if current.IsObject() {
-			if _, hasAP := s.additionalPaths[key]; hasAP {
-				ap := s.additionalDefs[key]
-				segments = append(segments, "*")
-				current = ap
-				// consume this path node and continue resolution under the additional schema
-				i++
+			if len(results) == 0 {
+				return nil, false
+			}
+			if len(results) == 1 {
+				return &results[0], true
+			}
+			// Return union of results
+			unionResult := NewUnionType(results)
+			unionResult.CanonizeUnion()
+			return &unionResult, true
+		} else if current.IsObject() {
+			// Try exact field match first
+			if stepType, ok := current.GetTypeFromPath(path[i : i+1]); ok && stepType != nil {
+				current = *stepType
 				continue
 			}
-			// No applicable additionalProperties. Deterministic traversal failed.
+
+			// Field not found - check for additionalProperties
+			if pn.IsGround {
+				if apType, ok := current.ObjectFields[AdditionalPropertiesKey]; ok {
+					// Use additionalProperties type for this field
+					if len(remainingPath) == 0 {
+						return &apType, true
+					}
+					// Continue traversal with the additionalProperties type
+					current = apType
+					continue
+				}
+			}
+			// No match and no additionalProperties
+			return nil, false
+		} else if current.IsArray() {
+			// Delegate to GetTypeFromPath for arrays
+			if stepType, ok := current.GetTypeFromPath(path[i : i+1]); ok && stepType != nil {
+				current = *stepType
+				continue
+			}
+			return nil, false
+		} else {
+			// Cannot continue traversal
 			return nil, false
 		}
-
-		// Array/atomic/unknown without a resolvable step cannot continue.
-		return nil, false
 	}
-	// Consumed the entire path successfully.
-	ret := current
-	return &ret, true
+
+	return &current, true
 }
 
 // HasField checks if a field exists at the given path in the input schema.
@@ -203,18 +198,12 @@ func (s *InputJsonSchema) GetTypes() RegoTypeDef {
 //
 //	RegoTypeDef: The approximated Rego type for the given schema node.
 func (s *InputJsonSchema) processQriSchema(rs *qjsonschema.Schema) RegoTypeDef {
-	return s.processQriSchemaAt(rs, nil)
-}
-
-// processQriSchemaAt is the path-aware variant that records additionalProperties
-// types along the given path.
-func (s *InputJsonSchema) processQriSchemaAt(rs *qjsonschema.Schema, path []string) RegoTypeDef {
 	if rs == nil {
 		return NewUnknownType()
 	}
 
 	// First, handle combinators (anyOf/oneOf/allOf)
-	if t, ok := s.tryCombinatorsAt(rs, path); ok {
+	if t, ok := s.tryCombinatorsAt(rs); ok {
 		return t
 	}
 
@@ -233,10 +222,10 @@ func (s *InputJsonSchema) processQriSchemaAt(rs *qjsonschema.Schema, path []stri
 
 	// If no explicit type, infer from properties/items
 	if len(typeNames) == 0 {
-		if t, ok := s.objectTypeFromPropertiesAt(rs, path); ok {
+		if t, ok := s.objectTypeFromPropertiesAt(rs); ok {
 			return t
 		}
-		if t, ok := s.arrayTypeFromItemsAt(rs, path); ok {
+		if t, ok := s.arrayTypeFromItemsAt(rs); ok {
 			return t
 		}
 		// $ref or other unknowns
@@ -246,13 +235,13 @@ func (s *InputJsonSchema) processQriSchemaAt(rs *qjsonschema.Schema, path []stri
 	if len(typeNames) > 1 {
 		parts := make([]RegoTypeDef, 0, len(typeNames))
 		for _, tn := range typeNames {
-			parts = append(parts, s.processByTypeNameAt(rs, tn, path))
+			parts = append(parts, s.processByTypeNameAt(rs, tn))
 		}
 		u := NewUnionType(parts)
 		u.CanonizeUnion()
 		return u
 	}
-	return s.processByTypeNameAt(rs, typeNames[0], path)
+	return s.processByTypeNameAt(rs, typeNames[0])
 }
 
 // extractTypeNames returns the list of JSON Schema type names (e.g., "object",
@@ -292,7 +281,7 @@ func extractTypeNames(t *qjsonschema.Type) []string {
 	return nil
 }
 
-// processByTypeNameAt builds a RegoTypeDef for a specific JSON Schema "type"
+// processByTypeName builds a RegoTypeDef for a specific JSON Schema "type"
 // value, delegating to object/array helpers when applicable.
 //
 // Parameters:
@@ -303,15 +292,15 @@ func extractTypeNames(t *qjsonschema.Type) []string {
 // Returns:
 //
 //	RegoTypeDef: The approximated type for the provided JSON Schema type name.
-func (s *InputJsonSchema) processByTypeNameAt(rs *qjsonschema.Schema, typ string, path []string) RegoTypeDef {
+func (s *InputJsonSchema) processByTypeNameAt(rs *qjsonschema.Schema, typ string) RegoTypeDef {
 	switch typ {
 	case "object":
-		if t, ok := s.objectTypeFromPropertiesAt(rs, path); ok {
+		if t, ok := s.objectTypeFromPropertiesAt(rs); ok {
 			return t
 		}
 		return NewObjectType(map[string]RegoTypeDef{})
 	case "array":
-		if t, ok := s.arrayTypeFromItemsAt(rs, path); ok {
+		if t, ok := s.arrayTypeFromItemsAt(rs); ok {
 			return t
 		}
 		return NewArrayType(NewUnknownType())
@@ -328,7 +317,7 @@ func (s *InputJsonSchema) processByTypeNameAt(rs *qjsonschema.Schema, typ string
 	}
 }
 
-// tryCombinatorsAt handles anyOf/oneOf/allOf branches at the given path.
+// tryCombinatorsAt handles anyOf/oneOf/allOf branches.
 //
 // Parameters:
 //
@@ -338,22 +327,22 @@ func (s *InputJsonSchema) processByTypeNameAt(rs *qjsonschema.Schema, typ string
 //
 //	RegoTypeDef: The computed type if a combinator was applied; zero value otherwise.
 //	bool: True if a combinator was found and handled; otherwise false.
-func (s *InputJsonSchema) tryCombinatorsAt(rs *qjsonschema.Schema, path []string) (RegoTypeDef, bool) {
+func (s *InputJsonSchema) tryCombinatorsAt(rs *qjsonschema.Schema) (RegoTypeDef, bool) {
 	if v := rs.JSONProp("anyOf"); v != nil {
 		if arr, ok := schemaSliceFromJSONProp(v); ok && len(arr) > 0 {
-			u := s.unionFromSchemasAt(arr, path)
+			u := s.unionFromSchemasAt(arr)
 			return u, true
 		}
 	}
 	if v := rs.JSONProp("oneOf"); v != nil {
 		if arr, ok := schemaSliceFromJSONProp(v); ok && len(arr) > 0 {
-			u := s.unionFromSchemasAt(arr, path)
+			u := s.unionFromSchemasAt(arr)
 			return u, true
 		}
 	}
 	if v := rs.JSONProp("allOf"); v != nil {
 		if arr, ok := schemaSliceFromJSONProp(v); ok && len(arr) > 0 {
-			t := s.mergeAllOfAt(arr, path)
+			t := s.mergeAllOfAt(arr)
 			return t, true
 		}
 	}
@@ -408,10 +397,10 @@ func schemaSliceFromJSONProp(v interface{}) ([]*qjsonschema.Schema, bool) {
 // Returns:
 //
 //	RegoTypeDef: A union type representing the disjunction of the subschema types.
-func (s *InputJsonSchema) unionFromSchemasAt(list []*qjsonschema.Schema, path []string) RegoTypeDef {
+func (s *InputJsonSchema) unionFromSchemasAt(list []*qjsonschema.Schema) RegoTypeDef {
 	parts := make([]RegoTypeDef, 0, len(list))
 	for _, sub := range list {
-		parts = append(parts, s.processQriSchemaAt(sub, path))
+		parts = append(parts, s.processQriSchema(sub))
 	}
 	u := NewUnionType(parts)
 	u.CanonizeUnion()
@@ -428,20 +417,20 @@ func (s *InputJsonSchema) unionFromSchemasAt(list []*qjsonschema.Schema, path []
 // Returns:
 //
 //	RegoTypeDef: The merged type, approximating the conjunction of the input schemas.
-func (s *InputJsonSchema) mergeAllOfAt(list []*qjsonschema.Schema, path []string) RegoTypeDef {
+func (s *InputJsonSchema) mergeAllOfAt(list []*qjsonschema.Schema) RegoTypeDef {
 	if len(list) == 0 {
 		return NewUnknownType()
 	}
-	acc := s.processQriSchemaAt(list[0], path)
+	acc := s.processQriSchema(list[0])
 	for i := 1; i < len(list); i++ {
-		acc = mergeTypes(acc, s.processQriSchemaAt(list[i], path))
+		acc = mergeTypes(acc, s.processQriSchema(list[i]))
 	}
 	return acc
 }
 
 // objectTypeFromPropertiesAt builds an object RegoTypeDef from the "properties"
 // keyword if present. If absent, returns an empty object type and records
-// additionalProperties for this path when present.
+// additionalProperties when present.
 //
 // Parameters:
 //
@@ -452,37 +441,36 @@ func (s *InputJsonSchema) mergeAllOfAt(list []*qjsonschema.Schema, path []string
 //	RegoTypeDef: The object type with fields derived from properties (or empty if none).
 //	bool: True if treated as an object (including when properties are absent);
 //	      false only when the properties value cannot be interpreted.
-func (s *InputJsonSchema) objectTypeFromPropertiesAt(rs *qjsonschema.Schema, path []string) (RegoTypeDef, bool) {
-	// If the schema doesn't explicitly have a properties keyword, still capture additionalProperties
-	if !rs.HasKeyword("properties") {
-		s.maybeRecordAdditionalProperties(rs, path)
-		return NewObjectType(map[string]RegoTypeDef{}), true
-	}
-	v := rs.JSONProp("properties")
-	if v == nil {
-		// Even without properties, additionalProperties may still apply to this object
-		// Record it if present, and return an empty object.
-		s.maybeRecordAdditionalProperties(rs, path)
-		return NewObjectType(map[string]RegoTypeDef{}), true
-	}
+func (s *InputJsonSchema) objectTypeFromPropertiesAt(rs *qjsonschema.Schema) (RegoTypeDef, bool) {
 	fields := make(map[string]RegoTypeDef)
-	switch props := v.(type) {
-	case qjsonschema.Properties:
-		for k, child := range props {
-			fields[k] = s.processQriSchemaAt(child, append(path, k))
-		}
-	case *qjsonschema.Properties:
-		if props != nil {
-			for k, child := range *props {
-				fields[k] = s.processQriSchemaAt(child, append(path, k))
+
+	// Process properties if present
+	if rs.HasKeyword("properties") {
+		v := rs.JSONProp("properties")
+		if v != nil {
+			switch props := v.(type) {
+			case qjsonschema.Properties:
+				for k, child := range props {
+					fields[k] = s.processQriSchema(child)
+				}
+			case *qjsonschema.Properties:
+				if props != nil {
+					for k, child := range *props {
+						fields[k] = s.processQriSchema(child)
+					}
+				}
+			default:
+				return RegoTypeDef{}, false
 			}
 		}
-	default:
-		return RegoTypeDef{}, false
 	}
-	// Record additionalProperties type for this object if present
-	s.maybeRecordAdditionalProperties(rs, path)
-	return NewObjectType(fields), true
+
+	// Create object type and set additionalProperties if present
+	objType := NewObjectType(fields)
+	if apType := s.extractAdditionalProperties(rs); apType != nil {
+		objType.ObjectFields[AdditionalPropertiesKey] = *apType
+	}
+	return objType, true
 }
 
 // arrayTypeFromItemsAt builds an array RegoTypeDef from the "items" keyword if present.
@@ -495,7 +483,7 @@ func (s *InputJsonSchema) objectTypeFromPropertiesAt(rs *qjsonschema.Schema, pat
 //
 //	RegoTypeDef: The array type with element type derived from items.
 //	bool: True if items were found and processed; otherwise false.
-func (s *InputJsonSchema) arrayTypeFromItemsAt(rs *qjsonschema.Schema, path []string) (RegoTypeDef, bool) {
+func (s *InputJsonSchema) arrayTypeFromItemsAt(rs *qjsonschema.Schema) (RegoTypeDef, bool) {
 	v := rs.JSONProp("items")
 	if v == nil {
 		return RegoTypeDef{}, false
@@ -505,9 +493,9 @@ func (s *InputJsonSchema) arrayTypeFromItemsAt(rs *qjsonschema.Schema, path []st
 		if items == nil {
 			return NewArrayType(NewUnknownType()), true
 		}
-		return arrayTypeFromItemSchemasAt(s, items.Schemas, path), true
+		return arrayTypeFromItemSchemasAt(s, items.Schemas), true
 	case qjsonschema.Items:
-		return arrayTypeFromItemSchemasAt(s, items.Schemas, path), true
+		return arrayTypeFromItemSchemasAt(s, items.Schemas), true
 	default:
 		return RegoTypeDef{}, false
 	}
@@ -525,127 +513,103 @@ func (s *InputJsonSchema) arrayTypeFromItemsAt(rs *qjsonschema.Schema, path []st
 // Returns:
 //
 //	RegoTypeDef: The resulting array type with the computed element type.
-func arrayTypeFromItemSchemasAt(conv *InputJsonSchema, schemas []*qjsonschema.Schema, basePath []string) RegoTypeDef {
+func arrayTypeFromItemSchemasAt(conv *InputJsonSchema, schemas []*qjsonschema.Schema) RegoTypeDef {
 	if len(schemas) == 0 {
 		return NewArrayType(NewUnknownType())
 	}
 	if len(schemas) == 1 {
-		et := conv.processQriSchemaAt(schemas[0], append(basePath, "[]"))
+		et := conv.processQriSchema(schemas[0])
 		return NewArrayType(et)
 	}
 	// tuple-style: union element type
-	u := conv.unionFromSchemasAt(schemas, append(basePath, "[]"))
+	u := conv.unionFromSchemasAt(schemas)
 	return NewArrayType(u)
 }
 
-// maybeRecordAdditionalProperties inspects rs for additionalProperties and records
-// the discovered type definition at the provided object path.
-func (s *InputJsonSchema) maybeRecordAdditionalProperties(rs *qjsonschema.Schema, path []string) {
+// extractAdditionalProperties inspects rs for additionalProperties and returns
+// the type definition if present, or nil if not found or false.
+func (s *InputJsonSchema) extractAdditionalProperties(rs *qjsonschema.Schema) *RegoTypeDef {
 	v := rs.JSONProp("additionalProperties")
 	if v == nil {
-		return
+		return nil
 	}
-	key := s.pathKeyFromSegments(path)
+
 	switch ap := v.(type) {
 	case *qjsonschema.AdditionalProperties:
 		if ap != nil {
 			// Resolve to underlying *Schema
 			sch := ap.Resolve(jptr.Pointer{}, "")
 			if sch == nil {
-				return
+				return nil
 			}
 			// Inspect marshaled form to detect boolean true/false vs object
 			if b, err := sch.MarshalJSON(); err == nil {
 				// Boolean true
 				if string(b) == "true" {
-					s.additionalPaths[key] = struct{}{}
-					s.recordAdditionalType(key, NewUnknownType())
-					return
+					t := NewUnknownType()
+					return &t
 				}
 				// Boolean false -> do nothing
 				if string(b) == "false" {
-					return
+					return nil
 				}
 			}
 			// Treat as schema
-			s.additionalPaths[key] = struct{}{}
-			t := s.processQriSchemaAt(sch, append(path, "*"))
-			s.recordAdditionalType(key, t)
+			t := s.processQriSchema(sch)
+			return &t
 		}
 	case qjsonschema.AdditionalProperties:
 		// Take address to reuse pointer logic
 		ap2 := ap
 		sch := (&ap2).Resolve(jptr.Pointer{}, "")
 		if sch == nil {
-			return
+			return nil
 		}
 		if b, err := sch.MarshalJSON(); err == nil {
 			if string(b) == "true" {
-				s.additionalPaths[key] = struct{}{}
-				s.recordAdditionalType(key, NewUnknownType())
-				return
+				t := NewUnknownType()
+				return &t
 			}
 			if string(b) == "false" {
-				return
+				return nil
 			}
 		}
-		s.additionalPaths[key] = struct{}{}
-		t := s.processQriSchemaAt(sch, append(path, "*"))
-		s.recordAdditionalType(key, t)
+		t := s.processQriSchema(sch)
+		return &t
 	case bool:
 		if ap {
-			s.additionalPaths[key] = struct{}{}
 			// Unknown type if 'true'
-			s.recordAdditionalType(key, NewUnknownType())
+			t := NewUnknownType()
+			return &t
 		}
+		return nil
 	case *qjsonschema.Schema:
 		if ap != nil {
-			s.additionalPaths[key] = struct{}{}
-			t := s.processQriSchemaAt(ap, append(path, "*"))
-			s.recordAdditionalType(key, t)
+			t := s.processQriSchema(ap)
+			return &t
 		}
 	case qjsonschema.Schema:
-		t := s.processQriSchemaAt(&ap, append(path, "*"))
-		s.additionalPaths[key] = struct{}{}
-		s.recordAdditionalType(key, t)
+		t := s.processQriSchema(&ap)
+		return &t
 	default:
 		// Fallback: try to interpret unknown wrapper by JSON round-trip
 		if b, err := json.Marshal(v); err == nil {
 			var bval bool
 			if err2 := json.Unmarshal(b, &bval); err2 == nil {
 				if bval {
-					s.additionalPaths[key] = struct{}{}
-					s.recordAdditionalType(key, NewUnknownType())
+					t := NewUnknownType()
+					return &t
 				}
-				return
+				return nil
 			}
 			tmp := &qjsonschema.Schema{}
 			if err3 := json.Unmarshal(b, tmp); err3 == nil {
-				s.additionalPaths[key] = struct{}{}
-				t := s.processQriSchemaAt(tmp, append(path, "*"))
-				s.recordAdditionalType(key, t)
-				return
+				t := s.processQriSchema(tmp)
+				return &t
 			}
 		}
 	}
-}
-
-// recordAdditionalType merges when a type is already recorded for a path (e.g., from anyOf/oneOf branches).
-func (s *InputJsonSchema) recordAdditionalType(key string, t RegoTypeDef) {
-	if existing, ok := s.additionalDefs[key]; ok {
-		merged := mergeTypes(existing, t)
-		s.additionalDefs[key] = merged
-		return
-	}
-	s.additionalDefs[key] = t
-}
-
-// pathKeyFromSegments joins path segments using '/'. Arrays are represented by "[]".
-func (s *InputJsonSchema) pathKeyFromSegments(segs []string) string {
-	if len(segs) == 0 {
-		return ""
-	}
-	return strings.Join(segs, "/")
+	return nil
 }
 
 // mergeTypes attempts to combine two RegoTypeDef values into a single, more precise type.

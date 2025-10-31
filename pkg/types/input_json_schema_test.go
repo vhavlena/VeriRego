@@ -234,14 +234,6 @@ func TestInputJsonSchema_AdditionalProperties_True(t *testing.T) {
 	}`
 	s := mustSchema(t, schema)
 
-	// path leading to additionalProperties: root ""
-	if _, ok := s.additionalPaths[""]; !ok {
-		t.Fatalf("expected additionalProperties recorded at root path")
-	}
-	if ap, ok := s.additionalDefs[""]; !ok || !ap.IsUnknown() {
-		t.Fatalf("expected root additionalProperties type to be unknown, got: %v", ap)
-	}
-
 	// known is boolean
 	tp, ok := s.GetType(FromGroundPath([]string{"known"}))
 	if !ok || tp == nil || !tp.IsAtomic() || tp.AtomicType != AtomicBoolean {
@@ -265,14 +257,7 @@ func TestInputJsonSchema_AdditionalProperties_SchemaString(t *testing.T) {
 	}`
 	s := mustSchema(t, schema)
 
-	// path leading to additionalProperties: root ""
-	if _, ok := s.additionalPaths[""]; !ok {
-		t.Fatalf("expected additionalProperties recorded at root path")
-	}
-	if ap, ok := s.additionalDefs[""]; !ok || !ap.IsAtomic() || ap.AtomicType != AtomicString {
-		t.Fatalf("expected root additionalProperties type to be string, got: %v", ap)
-	}
-
+	// Unknown field should resolve to string via additionalProperties
 	tp, ok := s.GetType(FromGroundPath([]string{"dyn"}))
 	if !ok || tp == nil || !tp.IsAtomic() || tp.AtomicType != AtomicString {
 		t.Fatalf("expected additionalProperties schema to give string, got: %v", tp)
@@ -288,25 +273,7 @@ func TestInputJsonSchema_AdditionalProperties_SchemaString(t *testing.T) {
 		}
 	}`
 	s2 := mustSchema(t, schema2)
-	// root has AP object type recorded at path ""
-	if _, ok := s2.additionalPaths[""]; !ok {
-		t.Fatalf("expected additionalProperties recorded at root for nested object schema")
-	}
-	if apRoot, ok := s2.additionalDefs[""]; !ok || !apRoot.IsObject() {
-		t.Fatalf("expected root additionalProperties type to be object, got: %v", apRoot)
-	} else {
-		age, ok := apRoot.ObjectFields["age"]
-		if !ok || !age.IsAtomic() || age.AtomicType != AtomicInt {
-			t.Fatalf("expected nested AP object to have age:int, got: %v", age)
-		}
-	}
-	// nested additionalProperties recorded at path "*" with string type
-	if _, ok := s2.additionalPaths["*"]; !ok {
-		t.Fatalf("expected nested additionalProperties recorded at path '*'")
-	}
-	if apNested, ok := s2.additionalDefs["*"]; !ok || !apNested.IsAtomic() || apNested.AtomicType != AtomicString {
-		t.Fatalf("expected nested additionalProperties type string at '*', got: %v", apNested)
-	}
+
 	// unknown top-level key yields object
 	tp, ok = s2.GetType(FromGroundPath([]string{"user"}))
 	if !ok || tp == nil || !tp.IsObject() {
@@ -317,7 +284,7 @@ func TestInputJsonSchema_AdditionalProperties_SchemaString(t *testing.T) {
 	if !ok || tp == nil || !tp.IsAtomic() || tp.AtomicType != AtomicInt {
 		t.Fatalf("expected user.age:int, got: %v", tp)
 	}
-	// user.anyOther is string (from user's own additionalProperties)
+	// user.nickname is string (from nested additionalProperties)
 	tp, ok = s2.GetType(FromGroundPath([]string{"user", "nickname"}))
 	if !ok || tp == nil || !tp.IsAtomic() || tp.AtomicType != AtomicString {
 		t.Fatalf("expected user.nickname:string, got: %v", tp)
@@ -331,10 +298,8 @@ func TestInputJsonSchema_AdditionalProperties_VarKey(t *testing.T) {
 		"additionalProperties": {"type":"integer"}
 	}`
 	s := mustSchema(t, schema)
-	// root AP integer at path ""
-	if ap, ok := s.additionalDefs[""]; !ok || !ap.IsAtomic() || ap.AtomicType != AtomicInt {
-		t.Fatalf("expected root additionalProperties type to be integer, got: %v", ap)
-	}
+
+	// Variable key should resolve to additionalProperties integer
 	tp, ok := s.GetType([]PathNode{{Key: "x", IsGround: false}})
 	if !ok || tp == nil || !tp.IsAtomic() || tp.AtomicType != AtomicInt {
 		t.Fatalf("expected var key to resolve to additionalProperties integer, got: %v", tp)
@@ -350,24 +315,8 @@ func TestInputJsonSchema_AdditionalProperties_CombinatorsMerge(t *testing.T) {
 		]
 	}`
 	s := mustSchema(t, schema)
-	// root AP should be union[string|int]
-	if ap, ok := s.additionalDefs[""]; !ok || !ap.IsUnion() {
-		t.Fatalf("expected root additionalProperties union, got: %v", ap)
-	} else {
-		hasStr, hasInt := false, false
-		for i := range ap.Union {
-			u := ap.Union[i]
-			if u.IsAtomic() && u.AtomicType == AtomicString {
-				hasStr = true
-			}
-			if u.IsAtomic() && u.AtomicType == AtomicInt {
-				hasInt = true
-			}
-		}
-		if !(hasStr && hasInt) {
-			t.Fatalf("expected union to contain string & int for additionalProperties, got: %v", ap)
-		}
-	}
+
+	// Unknown field should resolve to union of additionalProperties from both branches
 	tp, ok := s.GetType(FromGroundPath([]string{"dyn"}))
 	if !ok || tp == nil || !tp.IsUnion() {
 		t.Fatalf("expected union for additionalProperties merged from anyOf, got: %v", tp)
@@ -394,11 +343,8 @@ func TestInputJsonSchema_AdditionalProperties_InArrayItems(t *testing.T) {
 		"items": {"type":"object", "additionalProperties": {"type":"string"}}
 	}`
 	s := mustSchema(t, schema)
-	// path leading to additionalProperties inside array elements: "[]"
-	if ap, ok := s.additionalDefs["[]"]; !ok || !ap.IsAtomic() || ap.AtomicType != AtomicString {
-		t.Fatalf("expected additionalProperties type string at array element path '[]', got: %v", ap)
-	}
-	// element object unknown field type
+
+	// Array element object with unknown field should resolve to string via additionalProperties
 	tp, ok := s.GetType([]PathNode{{Key: "0", IsGround: true}, {Key: "foo", IsGround: true}})
 	if !ok || tp == nil || !tp.IsAtomic() || tp.AtomicType != AtomicString {
 		t.Fatalf("expected array element object additional property type string, got: %v", tp)
@@ -424,39 +370,9 @@ func TestDebug_AdditionalProperties_Recorded(t *testing.T) {
 		"type":"object",
 		"additionalProperties": {"type":"string"}
 	}`)
-	if _, ok := s.additionalPaths[""]; !ok {
-		t.Fatalf("expected additionalProperties recorded at root path")
-	}
-}
-
-func TestDebug_MaybeRecordAP(t *testing.T) {
-	schema := `{
-		"type": "object",
-		"additionalProperties": {"type":"string"}
-	}`
-	rs := &qjsonschema.Schema{}
-	if err := json.Unmarshal([]byte(schema), rs); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	s := NewInputJsonSchema()
-	s.maybeRecordAdditionalProperties(rs, nil)
-	if _, ok := s.additionalPaths[""]; !ok {
-		t.Fatalf("expected additionalProperties recorded at root path by maybeRecordAdditionalProperties")
-	}
-}
-
-func TestDebug_ProcessQriSchemaAt_Records(t *testing.T) {
-	schema := `{
-		"type": "object",
-		"additionalProperties": {"type":"string"}
-	}`
-	rs := &qjsonschema.Schema{}
-	if err := json.Unmarshal([]byte(schema), rs); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	s := NewInputJsonSchema()
-	_ = s.processQriSchemaAt(rs, nil)
-	if _, ok := s.additionalPaths[""]; !ok {
-		t.Fatalf("expected processQriSchemaAt to record additionalProperties at root path")
+	// Verify additionalProperties works by testing GetType with unknown field
+	tp, ok := s.GetType(FromGroundPath([]string{"unknownField"}))
+	if !ok || tp == nil || !tp.IsAtomic() || tp.AtomicType != AtomicString {
+		t.Fatalf("expected unknown field to resolve to string via additionalProperties, got: %v", tp)
 	}
 }
