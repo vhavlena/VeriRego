@@ -361,22 +361,16 @@ func (s *InputJsonSchema) tryCombinatorsAt(rs *qjsonschema.Schema) (RegoTypeDef,
 //	bool: True if the conversion succeeded; otherwise false.
 func schemaSliceFromJSONProp(v interface{}) ([]*qjsonschema.Schema, bool) {
 	switch s := v.(type) {
-	case qjsonschema.AnyOf:
-		return []*qjsonschema.Schema(s), true
 	case *qjsonschema.AnyOf:
 		if s == nil {
 			return nil, false
 		}
 		return []*qjsonschema.Schema(*s), true
-	case qjsonschema.OneOf:
-		return []*qjsonschema.Schema(s), true
 	case *qjsonschema.OneOf:
 		if s == nil {
 			return nil, false
 		}
 		return []*qjsonschema.Schema(*s), true
-	case qjsonschema.AllOf:
-		return []*qjsonschema.Schema(s), true
 	case *qjsonschema.AllOf:
 		if s == nil {
 			return nil, false
@@ -449,10 +443,6 @@ func (s *InputJsonSchema) objectTypeFromPropertiesAt(rs *qjsonschema.Schema) (Re
 		v := rs.JSONProp("properties")
 		if v != nil {
 			switch props := v.(type) {
-			case qjsonschema.Properties:
-				for k, child := range props {
-					fields[k] = s.processQriSchema(child)
-				}
 			case *qjsonschema.Properties:
 				if props != nil {
 					for k, child := range *props {
@@ -494,8 +484,8 @@ func (s *InputJsonSchema) arrayTypeFromItemsAt(rs *qjsonschema.Schema) (RegoType
 			return NewArrayType(NewUnknownType()), true
 		}
 		return arrayTypeFromItemSchemasAt(s, items.Schemas), true
-	case qjsonschema.Items:
-		return arrayTypeFromItemSchemasAt(s, items.Schemas), true
+	// case qjsonschema.Items:
+	// 	return arrayTypeFromItemSchemasAt(s, items.Schemas), true
 	default:
 		return RegoTypeDef{}, false
 	}
@@ -558,24 +548,6 @@ func (s *InputJsonSchema) extractAdditionalProperties(rs *qjsonschema.Schema) *R
 			t := s.processQriSchema(sch)
 			return &t
 		}
-	case qjsonschema.AdditionalProperties:
-		// Take address to reuse pointer logic
-		ap2 := ap
-		sch := (&ap2).Resolve(jptr.Pointer{}, "")
-		if sch == nil {
-			return nil
-		}
-		if b, err := sch.MarshalJSON(); err == nil {
-			if string(b) == "true" {
-				t := NewUnknownType()
-				return &t
-			}
-			if string(b) == "false" {
-				return nil
-			}
-		}
-		t := s.processQriSchema(sch)
-		return &t
 	case bool:
 		if ap {
 			// Unknown type if 'true'
@@ -588,9 +560,6 @@ func (s *InputJsonSchema) extractAdditionalProperties(rs *qjsonschema.Schema) *R
 			t := s.processQriSchema(ap)
 			return &t
 		}
-	case qjsonschema.Schema:
-		t := s.processQriSchema(&ap)
-		return &t
 	default:
 		// Fallback: try to interpret unknown wrapper by JSON round-trip
 		if b, err := json.Marshal(v); err == nil {
