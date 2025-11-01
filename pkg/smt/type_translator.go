@@ -133,7 +133,7 @@ func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 //	error: An error if any generation fails.
 func (td *TypeTranslator) GenerateVarDecls(usedVars map[string]any) (*Bucket, error) {
 	bucket := NewBucket()
-	for name, _ := range usedVars {
+	for name := range usedVars {
 		varBucket, er := td.GenerateVarDecl(name)
 		if er != nil {
 			return nil, er
