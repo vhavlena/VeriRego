@@ -12,6 +12,7 @@ const (
 	// AdditionalPropertiesKey is the special key used in ObjectFields to store
 	// the type for additionalProperties from JSON Schema.
 	AdditionalPropertiesKey = "*"
+	DisabledAdditional      = "-*"
 )
 
 // InputJsonSchema stores type information derived from a JSON Schema document.
@@ -457,7 +458,11 @@ func (s *InputJsonSchema) objectTypeFromPropertiesAt(rs *qjsonschema.Schema) (Re
 
 	// Create object type and set additionalProperties if present
 	objType := NewObjectType(fields)
-	if apType := s.extractAdditionalProperties(rs); apType != nil {
+	if apType, isFalse := s.extractAdditionalProperties(rs); isFalse {
+		// additionalProperties is explicitly false
+		objType.ObjectFields[DisabledAdditional] = NewAtomicType(AtomicBoolean)
+	} else if apType != nil {
+		// additionalProperties is a schema or true
 		objType.ObjectFields[AdditionalPropertiesKey] = *apType
 	}
 	return objType, true
@@ -517,11 +522,15 @@ func arrayTypeFromItemSchemasAt(conv *InputJsonSchema, schemas []*qjsonschema.Sc
 }
 
 // extractAdditionalProperties inspects rs for additionalProperties and returns
-// the type definition if present, or nil if not found or false.
-func (s *InputJsonSchema) extractAdditionalProperties(rs *qjsonschema.Schema) *RegoTypeDef {
+// the type definition if present, along with a flag indicating if it's explicitly false.
+// Returns (type, isFalse) where:
+//   - type is nil if additionalProperties is not present or is false
+//   - type is the schema type if additionalProperties is a schema or true
+//   - isFalse is true only when additionalProperties is explicitly set to false
+func (s *InputJsonSchema) extractAdditionalProperties(rs *qjsonschema.Schema) (*RegoTypeDef, bool) {
 	v := rs.JSONProp("additionalProperties")
 	if v == nil {
-		return nil
+		return nil, false
 	}
 
 	switch ap := v.(type) {
@@ -530,35 +539,36 @@ func (s *InputJsonSchema) extractAdditionalProperties(rs *qjsonschema.Schema) *R
 			// Resolve to underlying *Schema
 			sch := ap.Resolve(jptr.Pointer{}, "")
 			if sch == nil {
-				return nil
+				return nil, false
 			}
 			// Inspect marshaled form to detect boolean true/false vs object
 			if b, err := sch.MarshalJSON(); err == nil {
 				// Boolean true
 				if string(b) == "true" {
 					t := NewUnknownType()
-					return &t
+					return &t, false
 				}
-				// Boolean false -> do nothing
+				// Boolean false -> return flag
 				if string(b) == "false" {
-					return nil
+					return nil, true
 				}
 			}
 			// Treat as schema
 			t := s.processQriSchema(sch)
-			return &t
+			return &t, false
 		}
 	case bool:
 		if ap {
 			// Unknown type if 'true'
 			t := NewUnknownType()
-			return &t
+			return &t, false
 		}
-		return nil
+		// Return flag for false
+		return nil, true
 	case *qjsonschema.Schema:
 		if ap != nil {
 			t := s.processQriSchema(ap)
-			return &t
+			return &t, false
 		}
 	default:
 		// Fallback: try to interpret unknown wrapper by JSON round-trip
@@ -567,18 +577,19 @@ func (s *InputJsonSchema) extractAdditionalProperties(rs *qjsonschema.Schema) *R
 			if err2 := json.Unmarshal(b, &bval); err2 == nil {
 				if bval {
 					t := NewUnknownType()
-					return &t
+					return &t, false
 				}
-				return nil
+				// Return flag for false
+				return nil, true
 			}
 			tmp := &qjsonschema.Schema{}
 			if err3 := json.Unmarshal(b, tmp); err3 == nil {
 				t := s.processQriSchema(tmp)
-				return &t
+				return &t, false
 			}
 		}
 	}
-	return nil
+	return nil, false
 }
 
 // mergeTypes attempts to combine two RegoTypeDef values into a single, more precise type.
