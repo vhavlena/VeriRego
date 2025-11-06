@@ -174,6 +174,7 @@ func (td *TypeTranslator) getDatatypesDeclaration() []string {
 		(ONumber (num Int))
 		(OBoolean (bool Bool))
 		ONull
+		OUndef
 	))
 )`
 	ogentype := `
@@ -381,6 +382,8 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 		return []string{fmt.Sprintf("(is-OBoolean (atom %s))", smtValue)}, nil
 	case types.AtomicNull:
 		return []string{fmt.Sprintf("(is-ONull (atom %s))", smtValue)}, nil
+	case types.AtomicUndef:
+		return []string{fmt.Sprintf("(is-OUndef (atom %s))", smtValue)}, nil
 	default:
 		return nil, err.ErrUnsupportedAtomic
 	}
@@ -570,6 +573,8 @@ func (td *TypeTranslator) getAtomValue(name string, tp *types.RegoTypeDef) (stri
 		return fmt.Sprintf("(bool (atom %s))", name), nil
 	} else if tp.AtomicType == types.AtomicNull {
 		return "ONull", nil
+	} else if tp.AtomicType == types.AtomicUndef {
+		return "OUndef", nil
 	}
 	return "", err.ErrUnsupportedAtomic
 }

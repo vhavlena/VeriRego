@@ -106,6 +106,33 @@ func (ta *TypeAnalyzer) setType(val ast.Value, typ RegoTypeDef) {
 	ta.Refs[key] = val
 }
 
+// addToType appends a type to the (possibly union) type associated with the
+// given AST value in the analyzer. If the value already has a recorded type,
+// that type is converted to a union (if necessary) and the provided `typ` is
+// appended. The resulting union is canonicalized (duplicates removed,
+// unknowns discarded when appropriate, and single-member unions simplified)
+// before being stored back into the analyzer. The function also updates the
+// `Refs` map to point back to the provided value.
+//
+// Parameters:
+//
+//	val ast.Value: the AST value whose type should be extended
+//	typ RegoTypeDef: the type to add to the value's union
+//
+// Side effects: mutates `ta.Types` and `ta.Refs` in-place.
+func (ta *TypeAnalyzer) addToType(val ast.Value, typ RegoTypeDef) {
+	key := ta.getValueKey(val)
+
+	tp := NewUnionType([]RegoTypeDef{})
+	if existingType, exists := ta.Types[key]; exists {
+		tp = *existingType.MakeUnion()
+	}
+	tp.Union = append(tp.Union, typ)
+	tp.CanonizeUnion()
+	ta.Types[key] = tp
+	ta.Refs[key] = val
+}
+
 // InferTermType infers the type of an AST term by analyzing its value, optionally refining the type based on an expected type (inherType).
 //
 // Parameters:
@@ -159,12 +186,18 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	if expr.IsCall() {
 		operator := terms[0]
 		if isEquality(operator.String()) {
-			typeLeft := ta.InferTermType(terms[1], nil)
-			typeRight := ta.InferTermType(terms[2], nil)
-			ta.setType(terms[1].Value, typeLeft)
-			ta.setType(terms[1].Value, typeRight)
-			ta.setType(terms[2].Value, typeRight)
-			ta.setType(terms[2].Value, typeLeft)
+			tleft := ta.InferTermType(terms[1], nil)
+			tright := ta.InferTermType(terms[2], nil)
+
+			// Update types only for variables involved in equality
+			if isVar(terms[1]) {
+				ta.addToType(terms[1].Value, tright)
+			}
+			if isVar(terms[2]) {
+				ta.addToType(terms[2].Value, tleft)
+			}
+
+			return NewAtomicType(AtomicBoolean)
 		} else {
 			// Handle function calls
 			funcType, funcParams := funcParamsType(operator.String(), len(terms)-1)

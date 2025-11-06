@@ -17,6 +17,7 @@ The following SMT-LIB datatypes are used to represent Rego types:
     (ONumber (num Int))
     (OBoolean (bool Bool))
     ONull
+    OUndef
   ))
 )
 
