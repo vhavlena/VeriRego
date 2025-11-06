@@ -26,6 +26,7 @@ const (
 	AtomicFunction AtomicType = "function"
 	AtomicSet      AtomicType = "set"
 	AtomicNull     AtomicType = "null"
+	AtomicUndef    AtomicType = "undefined"
 )
 
 // RegoTypeDef represents a full type definition in Rego
