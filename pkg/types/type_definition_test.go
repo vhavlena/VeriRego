@@ -277,10 +277,10 @@ func TestIsMorePrecise(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "atomic is more precise than array",
+			name:     "atomic and array are incomparable (different kinds)",
 			type1:    NewAtomicType(AtomicString),
 			type2:    NewArrayType(NewAtomicType(AtomicString)),
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "atomic types have equal precision",
@@ -709,6 +709,70 @@ func TestCanonizeUnion(t *testing.T) {
 				NewAtomicType(AtomicBoolean),
 			}),
 		},
+		{
+			name: "union keeps all object types (no precision comparison between objects)",
+			input: NewUnionType([]RegoTypeDef{
+				NewObjectType(map[string]RegoTypeDef{
+					"a": NewAtomicType(AtomicString),
+				}),
+				NewObjectType(map[string]RegoTypeDef{
+					"a": NewAtomicType(AtomicString),
+					"b": NewAtomicType(AtomicInt),
+				}),
+				NewAtomicType(AtomicBoolean),
+			}),
+			expected: NewUnionType([]RegoTypeDef{
+				NewObjectType(map[string]RegoTypeDef{
+					"a": NewAtomicType(AtomicString),
+				}),
+				NewObjectType(map[string]RegoTypeDef{
+					"a": NewAtomicType(AtomicString),
+					"b": NewAtomicType(AtomicInt),
+				}),
+				NewAtomicType(AtomicBoolean),
+			}),
+		},
+		{
+			name: "all-unknown union remains unchanged",
+			input: NewUnionType([]RegoTypeDef{
+				NewUnknownType(),
+			}),
+			expected: NewUnknownType(),
+		},
+		{
+			name: "nested union types are flattened",
+			input: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewUnionType([]RegoTypeDef{
+					NewAtomicType(AtomicInt),
+					NewAtomicType(AtomicString),
+				}),
+			}),
+			expected: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicInt),
+			}),
+		},
+		{
+			name: "union removes unknown types",
+			input: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewUnknownType(),
+			}),
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "union removes unknown types II",
+			input: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicBoolean),
+				NewUnknownType(),
+			}),
+			expected: NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicBoolean),
+			}),
+		},
 	}
 
 	for _, tt := range tests {
@@ -719,7 +783,7 @@ func TestCanonizeUnion(t *testing.T) {
 			input.CanonizeUnion()
 
 			if !input.IsEqual(&tt.expected) {
-				t.Errorf("CanonizeUnion() resulted in %v, want %v", input, tt.expected)
+				t.Errorf("CanonizeUnion() %v resulted in %v, want %v", tt.name, input, tt.expected)
 			}
 		})
 	}

@@ -139,6 +139,24 @@ func (t *RegoTypeDef) IsUnion() bool {
 	return t.Kind == KindUnion
 }
 
+// MakeUnion ensures the receiver is a union type and returns a pointer to it.
+//
+// If the receiver is already a union this method simply returns the receiver.
+// Otherwise, it mutates the receiver in-place by changing its Kind to
+// KindUnion and wrapping the previous value as the single member of the
+// resulting union. The returned pointer references the (possibly modified)
+// receiver.
+//
+// Side effects: the receiver's Kind and Union fields may be mutated.
+func (t *RegoTypeDef) MakeUnion() *RegoTypeDef {
+	if t.IsUnion() {
+		return t
+	}
+	t.Kind = KindUnion
+	t.Union = []RegoTypeDef{*t}
+	return t
+}
+
 // GetArrayElementType returns the type of array elements
 // Returns nil if the type is not an array
 func (t *RegoTypeDef) GetArrayElementType() *RegoTypeDef {
@@ -247,7 +265,8 @@ func hasMorePreciseField(t1, t2 *RegoTypeDef) bool {
 // Precision rules (summary):
 //   - Unknown is the least precise type. If t is unknown, it is not more precise
 //     than any type. If other is unknown and t is not, t is considered more precise.
-//   - If kinds differ, an atomic type is treated as more precise than non-atomic kinds.
+//   - If kinds differ (except for unknown), types are incomparable and neither is
+//     more precise than the other.
 //   - For arrays, precision is determined by the element type: an array is more
 //     precise if its element type is more precise than the other's element type.
 //   - For objects, a type is more precise if it has at least the same fields as
@@ -270,7 +289,7 @@ func (t *RegoTypeDef) IsMorePrecise(other *RegoTypeDef) bool {
 		return t.isMorePreciseUnion(other)
 	}
 	if t.Kind != other.Kind {
-		return t.IsAtomic()
+		return false // Different kinds are incomparable
 	}
 
 	switch t.Kind {
@@ -544,14 +563,57 @@ func (t *RegoTypeDef) TypeDepth() int {
 	return 0
 }
 
-// CanonizeUnion removes duplicate equivalent members from the union in-place.
-// The operation preserves the first occurrence order of unique members and is
-// a no-op when the receiver is not a union.
+// flattenUnion recursively flattens nested union types.
+// If the receiver is a union containing other unions as members, this method
+// will recursively extract all non-union members into a single flat union.
+// This is a no-op when the receiver is not a union.
+//
+// Example:
+//
+//	union[int, union[string, boolean]] becomes union[int, string, boolean]
+func (t *RegoTypeDef) flattenUnion() {
+	if !t.IsUnion() {
+		return
+	}
+
+	flattened := make([]RegoTypeDef, 0, len(t.Union))
+	for i := range t.Union {
+		member := t.Union[i]
+		if member.IsUnion() {
+			// Recursively flatten nested unions
+			member.flattenUnion()
+			// Add all members of the nested union
+			flattened = append(flattened, member.Union...)
+		} else {
+			// Add non-union member directly
+			flattened = append(flattened, member)
+		}
+	}
+	t.Union = flattened
+}
+
+// CanonizeUnion canonicalizes a union type in-place.
+//
+// Behavior:
+//   - If the receiver is not a union, the method is a no-op.
+//   - Nested union members are first flattened so the union is single-level.
+//   - Duplicate members (by deep equality) are removed while preserving the
+//     first-occurrence order of unique members.
+//   - If, after deduplication, the union contains more than one member,
+//     any unknown types are removed (unknown is treated as least precise).
+//   - If the union reduces to a single member, the receiver is replaced by
+//     that member (i.e., single-member unions are simplified).
+//
+// Side effects: mutates the receiver (`t.Union`) and may change the receiver's
+// kind when simplifying single-member unions.
 func (t *RegoTypeDef) CanonizeUnion() {
 	if !t.IsUnion() {
 		return
 	}
+
+	t.flattenUnion()
 	unique := make([]RegoTypeDef, 0, len(t.Union))
+	nonUnknown := make([]RegoTypeDef, 0, len(t.Union))
 	for i := range t.Union {
 		item := t.Union[i]
 		found := false
@@ -565,6 +627,17 @@ func (t *RegoTypeDef) CanonizeUnion() {
 			unique = append(unique, item)
 		}
 	}
+
+	// if len(unique) > 1, remove all unknown types
+	if len(unique) > 1 {
+		for i := range unique {
+			if !unique[i].IsUnknown() {
+				nonUnknown = append(nonUnknown, unique[i])
+			}
+		}
+		unique = nonUnknown
+	}
+
 	t.Union = unique
 	if len(t.Union) == 1 {
 		// Simplify single-member union to that member type
