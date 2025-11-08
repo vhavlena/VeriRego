@@ -74,11 +74,14 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 //
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
 // The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
-func (t *Translator) RuleToSmt(rule *ast.Rule) error {
+func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
+	if rule == nil {
+		return "undefined", nil	// FIXME: return correct SMT undefined value
+	}
 	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
 	smtHead, err := t.ruleHeadToSmt(rule, exprTrans)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Convert all body expressions to SMT
@@ -86,7 +89,7 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 	for _, expr := range rule.Body {
 		smtStr, err := exprTrans.ExprToSmt(expr)
 		if err != nil {
-			return fmt.Errorf("failed to convert rule body expr: %w", err)
+			return "", fmt.Errorf("failed to convert rule body expr: %w", err)
 		}
 		bodySmts = append(bodySmts, smtStr)
 	}
@@ -102,7 +105,10 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
 	}
 
-	assertion := fmt.Sprintf("(assert (= %s %s))", smtHead, bodySmt)
-	t.smtAsserts = append(t.smtAsserts, assertion)
-	return nil
+	elseValue, err := t.RuleToSmt(rule.Else)
+	if err != nil {
+		return "", err
+	}
+	assertion := fmt.Sprintf("(assert (ite %s %s %s))", bodySmt, smtHead, elseValue)
+	return assertion, nil
 }

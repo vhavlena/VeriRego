@@ -190,9 +190,11 @@ func (t *Translator) TranslateModuleToSmt() error {
 		return nil
 	}
 	for _, rule := range t.mod.Rules {
-		if err := t.RuleToSmt(rule); err != nil {
+		smt, err := t.RuleToSmt(rule) 
+		if err != nil {
 			return err
 		}
+		t.smtAsserts = append(t.smtAsserts, smt)
 	}
 	return nil
 }
