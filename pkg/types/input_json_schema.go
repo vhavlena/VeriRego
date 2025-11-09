@@ -8,13 +8,6 @@ import (
 	qjsonschema "github.com/qri-io/jsonschema"
 )
 
-const (
-	// AdditionalPropertiesKey is the special key used in ObjectFields to store
-	// the type for additionalProperties from JSON Schema.
-	AdditionalPropertiesKey = "*"
-	DisabledAdditional      = "-*"
-)
-
 // InputJsonSchema stores type information derived from a JSON Schema document.
 // It mirrors the semantics of InputSchema but derives the RegoTypeDef from a JSON Schema
 // instead of an example YAML/JSON instance document.
@@ -90,72 +83,7 @@ func (s *InputJsonSchema) ProcessInput(b []byte) error { return s.ProcessJSONSch
 //	*RegoTypeDef: The type definition found at the given path (if any).
 //	bool: True if a type is found at the given path; otherwise false.
 func (s *InputJsonSchema) GetType(path []PathNode) (*RegoTypeDef, bool) {
-	// Try direct lookup first
-	if t, ok := s.types.GetTypeFromPath(path); ok && t != nil {
-		return t, true
-	}
-
-	// If direct lookup fails, traverse manually to check for additionalProperties ("*" key)
-	current := s.types
-	for i := 0; i < len(path); i++ {
-		pn := path[i]
-		remainingPath := path[i+1:]
-
-		if current.IsUnion() {
-			// For unions, try to resolve through each member and collect results
-			var results []RegoTypeDef
-			for _, member := range current.Union {
-				// Create a temporary schema with this member as root
-				tempSchema := &InputJsonSchema{types: member}
-				if result, ok := tempSchema.GetType(path[i:]); ok && result != nil {
-					results = append(results, *result)
-				}
-			}
-			if len(results) == 0 {
-				return nil, false
-			}
-			if len(results) == 1 {
-				return &results[0], true
-			}
-			// Return union of results
-			unionResult := NewUnionType(results)
-			unionResult.CanonizeUnion()
-			return &unionResult, true
-		} else if current.IsObject() {
-			// Try exact field match first
-			if stepType, ok := current.GetTypeFromPath(path[i : i+1]); ok && stepType != nil {
-				current = *stepType
-				continue
-			}
-
-			// Field not found - check for additionalProperties
-			if pn.IsGround {
-				if apType, ok := current.ObjectFields[AdditionalPropertiesKey]; ok {
-					// Use additionalProperties type for this field
-					if len(remainingPath) == 0 {
-						return &apType, true
-					}
-					// Continue traversal with the additionalProperties type
-					current = apType
-					continue
-				}
-			}
-			// No match and no additionalProperties
-			return nil, false
-		} else if current.IsArray() {
-			// Delegate to GetTypeFromPath for arrays
-			if stepType, ok := current.GetTypeFromPath(path[i : i+1]); ok && stepType != nil {
-				current = *stepType
-				continue
-			}
-			return nil, false
-		} else {
-			// Cannot continue traversal
-			return nil, false
-		}
-	}
-
-	return &current, true
+	return s.types.GetTypeFromPath(path)
 }
 
 // HasField checks if a field exists at the given path in the input schema.
@@ -456,15 +384,21 @@ func (s *InputJsonSchema) objectTypeFromPropertiesAt(rs *qjsonschema.Schema) (Re
 		}
 	}
 
-	// Create object type and set additionalProperties if present
-	objType := NewObjectType(fields)
-	if apType, isFalse := s.extractAdditionalProperties(rs); isFalse {
-		// additionalProperties is explicitly false
-		objType.ObjectFields[DisabledAdditional] = NewAtomicType(AtomicBoolean)
-	} else if apType != nil {
-		// additionalProperties is a schema or true
-		objType.ObjectFields[AdditionalPropertiesKey] = *apType
+	// Determine additionalProperties settings
+	apType, isFalse := s.extractAdditionalProperties(rs)
+	allowAdditional := !isFalse
+
+	// Create object with appropriate settings
+	objType := RegoTypeDef{
+		Kind:         KindObject,
+		ObjectFields: NewObjectFieldSet(fields, allowAdditional),
 	}
+
+	// If additionalProperties has a specific type, store it in Fields
+	if apType != nil {
+		objType.ObjectFields.Fields[AdditionalPropKey] = *apType
+	}
+
 	return objType, true
 }
 
@@ -621,19 +555,24 @@ func mergeTypes(a, b RegoTypeDef) RegoTypeDef {
 	}
 	if a.IsObject() && b.IsObject() {
 		merged := make(map[string]RegoTypeDef)
-		for k, va := range a.ObjectFields {
-			if vb, ok := b.ObjectFields[k]; ok {
+		for k, va := range a.ObjectFields.Fields {
+			if vb, ok := b.ObjectFields.Fields[k]; ok {
 				merged[k] = mergeTypes(va, vb)
 			} else {
 				merged[k] = va
 			}
 		}
-		for k, vb := range b.ObjectFields {
+		for k, vb := range b.ObjectFields.Fields {
 			if _, ok := merged[k]; !ok {
 				merged[k] = vb
 			}
 		}
-		return NewObjectType(merged)
+		// Merge additionalProperties settings: allow if either allows
+		allowAdditional := a.ObjectFields.AllowAdditional || b.ObjectFields.AllowAdditional
+		return RegoTypeDef{
+			Kind:         KindObject,
+			ObjectFields: NewObjectFieldSet(merged, allowAdditional),
+		}
 	}
 	if a.IsArray() && b.IsArray() {
 		if a.ArrayType == nil || b.ArrayType == nil {

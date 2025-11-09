@@ -336,19 +336,22 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 
 	andConstr := make([]string, 0, 64)
 	// Ensure deterministic enumeration of object fields by sorting keys.
-	keys := make([]string, 0, len(tp.ObjectFields))
-	for k := range tp.ObjectFields {
+	keys := make([]string, 0, len(tp.ObjectFields.Fields))
+	for k := range tp.ObjectFields.Fields {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		val := tp.ObjectFields[key]
+		val, found := tp.ObjectFields.Get(key)
+		if !found {
+			return nil, err.ErrSmtFieldConstraints(key, fmt.Errorf("field not found in object type"))
+		}
 		sel := fmt.Sprintf("(select (obj %s) \"%s\")", smtValue, key)
 		if !val.IsAtomic() {
-			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(&val), sel))
+			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(val), sel))
 		}
 
-		valAnalysis, er := td.getSmtConstr(sel, &val)
+		valAnalysis, er := td.getSmtConstr(sel, val)
 		if er != nil {
 			return nil, err.ErrSmtFieldConstraints(key, er)
 		}
@@ -438,8 +441,11 @@ func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *ty
 		if !actType.IsObject() {
 			return "", nil, fmt.Errorf("only object types can be used in references")
 		}
-		val := actType.ObjectFields[p]
-		actType = &val
+		val, found := actType.ObjectFields.Get(p)
+		if !found {
+			return "", nil, fmt.Errorf("field not found in object type: %s", p)
+		}
+		actType = val
 		smtref = fmt.Sprintf("(select (obj %s) \"%s\")", smtref, p)
 	}
 	return smtref, actType, nil

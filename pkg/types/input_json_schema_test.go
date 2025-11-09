@@ -55,13 +55,13 @@ func TestInputJsonSchema_ObjectBasic(t *testing.T) {
 	if !root.IsObject() {
 		t.Fatalf("expected root to be object, got: %v", root)
 	}
-	if _, ok := root.ObjectFields["name"]; !ok {
+	if _, ok := root.ObjectFields.Fields["name"]; !ok {
 		t.Fatalf("expected root to have field 'name'")
 	}
-	if _, ok := root.ObjectFields["age"]; !ok {
+	if _, ok := root.ObjectFields.Fields["age"]; !ok {
 		t.Fatalf("expected root to have field 'age'")
 	}
-	if _, ok := root.ObjectFields["meta"]; !ok {
+	if _, ok := root.ObjectFields.Fields["meta"]; !ok {
 		t.Fatalf("expected root to have field 'meta'")
 	}
 }
@@ -148,11 +148,11 @@ func TestInputJsonSchema_AllOfMerge(t *testing.T) {
 	if !root.IsObject() {
 		t.Fatalf("expected object after allOf merge, got: %v", root)
 	}
-	a, ok := root.ObjectFields["a"]
+	a, ok := root.ObjectFields.Fields["a"]
 	if !ok || !a.IsAtomic() || a.AtomicType != AtomicString {
 		t.Fatalf("expected field a:string, got: %v", a)
 	}
-	b, ok := root.ObjectFields["b"]
+	b, ok := root.ObjectFields.Fields["b"]
 	if !ok || !b.IsAtomic() || b.AtomicType != AtomicInt {
 		t.Fatalf("expected field b:int, got: %v", b)
 	}

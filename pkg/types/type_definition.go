@@ -31,11 +31,61 @@ const (
 
 // RegoTypeDef represents a full type definition in Rego
 type RegoTypeDef struct {
-	Kind         TypeKind               // The kind of type (atomic, array, object)
-	AtomicType   AtomicType             // The specific atomic type if Kind is atomic
-	ArrayType    *RegoTypeDef           // The type of array elements if Kind is array
-	ObjectFields map[string]RegoTypeDef // The field types if Kind is object
-	Union        []RegoTypeDef          // If KindUnion, this holds union member types
+	Kind         TypeKind       // The kind of type (atomic, array, object)
+	AtomicType   AtomicType     // The specific atomic type if Kind is atomic
+	ArrayType    *RegoTypeDef   // The type of array elements if Kind is array
+	ObjectFields ObjectFieldSet // The field types if Kind is object
+	Union        []RegoTypeDef  // If KindUnion, this holds union member types
+}
+
+//----------------------------------------------------------------
+
+// AdditionalPropertiesKey identifies the synthetic entry used to store
+// additionalProperties types for object definitions.
+const AdditionalPropKey = "*"
+
+// ObjectFieldSet describes the fields of a Rego object type together with
+// information about whether JSON Schema additionalProperties are permitted.
+type ObjectFieldSet struct {
+	Fields          map[string]RegoTypeDef
+	AllowAdditional bool
+}
+
+func NewObjectFieldSet(fields map[string]RegoTypeDef, allowAdditional bool) ObjectFieldSet {
+	return ObjectFieldSet{
+		Fields:          fields,
+		AllowAdditional: allowAdditional,
+	}
+}
+
+// Get returns the type definition for the named field and a boolean
+// indicating whether the field type was found.
+//
+// If the field is not present and AllowAdditional is true, the method will
+// attempt to return the type stored under the synthetic key
+// `AdditionalPropKey` (used to represent JSON Schema additionalProperties).
+// The returned pointer points to a copy of the stored value. The boolean is
+// true when a type was found and false otherwise.
+func (of *ObjectFieldSet) Get(field string) (*RegoTypeDef, bool) {
+	t, ok := of.Fields[field]
+	if !ok && of.AllowAdditional {
+		t, ok = of.Fields[AdditionalPropKey]
+		return &t, ok
+	}
+	return &t, ok
+}
+
+// GetValues returns a slice containing copies of all field type definitions
+// stored in the ObjectFieldSet. The iteration order is the map iteration
+// order and therefore unspecified. If a synthetic entry exists for
+// additional properties (keyed by `AdditionalPropKey`), it will be included
+// in the returned slice like any other map entry.
+func (of *ObjectFieldSet) GetValues() []RegoTypeDef {
+	values := make([]RegoTypeDef, 0, len(of.Fields))
+	for _, v := range of.Fields {
+		values = append(values, v)
+	}
+	return values
 }
 
 //----------------------------------------------------------------
@@ -96,7 +146,7 @@ func NewArrayType(elementType RegoTypeDef) RegoTypeDef {
 func NewObjectType(fields map[string]RegoTypeDef) RegoTypeDef {
 	return RegoTypeDef{
 		Kind:         KindObject,
-		ObjectFields: fields,
+		ObjectFields: NewObjectFieldSet(fields, true),
 	}
 }
 
@@ -173,11 +223,11 @@ func (t *RegoTypeDef) GetObjectField(field string) (*RegoTypeDef, bool) {
 	if !t.IsObject() {
 		return nil, false
 	}
-	fieldType, exists := t.ObjectFields[field]
+	fieldType, exists := t.ObjectFields.Get(field)
 	if !exists {
 		return nil, false
 	}
-	return &fieldType, true
+	return fieldType, true
 }
 
 // IsEqual checks if this type is exactly equal to another type
@@ -195,11 +245,14 @@ func (t *RegoTypeDef) IsEqual(other *RegoTypeDef) bool {
 		}
 		return t.ArrayType.IsEqual(other.ArrayType)
 	case KindObject:
-		if len(t.ObjectFields) != len(other.ObjectFields) {
+		if len(t.ObjectFields.Fields) != len(other.ObjectFields.Fields) {
 			return false
 		}
-		for field, type1 := range t.ObjectFields {
-			type2, exists := other.ObjectFields[field]
+		if t.ObjectFields.AllowAdditional != other.ObjectFields.AllowAdditional {
+			return false
+		}
+		for field, type1 := range t.ObjectFields.Fields {
+			type2, exists := other.ObjectFields.Fields[field]
 			if !exists || !type1.IsEqual(&type2) {
 				return false
 			}
@@ -227,13 +280,16 @@ func (t *RegoTypeDef) IsEqual(other *RegoTypeDef) bool {
 //	bool: True if the current object type is more precise
 func (t *RegoTypeDef) compareObjects(other *RegoTypeDef) bool {
 	// Must have at least as many fields as other
-	if len(t.ObjectFields) < len(other.ObjectFields) {
+	if len(t.ObjectFields.Fields) < len(other.ObjectFields.Fields) {
+		return false
+	}
+	if other.ObjectFields.AllowAdditional != t.ObjectFields.AllowAdditional {
 		return false
 	}
 
 	// Check common fields recursively
-	for fieldName, otherType := range other.ObjectFields {
-		thisType, exists := t.ObjectFields[fieldName]
+	for fieldName, otherType := range other.ObjectFields.Fields {
+		thisType, exists := t.ObjectFields.Fields[fieldName]
 		if !exists {
 			return false
 		}
@@ -244,13 +300,13 @@ func (t *RegoTypeDef) compareObjects(other *RegoTypeDef) bool {
 	}
 
 	// Must have strictly more fields or equal fields with at least one being more precise
-	return len(t.ObjectFields) > len(other.ObjectFields) || hasMorePreciseField(t, other)
+	return len(t.ObjectFields.Fields) > len(other.ObjectFields.Fields) || hasMorePreciseField(t, other)
 }
 
 // hasMorePreciseField checks if any field in t1 is more precise than the corresponding field in t2
 func hasMorePreciseField(t1, t2 *RegoTypeDef) bool {
-	for fieldName, type1 := range t1.ObjectFields {
-		type2, exists := t2.ObjectFields[fieldName]
+	for fieldName, type1 := range t1.ObjectFields.Fields {
+		type2, exists := t2.ObjectFields.Fields[fieldName]
 		if !exists {
 			continue
 		}
@@ -362,6 +418,8 @@ func (t *RegoTypeDef) isMorePreciseUnion(other *RegoTypeDef) bool {
 //     the common field type. If field types differ, the type cannot be determined.
 //   - For array types any index (ground or non-ground) resolves to the array element type
 //     and traversal continues on that element type.
+//   - For union types, GetTypeFromPath is applied to each member and a union of all
+//     successful results is returned. If no members resolve successfully, returns (nil, false).
 //   - For atomic or unknown kinds traversal cannot continue and the function returns
 //     (nil, false).
 //
@@ -379,24 +437,20 @@ func (t *RegoTypeDef) GetTypeFromPath(path []PathNode) (*RegoTypeDef, bool) {
 	case KindObject:
 		// for non-ground keys (= variables), we take union of all field types.
 		if !path[0].IsGround {
-			if len(t.ObjectFields) == 0 {
+			if len(t.ObjectFields.Fields) == 0 {
 				return nil, false
 			}
-			var allFieldTypes []RegoTypeDef
-			for _, v := range t.ObjectFields {
-				allFieldTypes = append(allFieldTypes, v)
-			}
-			unionType := NewUnionType(allFieldTypes)
+			unionType := NewUnionType(t.ObjectFields.GetValues())
 			unionType.CanonizeUnion()
 			return unionType.GetTypeFromPath(remainingPath)
 		}
 
-		fieldType, exists := t.ObjectFields[currentKey]
+		fieldType, exists := t.ObjectFields.Get(currentKey)
 		if !exists {
 			return nil, false
 		}
 		if len(remainingPath) == 0 {
-			return &fieldType, true
+			return fieldType, true
 		}
 		return fieldType.GetTypeFromPath(remainingPath)
 	case KindArray:
@@ -407,7 +461,24 @@ func (t *RegoTypeDef) GetTypeFromPath(path []PathNode) (*RegoTypeDef, bool) {
 			return t.ArrayType, true
 		}
 		return t.ArrayType.GetTypeFromPath(remainingPath)
-	case KindAtomic, KindUnknown, KindUnion:
+	case KindUnion:
+		// Apply GetTypeFromPath to each union member and collect results
+		var results []RegoTypeDef
+		for i := range t.Union {
+			if result, ok := t.Union[i].GetTypeFromPath(path); ok && result != nil {
+				results = append(results, *result)
+			} else {
+				results = append(results, NewAtomicType(AtomicUndef))
+			}
+		}
+		if len(results) == 0 {
+			return nil, false
+		}
+		// Return union of all results
+		unionResult := NewUnionType(results)
+		unionResult.CanonizeUnion()
+		return &unionResult, true
+	case KindAtomic, KindUnknown:
 		return nil, false
 	}
 	return nil, false
@@ -460,11 +531,11 @@ func (t *RegoTypeDef) prettyPrintWithIndentShort(indent int, short bool) string 
 		if short {
 			return "object"
 		}
-		if len(t.ObjectFields) == 0 {
+		if len(t.ObjectFields.Fields) == 0 {
 			return "object{}"
 		}
 		result := "object{\n"
-		for k, v := range t.ObjectFields {
+		for k, v := range t.ObjectFields.Fields {
 			result += ind + spaces + k + ": " + v.prettyPrintWithIndentShort(indent+1, short) + "\n"
 		}
 		result += ind + "}"
@@ -544,7 +615,7 @@ func (t *RegoTypeDef) TypeDepth() int {
 		return 1 + t.ArrayType.TypeDepth()
 	case KindObject:
 		maxDepth := 0
-		for _, fieldType := range t.ObjectFields {
+		for _, fieldType := range t.ObjectFields.Fields {
 			depth := fieldType.TypeDepth()
 			if depth > maxDepth {
 				maxDepth = depth
