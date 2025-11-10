@@ -109,6 +109,89 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
 	if err != nil {
 		return "", err
 	}
-	assertion := fmt.Sprintf("(assert (ite %s %s %s))", bodySmt, smtHead, elseValue)
-	return assertion, nil
+	smt := fmt.Sprintf("(ite %s %s %s)", bodySmt, smtHead, elseValue)
+	return smt, nil
+}
+
+func (t *Translator) ParametricRuleToSmt(rule *ast.Rule) (string,error) {
+	if rule == nil {
+		return "undefined", nil	// FIXME: return correct SMT undefined value
+	}
+	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
+	// Get head value
+	var smtValue string
+	if rule.Head.Value == nil {
+		if rule.Head.Key != nil && rule.Head.Reference != nil {
+			var err error
+			smtValue, err = exprTrans.refToSmt(rule.Head.Reference)
+			if err != nil {
+				return "", fmt.Errorf("failed to convert rule head reference: %w", err)
+			}
+		}
+		return "", fmt.Errorf("rule head value is nil for %s", rule.Head.String())
+	} else {
+		var err error
+		smtValue, err = exprTrans.termToSmt(rule.Head.Value)
+		if err != nil {
+			return "", fmt.Errorf("failed to convert rule head value: %w", err)
+		}
+	}
+
+	// Convert all body expressions to SMT
+	bodySmts := make([]string, 0, len(rule.Body))
+	for _, expr := range rule.Body {
+		smtStr, err := exprTrans.ExprToSmt(expr)
+		if err != nil {
+			return "", fmt.Errorf("failed to convert rule body expr: %w", err)
+		}
+		bodySmts = append(bodySmts, smtStr)
+	}
+	t.AddTransContext(exprTrans.GetTransContext())
+
+	var bodySmt string
+	switch len(bodySmts) {
+	case 0:
+		bodySmt = "true"
+	case 1:
+		bodySmt = bodySmts[0]
+	default:
+		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+	}
+
+	elseValue, err := t.ParametricRuleToSmt(rule.Else)
+	if err != nil {
+		return "", err
+	}
+	smt := fmt.Sprintf("(ite %s %s %s)", bodySmt, smtValue, elseValue)
+	return smt, nil
+}
+
+func (t *Translator) RuleToAssert(rule *ast.Rule) error {
+	if rule.Head.Args == nil {
+		smt, err := t.RuleToSmt(rule)
+		if err != nil {
+			return err
+		}
+		assertion := fmt.Sprintf("(assert %s)", smt)
+		t.smtAsserts = append(t.smtAsserts, assertion)
+		return nil
+	}
+	// Parametric rule
+	funcName := rule.Head.Name.String()
+	a := rule.Head.Args
+	args := make([]string, 0, len(a))
+	for _, t := range a {
+		args = append(args, "(" + t.String() + " type)")	// FIXME
+	}
+	argList := "(" + strings.Join(args, " ") + ")"
+	println("argList: ", argList)
+	retType := "type"	// FIXME
+	
+	funcBody, err := t.ParametricRuleToSmt(rule)
+	if err != nil {
+		return err
+	}
+	funcDef := fmt.Sprintf("(define-func %s %s %s %s)", funcName, argList, retType, funcBody)
+	t.smtDecls = append(t.smtDecls, funcDef)
+	return nil
 }
