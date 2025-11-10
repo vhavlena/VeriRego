@@ -180,7 +180,7 @@ func (t *Translator) GenerateSmtContent() error {
 
 // TranslateModuleToSmt converts all rules in the Translator's module to SMT-LIB assertions.
 //
-// Each rule is translated using RuleToSmt and results in a single SMT-LIB (assert ...) statement.
+// Each rule is translated using RuleToAssert and results in a single SMT-LIB (assert ...) statement.
 //
 // Returns:
 //
@@ -190,9 +190,7 @@ func (t *Translator) TranslateModuleToSmt() error {
 		return nil
 	}
 	for _, rule := range t.mod.Rules {
-		if err := t.RuleToSmt(rule); err != nil {
-			return err
-		}
+		t.RuleToAssert(rule)
 	}
 	return nil
 }
