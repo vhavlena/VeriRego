@@ -7,18 +7,6 @@ import (
 	"github.com/open-policy-agent/opa/ast"
 )
 
-// RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.
-//
-// Parameters:
-//
-//	rule *ast.Rule: The Rego rule to convert.
-//
-// Returns:
-//
-//	error: An error if the rule cannot be converted.
-//
-// The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
-// The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
 // ruleHeadToSmt converts the head of a Rego rule to its SMT-LIB representation (including the operator).
 //
 // Parameters:
@@ -70,10 +58,10 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 //
 // Returns:
 //
+//	smt string: The SMT-LIB representation of rule.
 //	error: An error if the rule cannot be converted.
 //
-// The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
-// The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
+// The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold. It is equal to the else value otherwise (or Undef, if no else branch is suitable)
 func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
 	if rule == nil {
 		return "undefined", nil	// FIXME: return correct SMT undefined value
@@ -113,6 +101,20 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
 	return smt, nil
 }
 
+// ParametricRuleToSmt converts a parametric Rego rule to an SMT-LIB representation. 
+// The output is expected to be appended to smtLines as a function definition.
+//
+// Parameters:
+//
+//	rule *ast.Rule: The Rego rule to convert.
+//
+// Returns:
+//
+//	smt string: The SMT-LIB representation of rule.
+//	error: An error if the rule cannot be converted.
+//
+// The rule value is returned iff all body expression hold. If not, its else value is returned.
+// For empty else value, the Undef value is returned.
 func (t *Translator) ParametricRuleToSmt(rule *ast.Rule) (string,error) {
 	if rule == nil {
 		return "undefined", nil	// FIXME: return correct SMT undefined value
@@ -166,6 +168,18 @@ func (t *Translator) ParametricRuleToSmt(rule *ast.Rule) (string,error) {
 	return smt, nil
 }
 
+// RuleToAssert converts a Rego rule to an SMT-LIB assertion and appends it to smtLines. 
+//
+// Parameters:
+//
+//	rule *ast.Rule: The Rego rule to convert.
+//
+// Returns:
+//
+//	error: An error if the rule cannot be converted.
+//
+// For parametric rules, the assertion is a function definition (appended to smtDecls)
+// Otherwise, it is an assignment (appended to smtAsserts)
 func (t *Translator) RuleToAssert(rule *ast.Rule) error {
 	if rule.Head.Args == nil {
 		smt, err := t.RuleToSmt(rule)
