@@ -44,7 +44,7 @@ func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 	td := &TypeTranslator{}
 	objType := &types.RegoTypeDef{
 		Kind: types.KindObject,
-		ObjectFields: map[string]types.RegoTypeDef{
+		ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
 			"foo": {
 				Kind:       types.KindAtomic,
 				AtomicType: types.AtomicString,
@@ -55,14 +55,14 @@ func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 			},
 			"baz": {
 				Kind: types.KindObject,
-				ObjectFields: map[string]types.RegoTypeDef{
+				ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
 					"x": {
 						Kind:       types.KindAtomic,
 						AtomicType: types.AtomicBoolean,
 					},
-				},
+				}, false),
 			},
-		},
+		}, false),
 	}
 	constr, err := td.getSmtConstr("z", objType)
 	if err != nil {
@@ -101,10 +101,10 @@ func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 	td := &TypeTranslator{}
 	nestedType := &types.RegoTypeDef{
 		Kind: types.KindObject,
-		ObjectFields: map[string]types.RegoTypeDef{
+		ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
 			"outer": {
 				Kind: types.KindObject,
-				ObjectFields: map[string]types.RegoTypeDef{
+				ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
 					"inner": {
 						Kind:       types.KindAtomic,
 						AtomicType: types.AtomicString,
@@ -113,13 +113,13 @@ func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 						Kind:       types.KindAtomic,
 						AtomicType: types.AtomicInt,
 					},
-				},
+				}, false),
 			},
 			"flag": {
 				Kind:       types.KindAtomic,
 				AtomicType: types.AtomicBoolean,
 			},
-		},
+		}, false),
 	}
 	constr, err := td.getSmtConstr("n", nestedType)
 	if err != nil {
@@ -181,10 +181,10 @@ func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 	td := &TypeTranslator{}
 	nestedType := &types.RegoTypeDef{
 		Kind: types.KindObject,
-		ObjectFields: map[string]types.RegoTypeDef{
+		ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
 			"outer": {
 				Kind: types.KindObject,
-				ObjectFields: map[string]types.RegoTypeDef{
+				ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
 					"inner": {
 						Kind:       types.KindAtomic,
 						AtomicType: types.AtomicString,
@@ -193,13 +193,13 @@ func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 						Kind:       types.KindAtomic,
 						AtomicType: types.AtomicInt,
 					},
-				},
+				}, false),
 			},
 			"flag": {
 				Kind:       types.KindAtomic,
 				AtomicType: types.AtomicBoolean,
 			},
-		},
+		}, false),
 	}
 	assertStr, err := td.getSmtConstrAssert("n", nestedType)
 	if err != nil {
@@ -322,12 +322,12 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 			},
 			{
 				Kind: types.KindObject,
-				ObjectFields: map[string]types.RegoTypeDef{
+				ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
 					"field1": {
 						Kind:       types.KindAtomic,
 						AtomicType: types.AtomicBoolean,
 					},
-				},
+				}, false),
 			},
 			{
 				Kind: types.KindArray,
