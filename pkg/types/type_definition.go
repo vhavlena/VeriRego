@@ -88,6 +88,35 @@ func (of *ObjectFieldSet) GetValues() []RegoTypeDef {
 	return values
 }
 
+// GetKeys returns a slice of all explicit object field names.
+//
+// The special synthetic key used for additionalProperties ("*",
+// stored under `AdditionalPropKey`) is never included in the
+// result, so the returned slice only contains concrete field names
+// that may appear in Rego objects.
+func (of *ObjectFieldSet) GetKeys() []string {
+	keys := make([]string, 0, len(of.Fields))
+	for k := range of.Fields {
+		if k == AdditionalPropKey {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// HasSetAdditionalProperties reports whether this ObjectFieldSet allows
+// additional properties and has an explicit type stored for them.
+//
+// It returns true only when `AllowAdditional` is true and the
+// synthetic field keyed by `AdditionalPropKey` is present in
+// `Fields`, indicating that JSON Schema additionalProperties are
+// permitted and typed.
+func (of *ObjectFieldSet) HasSetAdditionalProperties() bool {
+	_, has := of.Fields[AdditionalPropKey]
+	return of.AllowAdditional && has
+}
+
 //----------------------------------------------------------------
 
 type PathNode struct {
