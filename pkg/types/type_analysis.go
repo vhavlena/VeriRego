@@ -10,7 +10,7 @@ type TypeAnalyzer struct {
 	packagePath ast.Ref
 	Types       map[string]RegoTypeDef // Store types by string key
 	Refs        map[string]ast.Value   // Map string keys back to original values
-	Schema      *InputSchema
+	Schema      InputSchemaAPI
 	Parameters  Parameters
 }
 
@@ -23,7 +23,7 @@ type TypeAnalyzer struct {
 // Returns:
 //
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
-func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
+func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
 		Types:  make(map[string]RegoTypeDef),
 		Refs:   make(map[string]ast.Value),
@@ -41,7 +41,7 @@ func NewTypeAnalyzer(schema *InputSchema) *TypeAnalyzer {
 // Returns:
 //
 //	*TypeAnalyzer: A new instance of TypeAnalyzer with parameters.
-func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema *InputSchema, params Parameters) *TypeAnalyzer {
+func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI, params Parameters) *TypeAnalyzer {
 	return &TypeAnalyzer{
 		packagePath: packagePath,
 		Types:       make(map[string]RegoTypeDef),
@@ -512,7 +512,7 @@ func isEquality(name string) bool {
 // Returns:
 //
 //	*TypeAnalyzer: The type analyzer with inferred types.
-func AnalyzeTypes(rule *ast.Rule, schema *InputSchema, params Parameters) *TypeAnalyzer {
+func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI, params Parameters) *TypeAnalyzer {
 	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema, params)
 	analyzer.AnalyzeRule(rule)
 	return analyzer

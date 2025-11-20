@@ -14,11 +14,16 @@ import (
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+const letterStartBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func RandString(n int) string {
 	rand.Seed(time.Now().UnixNano())
 	b := make([]byte, n)
-	for i := range b {
+	// Ensure the first character is a letter to form a valid SMT-LIB symbol
+	if n > 0 {
+		b[0] = letterStartBytes[rand.Intn(len(letterStartBytes))]
+	}
+	for i := 1; i < n; i++ {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 	return string(b)
@@ -133,7 +138,7 @@ func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 //	error: An error if any generation fails.
 func (td *TypeTranslator) GenerateVarDecls(usedVars map[string]any) (*Bucket, error) {
 	bucket := NewBucket()
-	for name, _ := range usedVars {
+	for name := range usedVars {
 		varBucket, er := td.GenerateVarDecl(name)
 		if er != nil {
 			return nil, er
@@ -217,7 +222,8 @@ func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) 
 //
 //	string: The SMT-LIB sort name corresponding to the type depth.
 func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
-	return fmt.Sprintf("OTypeD%d", tp.TypeDepth())
+	dpth := max(tp.TypeDepth()-1, 0)
+	return fmt.Sprintf("OTypeD%d", dpth)
 }
 
 // getSortDefinitions returns SMT-LIB sort definitions up to the given maximum depth.
@@ -318,17 +324,42 @@ func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeD
 	return []string{fmt.Sprintf("(or %s)", strings.Join(orConstr, " "))}, nil
 }
 
-// getSmtObjectConstr generates SMT-LIB constraints for an object value and type.
+// getSmtObjectConstr builds SMT-LIB constraints that encode the rules for an
+// object-typed value according to the provided Rego type definition.
+//
+// Behaviour:
+//   - For each explicitly declared field the function adds:
+//   - (select (obj <smtValue>) "<field>") for that field and
+//   - per-field constraints derived from the field's type
+//     (recursively produced by getSmtConstr).
+//   - If a field's type is non-atomic the function also inserts a call to
+//     the appropriate type constructor (e.g. is-OObj / is-OArray) for the
+//     selected field value.
+//   - Additional properties handling:
+//   - If additional properties are not allowed the function generates a
+//     universal quantifier that requires any string key to either be one
+//     of the explicit keys or to map to OUndef.
+//   - If additional properties are allowed and an explicit additional
+//     property type is present the universal quantifier requires that any
+//     non-explicit key's value satisfies the additional property type.
+//     The universal quantifier uses a generated temporary symbol for the
+//     quantified key name (created via RandString).
 //
 // Parameters:
 //
-//	smtValue string: The SMT variable or value name.
-//	tp *types.RegoTypeDef: The Rego object type definition.
+//	smtValue string: The SMT variable or expression that identifies the
+//	    object value (e.g. a variable name or a select chain).
+//	tp *types.RegoTypeDef: The object Rego type which must satisfy
+//	    tp.IsObject().
 //
 // Returns:
 //
-//	[]string: A slice of SMT-LIB constraint strings for the object fields.
-//	error: An error if constraints could not be generated.
+//	[]string: A slice of SMT-LIB expression strings. Each entry represents
+//	    a constraint (e.g. "(is-OString (atom ...))", a nested (and ...),
+//	    or a (forall ...) quantifier). Callers typically combine them
+//	    with an outer (and ...) when producing an assert.
+//	error: An error when `tp` is not an object or when the type information
+//	    for a declared field cannot be found or converted.
 func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
 	if !tp.IsObject() {
 		return nil, err.ErrUnsupportedType
@@ -336,23 +367,48 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 
 	andConstr := make([]string, 0, 64)
 	// Ensure deterministic enumeration of object fields by sorting keys.
-	keys := make([]string, 0, len(tp.ObjectFields))
-	for k := range tp.ObjectFields {
-		keys = append(keys, k)
-	}
+	keys := tp.ObjectFields.GetKeys()
 	sort.Strings(keys)
+
 	for _, key := range keys {
-		val := tp.ObjectFields[key]
+		val, found := tp.ObjectFields.Get(key)
+		if !found {
+			return nil, err.ErrSmtFieldConstraints(key, err.ErrTypeNotFound)
+		}
 		sel := fmt.Sprintf("(select (obj %s) \"%s\")", smtValue, key)
 		if !val.IsAtomic() {
-			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(&val), sel))
+			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(val), sel))
 		}
 
-		valAnalysis, er := td.getSmtConstr(sel, &val)
+		valAnalysis, er := td.getSmtConstr(sel, val)
 		if er != nil {
 			return nil, err.ErrSmtFieldConstraints(key, er)
 		}
 		andConstr = append(andConstr, valAnalysis...)
+	}
+
+	// Helper to build a universal quantification over all string keys
+	// If additional are not allowed: forall k:String. (k in explicitKeys) or value_at_k is undefined
+	// If additional allowed and AdditionalPropKey exists: forall k:String. (k in explicitKeys) or value_at_k matches additional type constructor
+	if !tp.ObjectFields.AllowAdditional || tp.ObjectFields.HasSetAdditionalProperties() {
+		kVar := RandString(5)
+		disj := make([]string, 0, len(keys)+1)
+		for _, k := range keys {
+			disj = append(disj, fmt.Sprintf("(= %s \"%s\")", kVar, k))
+		}
+
+		defSelect := fmt.Sprintf("(select (obj %s) %s)", smtValue, kVar)
+		var defVal string
+		if !tp.ObjectFields.AllowAdditional {
+			defVal = fmt.Sprintf("(is-OUndef (atom %s))", defSelect)
+		} else {
+			apType := tp.ObjectFields.Fields[types.AdditionalPropKey]
+			defVal = fmt.Sprintf("(%s %s)", getTypeConstr(&apType), defSelect)
+		}
+
+		disj = append(disj, defVal)
+		body := fmt.Sprintf("(or %s)", strings.Join(disj, " "))
+		andConstr = append(andConstr, fmt.Sprintf("(forall ((%s String)) %s)", kVar, body))
 	}
 	return andConstr, nil
 }
@@ -438,8 +494,11 @@ func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *ty
 		if !actType.IsObject() {
 			return "", nil, fmt.Errorf("only object types can be used in references")
 		}
-		val := actType.ObjectFields[p]
-		actType = &val
+		val, found := actType.ObjectFields.Get(p)
+		if !found {
+			return "", nil, fmt.Errorf("field not found in object type: %s", p)
+		}
+		actType = val
 		smtref = fmt.Sprintf("(select (obj %s) \"%s\")", smtref, p)
 	}
 	return smtref, actType, nil

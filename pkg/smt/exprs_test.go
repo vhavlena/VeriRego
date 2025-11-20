@@ -474,7 +474,7 @@ func TestExplicitArrayToSmt_CompareFullSmtLib(t *testing.T) {
 	}
 	smtlib := sb.String()
 
-	expectedDeclPrefix := "(declare-fun " + varName + " () OTypeD1)"
+	expectedDeclPrefix := "(declare-fun " + varName + " () OTypeD0)"
 	expectedElem0 := "(assert (= (select (arr " + varName + ") 0) 1))"
 	expectedElem1 := "(assert (= (select (arr " + varName + ") 1) 2))"
 	expectedElem2 := "(assert (= (select (arr " + varName + ") 2) 3))"
@@ -522,7 +522,7 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			t.Fatalf("expected non-empty variable name")
 		}
 		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
-		expected := "(declare-fun " + varName + " () OTypeD1)\n(assert (and (is-OString (atom (select (obj " + varName + ") \"name\"))) (is-ONumber (atom (select (obj " + varName + ") \"value\")))))"
+		expected := "(declare-fun " + varName + " () OTypeD0)\n(assert (and (is-OString (atom (select (obj " + varName + ") \"name\"))) (is-ONumber (atom (select (obj " + varName + ") \"value\")))))"
 		if joined != expected {
 			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
 		}
@@ -570,7 +570,7 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			t.Fatalf("expected non-empty variable name")
 		}
 		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
-		expected := "(declare-fun const_obj () OTypeD2)\n(assert (and (is-OBoolean (atom (select (obj const_obj) \"active\"))) (is-OObj (select (obj const_obj) \"user\")) (is-ONumber (atom (select (obj (select (obj const_obj) \"user\")) \"age\"))) (is-OString (atom (select (obj (select (obj const_obj) \"user\")) \"name\")))))"
+		expected := "(declare-fun const_obj () OTypeD1)\n(assert (and (is-OBoolean (atom (select (obj const_obj) \"active\"))) (is-OObj (select (obj const_obj) \"user\")) (is-ONumber (atom (select (obj (select (obj const_obj) \"user\")) \"age\"))) (is-OString (atom (select (obj (select (obj const_obj) \"user\")) \"name\")))))"
 		if joined != expected {
 			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
 		}
