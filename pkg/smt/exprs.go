@@ -303,19 +303,19 @@ func (et *ExprTranslator) declareUnintFunc(name string, terms []*ast.Term) error
 	// gather parameter types
 	pars := make([]string, len(terms)-1)
 	for i := 1; i < len(terms); i++ {
-		tp, ok := et.TypeTrans.TypeInfo.Types[terms[i].String()]
-		if !ok {
-			return verr.ErrTypeNotFound
-		}
-		pars[i-1] = et.TypeTrans.getSmtType(&tp)
+		// tp, ok := et.TypeTrans.TypeInfo.Types[terms[i].String()]
+		// if !ok {
+		// 	return verr.ErrTypeNotFound
+		// }
+		pars[i-1] = et.TypeTrans.getSmtType()
 	}
-	// gather return type
-	rtype, ok := et.TypeTrans.TypeInfo.Types[terms[0].String()]
-	if !ok {
-		return verr.ErrTypeNotFound
-	}
+	// // gather return type
+	// rtype, ok := et.TypeTrans.TypeInfo.Types[terms[0].String()]
+	// if !ok {
+	// 	return verr.ErrTypeNotFound
+	// }
 
-	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), et.TypeTrans.getSmtType(&rtype))
+	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), et.TypeTrans.getSmtType())
 	et.context.Bucket.Decls = append(et.context.Bucket.Decls, decls)
 	return nil
 }
