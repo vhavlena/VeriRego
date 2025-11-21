@@ -244,6 +244,7 @@ func (td *TypeTranslator) getSortDefinitions(maxDepth int) []string {
 		}
 		defs = append(defs, fmt.Sprintf("(define-sort OTypeD%d () (OGenType OTypeD%d))", i, i-1))
 	}
+	defs = append(defs, fmt.Sprintf("(define-sort OType () (OGenType OTypeD%d))", maxDepth))
 	return defs
 }
 
