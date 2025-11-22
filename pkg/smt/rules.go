@@ -62,9 +62,6 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 //
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold. It is equal to the else value otherwise (or Undef, if no else branch is suitable)
 func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
-	if rule == nil {
-		return "undefined", nil	// FIXME: return correct SMT undefined value
-	}
 	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
 	smtHead, err := t.ruleHeadToSmt(rule, exprTrans)
 	if err != nil {
@@ -92,9 +89,14 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
 		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
 	}
 
-	elseValue, err := t.RuleToSmt(rule.Else)
-	if err != nil {
-		return "", err
+	elseValue := ""
+	if rule.Else != nil {
+		elseValue, err = t.RuleToSmt(rule.Else)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		elseValue = fmt.Sprintf("(is-OUndef (atom %s))", rule.Head.Name.String())
 	}
 	smt := fmt.Sprintf("(ite %s %s %s)", bodySmt, smtHead, elseValue)
 	return smt, nil
