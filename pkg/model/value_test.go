@@ -55,7 +55,7 @@ func (e *oTypeEnv) atomFromInt(ctx *z3.Context, v int64) z3.AST {
 	return ctx.App(e.atomCtor, ctx.App(e.numberCtor, ctx.IntVal(v)))
 }
 
-const smtObjectScript = `
+const otypeSortsScript = `
 (declare-datatypes ()
 	((OAtom
 		(OString (str String))
@@ -78,9 +78,22 @@ const smtObjectScript = `
 
 (define-sort OTypeD0 () (OGenType OGenTypeAtom))
 
+`
+
+const smtObjectScript = otypeSortsScript + `
+
 (declare-fun x () OTypeD0)
 (assert (is-OObj x))
 (assert (is-OString (atom (select (obj x) "a"))))
+`
+
+const smtObjectMultiFieldScript = otypeSortsScript + `
+
+(declare-fun x () OTypeD0)
+(assert (is-OObj x))
+(assert (is-OString (atom (select (obj x) "b"))))
+(assert (is-OString (atom (select (obj x) "c"))))
+(assert (is-ONumber (atom (select (obj x) "d"))))
 `
 
 func TestValueFromSimpleAST_StringViaModel(t *testing.T) {
@@ -220,6 +233,68 @@ func TestValueFromModelVar_FromSMTLIBScript(t *testing.T) {
 	str, ok := fieldVal.String()
 	if !ok || str != "a" {
 		t.Fatalf("unexpected string payload for key '*': %q (ok=%v)", str, ok)
+	}
+}
+
+func TestValueFromModelVar_FromSMTLIBScriptWithFields(t *testing.T) {
+	ctx := z3.NewContext(nil)
+	if ctx == nil {
+		t.Fatalf("failed to allocate z3 context")
+	}
+	defer ctx.Close()
+
+	solver := ctx.NewSolver()
+	defer solver.Close()
+
+	if err := solver.AssertSMTLIB2String(smtObjectMultiFieldScript); err != nil {
+		t.Fatalf("AssertSMTLIB2String error: %v", err)
+	}
+
+	model := checkModel(t, solver)
+	defer model.Close()
+
+	val, err := ValueFromModelVar(ctx, model, "x")
+	if err != nil {
+		t.Fatalf("ValueFromModelVar error: %v", err)
+	}
+	if val.Kind() != ValueMap {
+		t.Fatalf("expected ValueMap kind, got %s", val.Kind())
+	}
+	fields, ok := val.Map()
+	if !ok {
+		t.Fatalf("expected map payload")
+	}
+
+	assertStringField := func(key, expected string) {
+		field, exists := fields[key]
+		if !exists {
+			t.Fatalf("missing key %q in decoded object", key)
+		}
+		if field.Kind() != ValueString {
+			t.Fatalf("expected string kind for key %q, got %s", key, field.Kind())
+		}
+		strVal, ok := field.String()
+		if !ok || strVal != expected {
+			t.Fatalf("unexpected string payload for key %q: %q (ok=%v)", key, strVal, ok)
+		}
+	}
+
+	assertStringField("b", "b")
+	assertStringField("c", "c")
+
+	defaultField, exists := fields["*"]
+	if !exists {
+		t.Fatalf("missing key %q in decoded object", "*")
+	}
+	if defaultField.Kind() != ValueInt {
+		t.Fatalf("expected int kind for key %q, got %s", "*", defaultField.Kind())
+	}
+	intVal, ok := defaultField.Int64()
+	if !ok || intVal != 2 {
+		t.Fatalf("unexpected int payload for key %q: %d (ok=%v)", "*", intVal, ok)
+	}
+	if iface := defaultField.AsInterface(); iface != int64(2) {
+		t.Fatalf("unexpected interface value for key %q: %#v", "*", iface)
 	}
 }
 

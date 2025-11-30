@@ -201,10 +201,8 @@ func collectStringArrayStores(arrayAST z3.AST) (map[string]z3.AST, error) {
 		}
 		cursor = cursor.Child(0)
 	}
-	if len(entries) == 0 {
-		if defaultVal, ok := constArrayDefaultValue(cursor); ok {
-			entries["*"] = defaultVal
-		}
+	if defaultVal, ok := constArrayDefaultValue(cursor); ok {
+		entries["*"] = defaultVal
 	}
 	return entries, nil
 }
