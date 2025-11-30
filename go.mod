@@ -6,7 +6,7 @@ require (
 	github.com/open-policy-agent/opa v1.4.2
 	github.com/qri-io/jsonpointer v0.1.1
 	github.com/qri-io/jsonschema v0.2.1
-	github.com/vhavlena/z3-go v0.1.0
+	github.com/vhavlena/z3-go v0.3.0
 	sigs.k8s.io/yaml v1.4.0
 )
 
