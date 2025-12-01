@@ -221,7 +221,6 @@ func TestValueFromModelVar_FromSMTLIBScript(t *testing.T) {
 	}
 	expected := NewMapValue(map[string]Value{
 		"a": NewStringValue("a"),
-		"*": NewStringValue("a"),
 	})
 	if !val.Equal(expected) {
 		t.Fatalf("decoded value mismatch: got %#v, want %#v", val.AsInterface(), expected.AsInterface())
@@ -256,7 +255,6 @@ func TestValueFromModelVar_FromSMTLIBScriptWithFields(t *testing.T) {
 		"b": NewStringValue("b"),
 		"c": NewStringValue("c"),
 		"d": NewIntValue(2),
-		"*": NewIntValue(2),
 	})
 	if !val.Equal(expected) {
 		t.Fatalf("decoded value mismatch: got %#v, want %#v", val.AsInterface(), expected.AsInterface())
