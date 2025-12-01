@@ -222,7 +222,7 @@ func TestValueFromModelVar_FromSMTLIBScript(t *testing.T) {
 	expected := NewMapValue(map[string]Value{
 		"a": NewStringValue("a"),
 	})
-	if !val.Equal(expected) {
+	if !val.Equal(&expected) {
 		t.Fatalf("decoded value mismatch: got %#v, want %#v", val.AsInterface(), expected.AsInterface())
 	}
 }
@@ -256,7 +256,7 @@ func TestValueFromModelVar_FromSMTLIBScriptWithFields(t *testing.T) {
 		"c": NewStringValue("c"),
 		"d": NewIntValue(2),
 	})
-	if !val.Equal(expected) {
+	if !val.Equal(&expected) {
 		t.Fatalf("decoded value mismatch: got %#v, want %#v", val.AsInterface(), expected.AsInterface())
 	}
 }
@@ -327,10 +327,10 @@ func TestValueEqual_MapWildcards(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			leftVal := NewMapValue(tc.left)
 			rightVal := NewMapValue(tc.right)
-			if got := leftVal.Equal(rightVal); got != tc.want {
+			if got := leftVal.Equal(&rightVal); got != tc.want {
 				t.Fatalf("left.Equal(right) = %v, want %v", got, tc.want)
 			}
-			if got := rightVal.Equal(leftVal); got != tc.want {
+			if got := rightVal.Equal(&leftVal); got != tc.want {
 				t.Fatalf("right.Equal(left) = %v, want %v", got, tc.want)
 			}
 		})

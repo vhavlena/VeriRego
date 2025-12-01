@@ -228,7 +228,7 @@ func (v *Value) AsInterface() any {
 
 // Equal performs a deep comparison between two Values, taking into account the
 // wildcard semantics used by Z3 const-array models (key "*").
-func (v *Value) Equal(other Value) bool {
+func (v *Value) Equal(other *Value) bool {
 	if v.Kind() != other.Kind() {
 		return false
 	}
@@ -246,7 +246,7 @@ func (v *Value) Equal(other Value) bool {
 			return false
 		}
 		for i := range v.arrayVal {
-			if !v.arrayVal[i].Equal(other.arrayVal[i]) {
+			if !v.arrayVal[i].Equal(&other.arrayVal[i]) {
 				return false
 			}
 		}
@@ -264,7 +264,7 @@ func mapEqualWithWildcard(a, b map[string]Value) bool {
 			continue
 		}
 		otherVal, ok := mapLookupWithWildcard(b, key)
-		if !ok || !val.Equal(otherVal) {
+		if !ok || !val.Equal(&otherVal) {
 			return false
 		}
 	}
@@ -273,14 +273,14 @@ func mapEqualWithWildcard(a, b map[string]Value) bool {
 			continue
 		}
 		otherVal, ok := mapLookupWithWildcard(a, key)
-		if !ok || !val.Equal(otherVal) {
+		if !ok || !val.Equal(&otherVal) {
 			return false
 		}
 	}
 	wildA, hasWildA := a[wildcardKey]
 	wildB, hasWildB := b[wildcardKey]
 	if hasWildA && hasWildB {
-		return wildA.Equal(wildB)
+		return wildA.Equal(&wildB)
 	}
 	return true
 }
