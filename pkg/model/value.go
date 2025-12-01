@@ -116,7 +116,7 @@ func NewMapValue(entries map[string]Value) Value {
 // Returns:
 //
 //	ValueKind: The stored kind, defaulting to ValueInvalid when unset.
-func (v Value) Kind() ValueKind {
+func (v *Value) Kind() ValueKind {
 	if v.kind == "" {
 		return ValueInvalid
 	}
@@ -129,7 +129,7 @@ func (v Value) Kind() ValueKind {
 //
 //	bool: Stored boolean value.
 //	bool: True when the Value actually contains a boolean.
-func (v Value) Bool() (bool, bool) {
+func (v *Value) Bool() (bool, bool) {
 	if v.kind != ValueBool {
 		return false, false
 	}
@@ -142,7 +142,7 @@ func (v Value) Bool() (bool, bool) {
 //
 //	int64: Stored integer value.
 //	bool: True when the Value actually contains an integer.
-func (v Value) Int64() (int64, bool) {
+func (v *Value) Int64() (int64, bool) {
 	if v.kind != ValueInt {
 		return 0, false
 	}
@@ -155,7 +155,7 @@ func (v Value) Int64() (int64, bool) {
 //
 //	string: Stored string value.
 //	bool: True when the Value actually contains a string.
-func (v Value) String() (string, bool) {
+func (v *Value) String() (string, bool) {
 	if v.kind != ValueString {
 		return "", false
 	}
@@ -168,7 +168,7 @@ func (v Value) String() (string, bool) {
 //
 //	[]Value: Defensive copy of the stored slice.
 //	bool: True when the Value actually contains an array.
-func (v Value) Array() ([]Value, bool) {
+func (v *Value) Array() ([]Value, bool) {
 	if v.kind != ValueArray {
 		return nil, false
 	}
@@ -183,7 +183,7 @@ func (v Value) Array() ([]Value, bool) {
 //
 //	map[string]Value: Defensive copy of the stored map.
 //	bool: True when the Value actually contains a map.
-func (v Value) Map() (map[string]Value, bool) {
+func (v *Value) Map() (map[string]Value, bool) {
 	if v.kind != ValueMap {
 		return nil, false
 	}
@@ -201,7 +201,7 @@ func (v Value) Map() (map[string]Value, bool) {
 // Returns:
 //
 //	any: Native Go value matching the stored payload.
-func (v Value) AsInterface() any {
+func (v *Value) AsInterface() any {
 	switch v.kind {
 	case ValueBool:
 		return v.boolVal
@@ -228,7 +228,7 @@ func (v Value) AsInterface() any {
 
 // Equal performs a deep comparison between two Values, taking into account the
 // wildcard semantics used by Z3 const-array models (key "*").
-func (v Value) Equal(other Value) bool {
+func (v *Value) Equal(other Value) bool {
 	if v.Kind() != other.Kind() {
 		return false
 	}
