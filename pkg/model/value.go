@@ -17,6 +17,9 @@ const (
 	ValueMap     ValueKind = "map"
 )
 
+// wildcardKey represents the default element stored in Z3 const-array models.
+const wildcardKey = "*"
+
 // Value is a simple tagged-union that allows callers to inspect model results
 // without dealing with raw Z3 AST handles.
 //
@@ -221,4 +224,76 @@ func (v Value) AsInterface() any {
 	default:
 		return nil
 	}
+}
+
+// Equal performs a deep comparison between two Values, taking into account the
+// wildcard semantics used by Z3 const-array models (key "*").
+func (v Value) Equal(other Value) bool {
+	if v.Kind() != other.Kind() {
+		return false
+	}
+	switch v.Kind() {
+	case ValueInvalid:
+		return true
+	case ValueBool:
+		return v.boolVal == other.boolVal
+	case ValueInt:
+		return v.intVal == other.intVal
+	case ValueString:
+		return v.stringVal == other.stringVal
+	case ValueArray:
+		if len(v.arrayVal) != len(other.arrayVal) {
+			return false
+		}
+		for i := range v.arrayVal {
+			if !v.arrayVal[i].Equal(other.arrayVal[i]) {
+				return false
+			}
+		}
+		return true
+	case ValueMap:
+		return mapEqualWithWildcard(v.mapVal, other.mapVal)
+	default:
+		return false
+	}
+}
+
+func mapEqualWithWildcard(a, b map[string]Value) bool {
+	for key, val := range a {
+		if key == wildcardKey {
+			continue
+		}
+		otherVal, ok := mapLookupWithWildcard(b, key)
+		if !ok || !val.Equal(otherVal) {
+			return false
+		}
+	}
+	for key, val := range b {
+		if key == wildcardKey {
+			continue
+		}
+		otherVal, ok := mapLookupWithWildcard(a, key)
+		if !ok || !val.Equal(otherVal) {
+			return false
+		}
+	}
+	wildA, hasWildA := a[wildcardKey]
+	wildB, hasWildB := b[wildcardKey]
+	if hasWildA && hasWildB {
+		return wildA.Equal(wildB)
+	}
+	return true
+}
+
+func mapLookupWithWildcard(m map[string]Value, key string) (Value, bool) {
+	if m == nil {
+		return Value{}, false
+	}
+	if v, ok := m[key]; ok {
+		return v, true
+	}
+	if wildcard, ok := m[wildcardKey]; ok {
+		return wildcard, true
+	}
+	return Value{}, false
 }

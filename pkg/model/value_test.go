@@ -219,20 +219,12 @@ func TestValueFromModelVar_FromSMTLIBScript(t *testing.T) {
 	if val.Kind() != ValueMap {
 		t.Fatalf("expected ValueMap kind, got %s", val.Kind())
 	}
-	fields, ok := val.Map()
-	if !ok {
-		t.Fatalf("expected map payload")
-	}
-	fieldVal, exists := fields["*"]
-	if !exists {
-		t.Fatalf("expected key '*' in decoded object")
-	}
-	if fieldVal.Kind() != ValueString {
-		t.Fatalf("expected string kind for field '*', got %s", fieldVal.Kind())
-	}
-	str, ok := fieldVal.String()
-	if !ok || str != "a" {
-		t.Fatalf("unexpected string payload for key '*': %q (ok=%v)", str, ok)
+	expected := NewMapValue(map[string]Value{
+		"a": NewStringValue("a"),
+		"*": NewStringValue("a"),
+	})
+	if !val.Equal(expected) {
+		t.Fatalf("decoded value mismatch: got %#v, want %#v", val.AsInterface(), expected.AsInterface())
 	}
 }
 
@@ -260,41 +252,90 @@ func TestValueFromModelVar_FromSMTLIBScriptWithFields(t *testing.T) {
 	if val.Kind() != ValueMap {
 		t.Fatalf("expected ValueMap kind, got %s", val.Kind())
 	}
-	fields, ok := val.Map()
-	if !ok {
-		t.Fatalf("expected map payload")
+	expected := NewMapValue(map[string]Value{
+		"b": NewStringValue("b"),
+		"c": NewStringValue("c"),
+		"d": NewIntValue(2),
+		"*": NewIntValue(2),
+	})
+	if !val.Equal(expected) {
+		t.Fatalf("decoded value mismatch: got %#v, want %#v", val.AsInterface(), expected.AsInterface())
+	}
+}
+
+func TestValueEqual_MapWildcards(t *testing.T) {
+	cases := []struct {
+		name  string
+		left  map[string]Value
+		right map[string]Value
+		want  bool
+	}{
+		{
+			name: "identicalWildcards",
+			left: map[string]Value{
+				"*": NewIntValue(2),
+			},
+			right: map[string]Value{
+				"*": NewIntValue(2),
+			},
+			want: true,
+		},
+		{
+			name: "wildcardSatisfiesExplicitKeys",
+			left: map[string]Value{
+				"*": NewStringValue("x"),
+			},
+			right: map[string]Value{
+				"foo": NewStringValue("x"),
+				"bar": NewStringValue("x"),
+			},
+			want: true,
+		},
+		{
+			name: "explicitOverridesWildcard",
+			left: map[string]Value{
+				"foo": NewIntValue(3),
+				"*":   NewIntValue(1),
+			},
+			right: map[string]Value{
+				"foo": NewIntValue(3),
+				"bar": NewIntValue(1),
+			},
+			want: true,
+		},
+		{
+			name: "wildcardValueMismatch",
+			left: map[string]Value{
+				"*": NewIntValue(1),
+			},
+			right: map[string]Value{
+				"*": NewIntValue(2),
+			},
+			want: false,
+		},
+		{
+			name: "explicitValueMismatch",
+			left: map[string]Value{
+				"*": NewIntValue(1),
+			},
+			right: map[string]Value{
+				"foo": NewIntValue(2),
+			},
+			want: false,
+		},
 	}
 
-	assertStringField := func(key, expected string) {
-		field, exists := fields[key]
-		if !exists {
-			t.Fatalf("missing key %q in decoded object", key)
-		}
-		if field.Kind() != ValueString {
-			t.Fatalf("expected string kind for key %q, got %s", key, field.Kind())
-		}
-		strVal, ok := field.String()
-		if !ok || strVal != expected {
-			t.Fatalf("unexpected string payload for key %q: %q (ok=%v)", key, strVal, ok)
-		}
-	}
-
-	assertStringField("b", "b")
-	assertStringField("c", "c")
-
-	defaultField, exists := fields["*"]
-	if !exists {
-		t.Fatalf("missing key %q in decoded object", "*")
-	}
-	if defaultField.Kind() != ValueInt {
-		t.Fatalf("expected int kind for key %q, got %s", "*", defaultField.Kind())
-	}
-	intVal, ok := defaultField.Int64()
-	if !ok || intVal != 2 {
-		t.Fatalf("unexpected int payload for key %q: %d (ok=%v)", "*", intVal, ok)
-	}
-	if iface := defaultField.AsInterface(); iface != int64(2) {
-		t.Fatalf("unexpected interface value for key %q: %#v", "*", iface)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			leftVal := NewMapValue(tc.left)
+			rightVal := NewMapValue(tc.right)
+			if got := leftVal.Equal(rightVal); got != tc.want {
+				t.Fatalf("left.Equal(right) = %v, want %v", got, tc.want)
+			}
+			if got := rightVal.Equal(leftVal); got != tc.want {
+				t.Fatalf("right.Equal(left) = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
