@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 )
 
 func TestBasicTypeInference(t *testing.T) {
@@ -20,35 +20,35 @@ func TestBasicTypeInference(t *testing.T) {
 		{
 			name: "string literal",
 			rule: `package test
-test { x := "hello" }`,
+test if { x := "hello" }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "number literal",
 			rule: `package test
-test { x := 42 }`,
+test if { x := 42 }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "boolean literal",
 			rule: `package test
-test { x := true }`,
+test if { x := true }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicBoolean),
 		},
 		{
 			name: "array literal",
 			rule: `package test
-test { x := ["a", "b"] }`,
+test if { x := ["a", "b"] }`,
 			varName:  "x",
 			expected: NewArrayType(NewAtomicType(AtomicString)),
 		},
 		{
 			name: "object literal",
 			rule: `package test
-test { x := {"key": "value"} }`,
+test if { x := {"key": "value"} }`,
 			varName: "x",
 			expected: NewObjectType(map[string]RegoTypeDef{
 				"key": NewAtomicType(AtomicString),
@@ -88,7 +88,7 @@ func TestBuiltinFunctionTypeInference(t *testing.T) {
 		{
 			name: "boolean function",
 			rule: `package test
-test { x=true }`,
+test if { x=true }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicBoolean),
 		},
@@ -142,14 +142,14 @@ func TestInputSchemaBasedInference(t *testing.T) {
 		{
 			name: "input object reference",
 			rule: `package test
-test { x := input.review.object.kind }`,
+test if { x := input.review.object.kind }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "input array reference",
 			rule: `package test
-test { x := input.review.object.spec.containers }`,
+test if { x := input.review.object.spec.containers }`,
 			varName: "x",
 			expected: NewArrayType(NewObjectType(map[string]RegoTypeDef{
 				"name":  NewAtomicType(AtomicString),
@@ -159,7 +159,7 @@ test { x := input.review.object.spec.containers }`,
 		{
 			name: "nested object reference",
 			rule: `package test
-test { x := input.review.object.metadata }`,
+test if { x := input.review.object.metadata }`,
 			varName: "x",
 			expected: NewObjectType(map[string]RegoTypeDef{
 				"name": NewAtomicType(AtomicString),
@@ -214,7 +214,7 @@ func TestInputSchemaBasedInferenceComplex(t *testing.T) {
 		{
 			name: "input object reference",
 			rule: `package test
-test { x := input.review.object.metadata[_] }`,
+test if { x := input.review.object.metadata[_] }`,
 			varName:  "x",
 			expected: NewUnionType([]RegoTypeDef{NewAtomicType(AtomicNull), NewAtomicType(AtomicString)}),
 		},
@@ -252,21 +252,21 @@ func TestEqualityBasedInference(t *testing.T) {
 		{
 			name: "equality with literal",
 			rule: `package test
-test { x = "hello" }`,
+test if { x = "hello" }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "equality with variable",
 			rule: `package test
-test { y := 42; x = y }`,
+test if { y := 42; x = y }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "equality with array",
 			rule: `package test
-test { x = [1, 2, 3] }`,
+test if { x = [1, 2, 3] }`,
 			varName:  "x",
 			expected: NewArrayType(NewAtomicType(AtomicInt)),
 		},
@@ -418,43 +418,43 @@ func TestInferExprType(t *testing.T) {
 		{
 			name: "simple term",
 			rule: `package test
-test { "hello" }`,
+test if { "hello" }`,
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "numeric comparison",
 			rule: `package test
-test { 1 < 2 }`,
+test if { 1 < 2 }`,
 			expected: NewAtomicType(AtomicBoolean),
 		},
 		{
 			name: "string operation",
 			rule: `package test
-test { contains("hello", "lo") }`,
+test if { contains("hello", "lo") }`,
 			expected: NewAtomicType(AtomicBoolean),
 		},
 		{
 			name: "numeric operation",
 			rule: `package test
-test { plus(1, 2) }`,
+test if { plus(1, 2) }`,
 			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "boolean operation",
 			rule: `package test
-test { true = false }`,
+test if { true = false }`,
 			expected: NewAtomicType(AtomicBoolean),
 		},
 		{
 			name: "array expression",
 			rule: `package test
-test { ["a", "b", "c"] }`,
+test if { ["a", "b", "c"] }`,
 			expected: NewArrayType(NewAtomicType(AtomicString)),
 		},
 		{
 			name: "object expression",
 			rule: `package test
-test { {"key": "value"} }`,
+test if { {"key": "value"} }`,
 			expected: NewObjectType(map[string]RegoTypeDef{
 				"key": NewAtomicType(AtomicString),
 			}),
@@ -462,7 +462,7 @@ test { {"key": "value"} }`,
 		{
 			name: "equality comparison",
 			rule: `package test
-test { x = y }`,
+test if { x = y }`,
 			expected: NewAtomicType(AtomicBoolean),
 		},
 	}
@@ -499,31 +499,31 @@ func TestInferExprTypeEdgeCases(t *testing.T) {
 		{
 			name: "nil expression",
 			rule: `package test
-test { true }`,
+test if { true }`,
 			expected: NewAtomicType(AtomicBoolean),
 		},
 		{
 			name: "empty array",
 			rule: `package test
-test { [] }`,
+test if { [] }`,
 			expected: NewArrayType(NewUnknownType()),
 		},
 		{
 			name: "empty object",
 			rule: `package test
-test { {} }`,
+test if { {} }`,
 			expected: NewObjectType(make(map[string]RegoTypeDef)),
 		},
 		{
 			name: "complex nested expression",
 			rule: `package test
-test { [[1, 2], [3, 4]] }`,
+test if { [[1, 2], [3, 4]] }`,
 			expected: NewArrayType(NewArrayType(NewAtomicType(AtomicInt))),
 		},
 		{
 			name: "mixed type array",
 			rule: `package test
-test { [1, "two", true] }`,
+test if { [1, "two", true] }`,
 			expected: NewArrayType(NewAtomicType(AtomicInt)), // Should infer from first element
 		},
 	}
@@ -568,14 +568,14 @@ func TestParameterSpecInference(t *testing.T) {
 		{
 			name: "input.parameters string param",
 			rule: `package test
-test { x := input.parameters.foo }`,
+test if { x := input.parameters.foo }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "input.parameters int param",
 			rule: `package test
-test { x := input.parameters.bar }`,
+test if { x := input.parameters.bar }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicInt),
 		},
@@ -611,28 +611,28 @@ func TestRuleHeadTypeInference(t *testing.T) {
 		{
 			name: "rule head set type (no value)",
 			rule: `package test
-my_rule { true }`,
+my_rule if { true }`,
 			ruleName: "my_rule",
 			expected: NewAtomicType(AtomicBoolean), // Default for rules with no value is boolean
 		},
 		{
 			name: "rule head with value (string)",
 			rule: `package test
-my_rule = "foo" { true }`,
+my_rule := "foo" if { true }`,
 			ruleName: "my_rule",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "rule head with value (array)",
 			rule: `package test
-my_rule = [1,2,3] { true }`,
+my_rule := [1,2,3] if { true }`,
 			ruleName: "my_rule",
 			expected: NewArrayType(NewAtomicType(AtomicInt)),
 		},
 		{
 			name: "rule head with object value",
 			rule: `package test
-my_rule = var { var := {"a": 1, "b": 2} }`,
+my_rule := var if { var := {"a": 1, "b": 2} }`,
 			ruleName: "my_rule",
 			expected: NewObjectType(map[string]RegoTypeDef{
 				"a": NewAtomicType(AtomicInt),
@@ -642,7 +642,7 @@ my_rule = var { var := {"a": 1, "b": 2} }`,
 		{
 			name: "rule head with else branches",
 			rule: `package test
-my_rule = var { var := {"a": 1, "b": 2} } else = x { x := 5 } else = y { y := "abc" }`,
+my_rule := var if { var := {"a": 1, "b": 2} } else := x if { x := 5 } else := y if { y := "abc" }`,
 			ruleName: "my_rule",
 			expected: NewUnionType([]RegoTypeDef{
 				NewObjectType(map[string]RegoTypeDef{
@@ -677,7 +677,7 @@ func TestDataPackageRuleReferenceTypeInference(t *testing.T) {
 	schema := NewInputSchema()
 	// Define a module with a package path and a rule
 	ruleSrc := `package mypkg.subpkg
-my_rule = {"foo": 1, "bar": "baz"} { true }`
+my_rule := {"foo": 1, "bar": "baz"} if { true }`
 	module, err := ast.ParseModule("test.rego", ruleSrc)
 	if err != nil {
 		t.Fatalf("Failed to parse module: %v", err)
@@ -712,7 +712,7 @@ func TestDataReferenceObjectInference(t *testing.T) {
 	schema := NewInputSchema()
 	// Define a module with a package path and a rule returning an object
 	ruleSrc := `package mypkg
-my_obj = {"foo": 1, "bar": {"baz": "qux"}} { true }`
+my_obj := {"foo": 1, "bar": {"baz": "qux"}} if { true }`
 	module, err := ast.ParseModule("test.rego", ruleSrc)
 	if err != nil {
 		t.Fatalf("Failed to parse module: %v", err)
@@ -773,35 +773,35 @@ func TestIndexingTypeInference(t *testing.T) {
 		{
 			name: "array indexing",
 			rule: `package test
-test { arr := [1,2,3]; x := arr[_] }`,
+test if { arr := [1,2,3]; x := arr[_] }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicInt),
 		},
 		{
 			name: "array of strings indexing",
 			rule: `package test
-test { arr := ["a", "b"]; x := arr[_] }`,
+test if { arr := ["a", "b"]; x := arr[_] }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "object with mixed value types indexing",
 			rule: `package test
-test { obj := {"foo": 1, "bar": "baz"}; x := obj[_] }`,
+test if { obj := {"foo": 1, "bar": "baz"}; x := obj[_] }`,
 			varName:  "x",
 			expected: NewUnionType([]RegoTypeDef{NewAtomicType(AtomicString), NewAtomicType(AtomicInt)}),
 		},
 		{
 			name: "nested array indexing",
 			rule: `package test
-test { arr := [[1,2],[3,4]]; x := arr[_] }`,
+test if { arr := [[1,2],[3,4]]; x := arr[_] }`,
 			varName:  "x",
 			expected: NewArrayType(NewAtomicType(AtomicInt)),
 		},
 		{
 			name: "indexing input array",
 			rule: `package test
-test { x := input.review.object.spec.containers[_] }`,
+test if { x := input.review.object.spec.containers[_] }`,
 			varName: "x",
 			expected: NewObjectType(map[string]RegoTypeDef{
 				"name":  NewAtomicType(AtomicString),
@@ -851,21 +851,21 @@ func TestSprintfTypeInference(t *testing.T) {
 		{
 			name: "sprintf assigns string type",
 			rule: `package test
-test { sprintf("hello %s", ["world"], x) }`,
+test if { sprintf("hello %s", ["world"], x) }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "sprintf with int arg",
 			rule: `package test
-test { sprintf("number: %d", [42], x) }`,
+test if { sprintf("number: %d", [42], x) }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "sprintf with multiple args",
 			rule: `package test
-test { sprintf("%s-%d", ["foo", 7], x) }`,
+test if { sprintf("%s-%d", ["foo", 7], x) }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
@@ -899,7 +899,7 @@ func TestNestedFunctionCalls(t *testing.T) {
 		{
 			name: "sprintf assigns string type",
 			rule: `package test
-test { x = concat(concat(u, v),z) }`,
+test if { x = concat(concat(u, v),z) }`,
 			varName:  "v",
 			expected: NewAtomicType(AtomicString),
 		},

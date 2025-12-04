@@ -4,14 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
 func TestRuleToSmt_Basic(t *testing.T) {
 	rego := `
 	package test
-	p = x {
+	p := x if {
 		x == 1
 		x > 0
 	}`
@@ -45,7 +45,7 @@ func TestRuleToSmt_Basic(t *testing.T) {
 func TestRuleToSmt_NoBody(t *testing.T) {
 	rego := `
 	package test
-	p = 42 { true }`
+	p := 42 if { true }`
 	mod, err := ast.ParseModule("test.rego", rego)
 	if err != nil {
 		t.Fatalf("failed to parse rego: %v", err)

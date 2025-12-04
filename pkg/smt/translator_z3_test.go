@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/vhavlena/verirego/pkg/types"
 	z3 "github.com/vhavlena/z3-go/z3"
 )
@@ -17,11 +17,11 @@ import (
 func TestTranslateAndCheckZ3(t *testing.T) {
 	// Simple, satisfiable module: p = x with body x == 1
 	rego := `
-package test
+	package test
 
-p = x {
-  x == 1
-}
+	p := x if {
+		x == 1
+	}
 `
 
 	mod, err := ast.ParseModule("test.rego", rego)

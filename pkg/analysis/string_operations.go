@@ -3,7 +3,7 @@ package analysis
 import (
 	"strings"
 
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 )
 
 // StringOperations represents a collection of string operations found during AST traversal.

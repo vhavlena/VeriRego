@@ -2,7 +2,7 @@
 package types
 
 import (
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 )
 
 // TypeKind represents the kind of a Rego type

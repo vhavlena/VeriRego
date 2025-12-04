@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 )
 
 // isVar reports whether the provided AST term's value is a variable

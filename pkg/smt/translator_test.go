@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
@@ -45,27 +45,27 @@ func TestInputParameterVars_NilModule(t *testing.T) {
 func TestInputParameterVars_FromRegoPolicyString(t *testing.T) {
 	t.Parallel()
 	rego := `
-package test
+	package test
 
-default allow = false
+	default allow := false
 
-allow[output] {
-	input.x == 1
-	output := input.y
-}
+	allow contains output if {
+		input.x == 1
+		output := input.y
+	}
 
-deny_param1 {
-	param1 := "foo"
-}
+	deny_param1 if {
+		param1 := "foo"
+	}
 
-deny_param2(b,c) {
-	param2 := "bar"
-}
+	deny_param2(b,c) if {
+		param2 := "bar"
+	}
 
-complex_rule_a(a) {
-	a := input.a
-}
-`
+	complex_rule_a(a) if {
+		a := input.a
+	}
+	`
 
 	mod, err := ast.ParseModule("test.rego", rego)
 	if err != nil {
@@ -82,11 +82,11 @@ complex_rule_a(a) {
 func TestTranslateModuleToSmt_Basic(t *testing.T) {
 	rego := `
 	package test
-	p = x {
+	p := x if {
 		x == 1
 		x > 0
 	}
-	q = 42 { true }
+	q := 42 if { true }
 	`
 	mod, err := ast.ParseModule("test.rego", rego)
 	if err != nil {
