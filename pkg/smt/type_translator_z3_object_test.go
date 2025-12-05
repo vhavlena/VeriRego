@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/vhavlena/verirego/pkg/types"
 	z3 "github.com/vhavlena/z3-go/z3"
 )

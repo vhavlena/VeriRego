@@ -1,7 +1,7 @@
 package analysis
 
 import (
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 )
 
 // PropagatedValue represents a value that can be propagated through the AST during traversal.

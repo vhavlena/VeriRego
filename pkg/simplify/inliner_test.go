@@ -3,17 +3,17 @@ package simplify
 import (
 	"testing"
 
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 )
 
 func TestInlineModule_RemovesInlinedRules(t *testing.T) {
 	re := `package test
 
-foo(x) {
+	foo(x) if {
   x > 1
 }
 
-bar(y) {
+	bar(y) if {
   foo(y)
   y < 10
 }`
@@ -94,28 +94,28 @@ func TestGatherInlinePredicates(t *testing.T) {
 	t.Parallel()
 	rego := `package test
 
-allow {
+	allow if {
 	input.user == "admin"
 }
 
-is_valid {
+	is_valid if {
 	true
 }
 
-single_true {
+	single_true if {
 	input.x > 0
 }
 
-multi_body {
+	multi_body if {
 	input.x > 0
 	input.y < 5
 }
 
-not_true {
+	not_true if {
 	input.x == 1
 }
 
-inline_true {
+	inline_true if {
 	true
 }`
 	module, err := ast.ParseModule("test.rego", rego)
@@ -147,11 +147,11 @@ inline_true {
 func TestInlineRuleBody(t *testing.T) {
 	re := `package test
 
-foo(x) {
+	foo(x) if {
   x > 1
 }
 
-bar(y) {
+	bar(y) if {
   foo(y)
   y < 10
 }`
@@ -191,11 +191,11 @@ bar(y) {
 func TestInlineRuleBodyMultipar(t *testing.T) {
 	re := `package test
 
-foo(x,z) {
+	foo(x,z) if {
   z[_] = x
 }
 
-bar(y) {
+	bar(y) if {
   foo(y,{"Node"})
   y < 10
 }`
