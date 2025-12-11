@@ -221,8 +221,8 @@ func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) 
 // Returns:
 //
 //	string: The SMT-LIB sort name corresponding to the type depth.
-func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
-	return fmt.Sprintf("OTypeD%d", tp.TypeDepth())
+func (td *TypeTranslator) getSmtType() string {
+	return fmt.Sprintf("OType")
 }
 
 // getSortDefinitions returns SMT-LIB sort definitions up to the given maximum depth.

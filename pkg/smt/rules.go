@@ -196,11 +196,10 @@ func (t *Translator) RuleToAssert(rule *ast.Rule) error {
 	a := rule.Head.Args
 	args := make([]string, 0, len(a))
 	for _, t := range a {
-		args = append(args, "(" + t.String() + " type)")	// FIXME
+		args = append(args, "(" + t.String() + " OType)")
 	}
 	argList := "(" + strings.Join(args, " ") + ")"
-	println("argList: ", argList)
-	retType := "type"	// FIXME
+	retType := "OType"
 	
 	funcBody, err := t.ParametricRuleToSmt(rule)
 	if err != nil {

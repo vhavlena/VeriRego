@@ -28,9 +28,9 @@ func TestRuleToSmt_Basic(t *testing.T) {
 	}
 	tr := NewTranslator(ta, mod)
 	rule := mod.Rules[0]
-	err = tr.RuleToSmt(rule)
+	err = tr.RuleToAssert(rule)
 	if err != nil {
-		t.Fatalf("RuleToSmt error: %v", err)
+		t.Fatalf("RuleToAssert error: %v", err)
 	}
 	lines := tr.SmtLines()
 	if len(lines) == 0 {
@@ -58,9 +58,9 @@ func TestRuleToSmt_NoBody(t *testing.T) {
 	}
 	tr := NewTranslator(ta, mod)
 	rule := mod.Rules[0]
-	err = tr.RuleToSmt(rule)
+	err = tr.RuleToAssert(rule)
 	if err != nil {
-		t.Fatalf("RuleToSmt error: %v", err)
+		t.Fatalf("RuleToAssert error: %v", err)
 	}
 	lines := tr.SmtLines()
 	if len(lines) == 0 {
