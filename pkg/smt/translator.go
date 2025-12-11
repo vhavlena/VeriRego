@@ -193,7 +193,7 @@ func (t *Translator) TranslateModuleToSmt() error {
 		return nil
 	}
 	for _, rule := range t.mod.Rules {
-		if err := t.RuleToSmt(rule); err != nil {
+		if err := t.RuleToAssert(rule); err != nil {
 			return err
 		}
 	}
