@@ -209,7 +209,7 @@ func (td *TypeTranslator) getDatatypesDeclaration() []string {
 //	string: The SMT-LIB variable declaration string.
 //	error: An error if the declaration could not be generated.
 func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
-	return fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType(tp)), nil
+	return fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType()), nil
 }
 
 // getSmtType returns the SMT-LIB sort name for a given Rego type definition based on its type depth.
@@ -221,9 +221,8 @@ func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) 
 // Returns:
 //
 //	string: The SMT-LIB sort name corresponding to the type depth.
-func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
-	dpth := max(tp.TypeDepth()-1, 0)
-	return fmt.Sprintf("OTypeD%d", dpth)
+func (td *TypeTranslator) getSmtType() string {
+	return fmt.Sprintf("OType")
 }
 
 // getSortDefinitions returns SMT-LIB sort definitions up to the given maximum depth.
@@ -244,6 +243,7 @@ func (td *TypeTranslator) getSortDefinitions(maxDepth int) []string {
 		}
 		defs = append(defs, fmt.Sprintf("(define-sort OTypeD%d () (OGenType OTypeD%d))", i, i-1))
 	}
+	defs = append(defs, fmt.Sprintf("(define-sort OType () (OGenType OTypeD%d))", maxDepth))
 	return defs
 }
 

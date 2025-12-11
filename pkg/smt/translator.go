@@ -49,6 +49,9 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		smtAsserts:   make([]string, 0, 128),
 		mod:          mod,
 	}
+	// TODO: refactor
+	t.smtDecls = append(t.smtDecls, "(declare-fun undefined () OType)")
+	t.smtAsserts = append(t.smtAsserts, "(assert (is-OUndef (atom undefined)))")
 	return t
 }
 
@@ -190,7 +193,7 @@ func (t *Translator) TranslateModuleToSmt() error {
 		return nil
 	}
 	for _, rule := range t.mod.Rules {
-		if err := t.RuleToSmt(rule); err != nil {
+		if err := t.RuleToAssert(rule); err != nil {
 			return err
 		}
 	}
