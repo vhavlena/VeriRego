@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/vhavlena/verirego/pkg/simplify"
@@ -11,7 +12,7 @@ import (
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
-// analyzeAndWriteSMT performs type analysis and writes SMT-LIB output.
+// newInputSchemaFromFlags loads either a YAML example or JSON schema input description.
 func newInputSchemaFromFlags(yamlFile, jsonSchemaFile string) types.InputSchemaAPI {
 	// Default to example-based YAML/JSON input schema when provided.
 	if yamlFile != "" {
@@ -47,6 +48,7 @@ func newInputSchemaFromFlags(yamlFile, jsonSchemaFile string) types.InputSchemaA
 	return nil
 }
 
+// analyzeAndWriteSMT compiles, analyzes, and emits SMT-LIB for the provided module.
 func analyzeAndWriteSMT(mod *ast.Module, yamlFile, jsonSchemaFile string, params types.Parameters, outFile string) error {
 	// Compile the module
 	compiler := ast.NewCompiler()
@@ -88,19 +90,31 @@ func analyzeAndWriteSMT(mod *ast.Module, yamlFile, jsonSchemaFile string, params
 	return nil
 }
 
-// parseRegoFile parses a Rego file and returns the AST Module.
-func parseRegoFile(file string) (*ast.Module, error) {
+// parseRegoFile parses raw policy bytes using the selected Rego language version.
+func parseRegoFile(file string, version ast.RegoVersion) (*ast.Module, error) {
 	fileBytes, err := os.ReadFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
 
-	module, err := ast.ParseModule(file, string(fileBytes))
+	module, err := ast.ParseModuleWithOpts(file, string(fileBytes), ast.ParserOptions{RegoVersion: version})
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse module: %v", err)
 	}
 
 	return module, nil
+}
+
+// parseRegoVersionFlag converts user-friendly CLI input into an ast.RegoVersion value.
+func parseRegoVersionFlag(value string) (ast.RegoVersion, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "1", "1.x", "v1", "rego.v1":
+		return ast.RegoV1, nil
+	case "0", "0.x", "v0", "rego.v0":
+		return ast.RegoV0, nil
+	default:
+		return ast.RegoUndefined, fmt.Errorf("invalid Rego version %q (expected 0 or 1)", value)
+	}
 }
 
 func main() {
@@ -109,6 +123,7 @@ func main() {
 	yamlFile := flag.String("yaml", "", "Path to the YAML input file (optional)")
 	jsonSchemaFile := flag.String("json-schema", "", "Path to the JSON Schema file (optional)")
 	specFile := flag.String("spec", "", "Path to the parameter specification file (optional)")
+	regoVersionFlag := flag.String("rego-version", "1", "Rego language version for parsing the policy (0 or 1)")
 	outFile := flag.String("out", "out.smt2", "Path to the output SMT-LIB file (default: out.smt2)")
 
 	// Parse flags
@@ -135,7 +150,13 @@ func main() {
 		}
 	}
 
-	module, err := parseRegoFile(*regoFile)
+	regoVersion, err := parseRegoVersionFlag(*regoVersionFlag)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	module, err := parseRegoFile(*regoFile, regoVersion)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
