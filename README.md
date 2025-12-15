@@ -29,12 +29,13 @@ The repository includes a type inference binary, `type_analysis`, which analyzes
 ### Usage
 
 ```
-./build/type_analysis -rego <policy.rego> [-yaml <input.yaml>] [-spec <spec.yaml>] [-inline]
+./build/type_analysis -rego <policy.rego> [-yaml <input.yaml>] [-spec <spec.yaml>] [-inline] [-rego-version <0|1>]
 ```
 
 - `-rego` (required): Path to the Rego policy file to analyze.
 - `-yaml` (optional): Path to a YAML file providing input data for schema inference.
 - `-spec` (optional): Path to a parameter specification file.
+- `-rego-version` (optional): Rego language version to parse the policy with (`0` for Rego 0.x, `1` for Rego 1.x; default `1`).
 - `-inline` (optional): If specified, enables inlining of rules and variables during type analysis. This can improve precision by replacing references with their definitions where possible.
 
 The tool will output the inferred types for all rules in the provided policy.
@@ -46,13 +47,14 @@ The repository includes an SMT translation binary, `smt`, which translates Rego 
 ### Usage
 
 ```
-./build/smt -rego <policy.rego> [-yaml <input.yaml>] [-spec <spec.yaml>] [-out <output.smt2>]
+./build/smt -rego <policy.rego> [-yaml <input.yaml>] [-spec <spec.yaml>] [-out <output.smt2>] [-rego-version <0|1>]
 ```
 
 - `-rego` (required): Path to the Rego policy file to translate.
 - `-yaml` (optional): Path to a YAML file providing input data for schema inference.
 - `-spec` (optional): Path to a parameter specification file.
 - `-out` (optional): Path to the output SMT-LIB file (default: `out.smt2`).
+- `-rego-version` (optional): Rego language version to parse the policy with (`0` for Rego 0.x, `1` for Rego 1.x; default `1`).
 
 The tool outputs the SMT-LIB representation of the policy, including:
 - **Type declarations and constraints** for all variables, objects, and arrays.
