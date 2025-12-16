@@ -95,6 +95,79 @@ func (et *ExprTranslator) ExprToSmt(expr *ast.Expr) (string, error) {
 	return smtStr, nil
 }
 
+// FIXME: bad naming ... refactor stuff around
+// ExprToSmtWithInfo converts a Rego AST expression to its SMT-LIB string representation. It adds information whether a local variable was defined
+//
+// Parameters:
+//
+//	expr *ast.Expr: The Rego AST expression to convert.
+//
+// Returns:
+//
+//	string: The SMT-LIB string representation of the expression.
+// 	string: Local variable assignment or empty string
+//	error: An error if the expression cannot be converted.
+func (et *ExprTranslator) ExprToSmtWithInfo(expr *ast.Expr) (string, string, error) {
+	// If the expression is a single term, just convert it
+	if term, ok := expr.Terms.(*ast.Term); ok {
+		smtStr, err := et.termToSmt(term)
+		if err != nil {
+			return "", "", err
+		}
+		return smtStr, "", nil
+	}
+
+	// If the expression is a call or operator (e.g., [op, arg1, arg2, ...])
+	terms, ok := expr.Terms.([]*ast.Term)
+	if !ok || len(terms) == 0 {
+		return "", "", verr.ErrInvalidEmptyTerm
+	}
+
+	opStr := removeQuotes(terms[0].String())
+
+	// Convert all arguments
+	args := make([]string, len(terms)-1)
+	for i := 1; i < len(terms); i++ {
+		argStr, err := et.termToSmt(terms[i])
+		if err != nil {
+			return "", "", err
+		}
+		args[i-1] = argStr
+	}
+
+	// Deal with local variables
+	assignable := isPossibleAssignment(opStr)
+	localVarDef := ""
+	if assignable {
+		if len(args) >= 2 && isLocalVariable(terms[1], et) {
+			localVarDef = fmt.Sprintf("(%s %s)", args[0], strings.Join(args[1:], " "))
+		}
+	}
+
+	// Use regoFuncToSmt to get the SMT-LIB string for the operator
+	smtStr, err := et.regoFuncToSmt(opStr, args, terms)
+	if err != nil {
+		return "", "", err
+	}
+
+	return smtStr, localVarDef, nil
+}
+
+func isLocalVariable(v *ast.Term, et *ExprTranslator) bool {
+	vName := et.TypeTrans.TypeInfo.Refs[v.String()].String()
+	return strings.Split(vName, ".")[0] == "data"
+}
+
+func isPossibleAssignment(op string) bool {
+	assignmentOperators := [...]string{"eq", "assign"}
+	for _, assOp := range assignmentOperators {
+		if op == assOp {
+			return true
+		}
+	}
+	return false
+}
+
 // termToSmt converts a Rego AST term to its SMT-LIB string representation.
 //
 // Parameters:
@@ -170,6 +243,7 @@ func (et *ExprTranslator) regoFuncToSmt(op string, args []string, terms []*ast.T
 		"mul":        "*",
 		"div":        "div",
 		"eq":         "=",
+		"assign":         "=",
 		"concat":     "str.++",
 		"contains":   "str.contains",
 		"startswith": "str.prefixof",
