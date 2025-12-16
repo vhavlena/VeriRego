@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
+	"github.com/vhavlena/verirego/pkg/smt/factory"
 )
 
 // ruleHeadToSmt converts the head of a Rego rule to its SMT-LIB representation (including the operator).
@@ -50,6 +51,47 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 	return fmt.Sprintf("(= %s %s)", ruleVarSmt, ruleValSmt), nil
 }
 
+// BodyToSmt converts the body of a Rego rule into SMT-LIB representation 1. of the expression, and 2. of local variables definition
+//
+// Parameters:
+//
+//	rule *ast.Rule: The Rego rule whose body is to be converted.
+//	exprTrans *ExprTranslator: The expression translator to use for converting terms and references.
+//
+// Returns:
+//
+//	bodySmt string: The SMT-LIB representation of the rule body (e.g., (and expr1 expr2 ...)).
+//	localVarDef string: The SMT-LIB representation of local variables definition
+//	error: An error if the body cannot be converted.
+func (t *Translator) BodyToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (string, string, error) {
+	bodySmts := make([]string, 0, len(rule.Body))
+	localVarDefs := make([]string, 0)
+
+	for _, expr := range rule.Body {
+		smtStr, localVarDef, err := exprTrans.ExprToSmtWithInfo(expr)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to convert rule body expr: %w", err)
+		}
+		bodySmts = append(bodySmts, smtStr)
+		if localVarDef != "" {
+			localVarDefs = append(localVarDefs, localVarDef)
+		}
+	}
+	t.AddTransContext(exprTrans.GetTransContext())	// TODO ask: why doing this?
+
+	var bodySmt string
+	switch len(bodySmts) {
+	case 0:
+		bodySmt = "true"
+	case 1:
+		bodySmt = bodySmts[0]
+	default:
+		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+	}
+	rule.Ref()
+	return bodySmt, strings.Join(localVarDefs, " "), nil
+}
+
 // RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.
 //
 // Parameters:
@@ -68,25 +110,9 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
 		return "", err
 	}
 
-	// Convert all body expressions to SMT
-	bodySmts := make([]string, 0, len(rule.Body))
-	for _, expr := range rule.Body {
-		smtStr, err := exprTrans.ExprToSmt(expr)
-		if err != nil {
-			return "", fmt.Errorf("failed to convert rule body expr: %w", err)
-		}
-		bodySmts = append(bodySmts, smtStr)
-	}
-	t.AddTransContext(exprTrans.GetTransContext())
-
-	var bodySmt string
-	switch len(bodySmts) {
-	case 0:
-		bodySmt = "true"
-	case 1:
-		bodySmt = bodySmts[0]
-	default:
-		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+	bodySmt, localVarDef, err := t.BodyToSmt(rule, exprTrans)
+	if err != nil {
+		return "", err
 	}
 
 	elseValue := ""
@@ -99,7 +125,11 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
 		elseValue = fmt.Sprintf("(is-OUndef (atom %s))", rule.Head.Name.String())
 	}
 	smt := fmt.Sprintf("(ite %s %s %s)", bodySmt, smtHead, elseValue)
-	return smt, nil
+	if localVarDef != "" {
+		return factory.Let(&localVarDef, &smt), nil
+	} else {
+		return smt, nil
+	}
 }
 
 // ParametricRuleToSmt converts a parametric Rego rule to an SMT-LIB representation. 
@@ -140,25 +170,13 @@ func (t *Translator) ParametricRuleToSmt(rule *ast.Rule) (string,error) {
 		}
 	}
 
-	// Convert all body expressions to SMT
-	bodySmts := make([]string, 0, len(rule.Body))
-	for _, expr := range rule.Body {
-		smtStr, err := exprTrans.ExprToSmt(expr)
-		if err != nil {
-			return "", fmt.Errorf("failed to convert rule body expr: %w", err)
-		}
-		bodySmts = append(bodySmts, smtStr)
+	bodySmt, localVarDef, err := t.BodyToSmt(rule, exprTrans)
+	if err != nil {
+		return "", err
 	}
-	t.AddTransContext(exprTrans.GetTransContext())
 
-	var bodySmt string
-	switch len(bodySmts) {
-	case 0:
-		bodySmt = "true"
-	case 1:
-		bodySmt = bodySmts[0]
-	default:
-		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+	if localVarDef != "" {
+		// TODO
 	}
 
 	elseValue, err := t.ParametricRuleToSmt(rule.Else)
@@ -182,7 +200,7 @@ func (t *Translator) ParametricRuleToSmt(rule *ast.Rule) (string,error) {
 // For parametric rules, the assertion is a function definition (appended to smtDecls)
 // Otherwise, it is an assignment (appended to smtAsserts)
 func (t *Translator) RuleToAssert(rule *ast.Rule) error {
-	if rule.Head.Args == nil {
+	if len(rule.Head.Args) == 0 {
 		smt, err := t.RuleToSmt(rule)
 		if err != nil {
 			return err
