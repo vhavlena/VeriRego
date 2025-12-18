@@ -81,9 +81,6 @@ func (b *Bucket) Append(other *Bucket) {
 func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, error) {
 	bucket := NewBucket()
 
-	datatypes := td.getDatatypesDeclaration()
-	bucket.TypeDecls = append(bucket.TypeDecls, datatypes...)
-
 	maxDepth := 0
 	for name, tp := range td.TypeInfo.Types {
 		if _, ok := usedVars[name]; !ok {
@@ -91,8 +88,9 @@ func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, e
 		}
 		maxDepth = max(maxDepth, tp.TypeDepth())
 	}
-	sortDefs := td.getSortDefinitions(maxDepth)
-	bucket.TypeDecls = append(bucket.TypeDecls, sortDefs...)
+
+	datatypes := td.getDatatypesDeclaration(maxDepth)
+	bucket.TypeDecls = append(bucket.TypeDecls, datatypes...)
 	return bucket, nil
 }
 
@@ -157,13 +155,16 @@ func (td *TypeTranslator) GenerateVarDecls(usedVars map[string]any) (*Bucket, er
 // Returns:
 //
 //	string: The SMT type constraint function name.
-func getTypeConstr(tp *types.RegoTypeDef) string {
+func getTypeConstr(depth int, tp *types.RegoTypeDef) string {
 	if tp.IsAtomic() {
-		return "is-Atom"
+		// There is no "is-<sort>" recognizer in SMT-LIB; atomic-ness is checked
+		// via the specific OTypeD0 constructors (is-OString/is-ONumber/...)
+		// in getSmtAtomConstr.
+		return ""
 	} else if tp.IsArray() {
-		return "is-OArray"
+		return fmt.Sprintf("is-OArray%d", depth)
 	}
-	return "is-OObj"
+	return fmt.Sprintf("is-OObj%d", depth)
 }
 
 // getDatatypesDeclaration returns SMT-LIB datatype declarations for the supported types.
@@ -171,30 +172,37 @@ func getTypeConstr(tp *types.RegoTypeDef) string {
 // Returns:
 //
 //	[]string: A slice of SMT-LIB datatype declaration strings.
-func (td *TypeTranslator) getDatatypesDeclaration() []string {
-	oatom := `
+func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) []string {
+	// Simplified scheme:
+	// - OTypeD0 is the atomic datatype (previously called OAtom).
+	// - OTypeD1..N are depth-indexed value datatypes whose Atom constructor
+	//   carries OTypeD0, and whose object/array fields also store OTypeD0,
+	//   then OTypeD(d-1) for higher depths.
+	decls := make([]string, 0, maxDepth+2)
+	decls = append(decls, `
 (declare-datatypes ()
-	((OAtom
+	((OTypeD0
 		(OString (str String))
 		(ONumber (num Int))
 		(OBoolean (bool Bool))
 		ONull
 		OUndef
 	))
-)`
-	ogentype := `
-(declare-datatypes (T)
-	((OGenType
-		(Atom (atom OAtom))
-		(OObj (obj (Array String T)))
-		(OArray (arr (Array Int T)))
-	))
-)`
-	gettypeatom := `
+)`)
+
+	for d := 1; d <= maxDepth; d++ {
+		inner := fmt.Sprintf("OTypeD%d", d-1)
+		decls = append(decls, fmt.Sprintf(`
 (declare-datatypes ()
-  ((OGenTypeAtom (Atom (atom OAtom)) ))
-)`
-	return []string{oatom, ogentype, gettypeatom}
+  ((OTypeD%d
+    (Atom%d (atom%d %s))
+    (OObj%d (obj%d (Array String %s)))
+    (OArray%d (arr%d (Array Int %s)))
+  ))
+)`, d, d, d, inner, d, d, inner, d, d, inner))
+	}
+
+	return decls
 }
 
 // getVarDeclaration returns the SMT-LIB variable declaration for a given variable name and type.
@@ -222,29 +230,10 @@ func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) 
 //
 //	string: The SMT-LIB sort name corresponding to the type depth.
 func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
-	dpth := max(tp.TypeDepth()-1, 0)
+	// With simplified scheme, atomic values are OTypeD0 and non-atomic values
+	// start at OTypeD1.
+	dpth := max(tp.TypeDepth(), 0)
 	return fmt.Sprintf("OTypeD%d", dpth)
-}
-
-// getSortDefinitions returns SMT-LIB sort definitions up to the given maximum depth.
-//
-// Parameters:
-//
-//	maxDepth int: The maximum depth for sort definitions.
-//
-// Returns:
-//
-//	[]string: A slice of SMT-LIB sort definition strings.
-func (td *TypeTranslator) getSortDefinitions(maxDepth int) []string {
-	defs := make([]string, 0, maxDepth+1)
-	for i := 0; i <= maxDepth; i++ {
-		if i == 0 {
-			defs = append(defs, "(define-sort OTypeD0 () (OGenType OGenTypeAtom))")
-			continue
-		}
-		defs = append(defs, fmt.Sprintf("(define-sort OTypeD%d () (OGenType OTypeD%d))", i, i-1))
-	}
-	return defs
 }
 
 // getSmtConstrAssert generates an SMT-LIB assertion for the constraints of a value and type.
@@ -281,7 +270,11 @@ func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoType
 func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
 	switch {
 	case tp.IsAtomic():
-		return td.getSmtAtomConstr(smtValue, tp)
+		c, er := td.getSmtAtomConstr(smtValue, tp)
+		if er != nil {
+			return nil, er
+		}
+		return []string{c}, nil
 	case tp.IsObject():
 		return td.getSmtObjectConstr(smtValue, tp)
 	case tp.IsArray():
@@ -365,7 +358,9 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 		return nil, err.ErrUnsupportedType
 	}
 
+	depth := max(tp.TypeDepth(), 0)
 	andConstr := make([]string, 0, 64)
+	andConstr = append(andConstr, fmt.Sprintf("(is-OObj%d %s)", depth, smtValue))
 	// Ensure deterministic enumeration of object fields by sorting keys.
 	keys := tp.ObjectFields.GetKeys()
 	sort.Strings(keys)
@@ -375,9 +370,9 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 		if !found {
 			return nil, err.ErrSmtFieldConstraints(key, err.ErrTypeNotFound)
 		}
-		sel := fmt.Sprintf("(select (obj %s) \"%s\")", smtValue, key)
+		sel := fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtValue, key)
 		if !val.IsAtomic() {
-			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(val), sel))
+			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", getTypeConstr(depth-1, val), sel))
 		}
 
 		valAnalysis, er := td.getSmtConstr(sel, val)
@@ -397,13 +392,24 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 			disj = append(disj, fmt.Sprintf("(= %s \"%s\")", kVar, k))
 		}
 
-		defSelect := fmt.Sprintf("(select (obj %s) %s)", smtValue, kVar)
+		defSelect := fmt.Sprintf("(select (obj%d %s) %s)", depth, smtValue, kVar)
 		var defVal string
 		if !tp.ObjectFields.AllowAdditional {
-			defVal = fmt.Sprintf("(is-OUndef (atom %s))", defSelect)
+			// Default values at the element depth.
+			defVal = fmt.Sprintf("(is-OUndef %s)", defSelect)
 		} else {
 			apType := tp.ObjectFields.Fields[types.AdditionalPropKey]
-			defVal = fmt.Sprintf("(%s %s)", getTypeConstr(&apType), defSelect)
+			pred := getTypeConstr(depth-1, &apType)
+			if pred == "" {
+				atomConstr, cErr := td.getSmtAtomConstr(defSelect, &apType)
+				if cErr != nil {
+					return nil, err.ErrSmtConstraints(cErr)
+				}
+				defVal = atomConstr
+			} else {
+				defVal = fmt.Sprintf("(%s %s)", pred, defSelect)
+			}
+			defVal = defVal + " (is-OUndef " + defSelect + ")"
 		}
 
 		disj = append(disj, defVal)
@@ -413,35 +419,35 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 	return andConstr, nil
 }
 
-// getSmtAtomConstr generates SMT-LIB constraints for an atomic value and type.
-//
-// Parameters:
-//
-//	smtValue string: The SMT variable or value name.
-//	tp *types.RegoTypeDef: The Rego atomic type definition.
-//
-// Returns:
-//
-//	[]string: A slice with a single SMT-LIB constraint string for the atomic value.
-//	error: An error if the atomic type is unsupported.
-func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+// getSmtAtomConstr generates a single SMT-LIB constraint for an atomic value.
+func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) (string, error) {
 	if !tp.IsAtomic() {
-		return nil, err.ErrUnsupportedType
+		return "", err.ErrUnsupportedType
+	}
+	depth := max(tp.TypeDepth(), 0)
+	// With simplified scheme, atomic values inhabit OTypeD0.
+	// - For top-level atomic variables, smtValue is OTypeD0.
+	// - For nested values at depth>0, unwrap Atom{d} via atom{d} to get OTypeD(d-1).
+	atomExpr := smtValue
+	if depth > 0 {
+		atomExpr = fmt.Sprintf("(atom%d %s)", depth, smtValue)
 	}
 
 	switch tp.AtomicType {
 	case types.AtomicString:
-		return []string{fmt.Sprintf("(is-OString (atom %s))", smtValue)}, nil
+		return fmt.Sprintf("(is-OString %s)", atomExpr), nil
 	case types.AtomicInt:
-		return []string{fmt.Sprintf("(is-ONumber (atom %s))", smtValue)}, nil
+		return fmt.Sprintf("(is-ONumber %s)", atomExpr), nil
 	case types.AtomicBoolean:
-		return []string{fmt.Sprintf("(is-OBoolean (atom %s))", smtValue)}, nil
+		return fmt.Sprintf("(is-OBoolean %s)", atomExpr), nil
 	case types.AtomicNull:
-		return []string{fmt.Sprintf("(is-ONull (atom %s))", smtValue)}, nil
+		return fmt.Sprintf("(is-ONull %s)", atomExpr), nil
 	case types.AtomicUndef:
-		return []string{fmt.Sprintf("(is-OUndef (atom %s))", smtValue)}, nil
+		return fmt.Sprintf("(is-OUndef %s)", atomExpr), nil
+	case types.AtomicFunction, types.AtomicSet:
+		return "", err.ErrUnsupportedAtomic
 	default:
-		return nil, err.ErrUnsupportedAtomic
+		return "", err.ErrUnsupportedAtomic
 	}
 }
 
@@ -460,8 +466,9 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	if !tp.IsArray() {
 		return nil, err.ErrUnsupportedType
 	}
+	depth := max(tp.TypeDepth(), 0)
 	andConstr := make([]string, 0, 64)
-	andConstr = append(andConstr, fmt.Sprintf("(is-OArray %s)", smtValue))
+	andConstr = append(andConstr, fmt.Sprintf("(is-OArray%d %s)", depth, smtValue))
 
 	valAnalysis, er := td.getSmtConstr("elem", tp.ArrayType)
 	if er != nil {
@@ -469,7 +476,7 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	}
 	ands := fmt.Sprintf("(and %s)", strings.Join(valAnalysis, " "))
 	qvar := RandString(5)
-	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr %s) %s))) %s))", qvar, smtValue, qvar, ands)
+	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands)
 	andConstr = append(andConstr, forall)
 
 	return andConstr, nil
@@ -498,8 +505,9 @@ func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *ty
 		if !found {
 			return "", nil, fmt.Errorf("field not found in object type: %s", p)
 		}
+		depth := max(actType.TypeDepth()-1, 0)
 		actType = val
-		smtref = fmt.Sprintf("(select (obj %s) \"%s\")", smtref, p)
+		smtref = fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtref, p)
 	}
 	return smtref, actType, nil
 }
@@ -624,18 +632,32 @@ func (td *TypeTranslator) getFreshVariable(prefix string, usedVars map[string]st
 //   error: an error if the atomic type is unsupported.
 
 func (td *TypeTranslator) getAtomValue(name string, tp *types.RegoTypeDef) (string, error) {
-	if tp.AtomicType == types.AtomicString {
-		return fmt.Sprintf("(str (atom %s))", name), nil
-	} else if tp.AtomicType == types.AtomicInt {
-		return fmt.Sprintf("(num (atom %s))", name), nil
-	} else if tp.AtomicType == types.AtomicBoolean {
-		return fmt.Sprintf("(bool (atom %s))", name), nil
-	} else if tp.AtomicType == types.AtomicNull {
+	depth := max(tp.TypeDepth(), 0)
+	switch tp.AtomicType {
+	case types.AtomicString:
+		if depth == 0 {
+			return fmt.Sprintf("(str %s)", name), nil
+		}
+		return fmt.Sprintf("(str (atom%d %s))", depth, name), nil
+	case types.AtomicInt:
+		if depth == 0 {
+			return fmt.Sprintf("(num %s)", name), nil
+		}
+		return fmt.Sprintf("(num (atom%d %s))", depth, name), nil
+	case types.AtomicBoolean:
+		if depth == 0 {
+			return fmt.Sprintf("(bool %s)", name), nil
+		}
+		return fmt.Sprintf("(bool (atom%d %s))", depth, name), nil
+	case types.AtomicNull:
 		return "ONull", nil
-	} else if tp.AtomicType == types.AtomicUndef {
+	case types.AtomicUndef:
 		return "OUndef", nil
+	case types.AtomicFunction, types.AtomicSet:
+		return "", err.ErrUnsupportedAtomic
+	default:
+		return "", err.ErrUnsupportedAtomic
 	}
-	return "", err.ErrUnsupportedAtomic
 }
 
 // getSmtValue returns the SMT-LIB expression for a value given its Rego type.

@@ -75,10 +75,12 @@ func ValueFromOTypeString(ast z3.AST) (Value, error) {
 	if !ast.IsApp() {
 		return Value{}, fmt.Errorf("%w: expected constructor application, got %s", modelerr.ErrUnsupportedOTypeValue, ast.String())
 	}
-	switch ast.Decl().Name() {
+	name := ast.Decl().Name()
+	base := strings.TrimRight(name, "0123456789")
+	switch base {
 	case "Atom":
 		if ast.NumChildren() != 1 {
-			return Value{}, fmt.Errorf("model: Atom expects 1 child, got %d", ast.NumChildren())
+			return Value{}, fmt.Errorf("model: %s expects 1 child, got %d", name, ast.NumChildren())
 		}
 		return parseOAtomAST(ast.Child(0))
 	case "OObj":
@@ -86,6 +88,11 @@ func ValueFromOTypeString(ast z3.AST) (Value, error) {
 	case "OArray":
 		return Value{}, fmt.Errorf("%w: OArray is not yet supported", modelerr.ErrUnsupportedOTypeValue)
 	default:
+		// Simplified scheme: atomic values are directly OTypeD0 constructors
+		// (OString/ONumber/OBoolean/...) and do not use Atom wrappers.
+		if v, atomErr := parseOAtomAST(ast); atomErr == nil {
+			return v, nil
+		}
 		return Value{}, fmt.Errorf("%w: unexpected constructor %s", modelerr.ErrUnsupportedOTypeValue, ast.Decl().Name())
 	}
 }
