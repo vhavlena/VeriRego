@@ -59,6 +59,14 @@ func NewBucket() *Bucket {
 	}
 }
 
+func NewBucketWithDecls(decls []string) *Bucket {
+	return &Bucket{
+		Decls:     decls,
+		Asserts:   make([]string, 0, 128),
+		TypeDecls: make([]string, 0, 32),
+	}
+}
+
 func (b *Bucket) Append(other *Bucket) {
 	b.Decls = append(b.Decls, other.Decls...)
 	b.Asserts = append(b.Asserts, other.Asserts...)
@@ -110,16 +118,21 @@ func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, e
 func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 	bucket := NewBucket()
 	tp := td.TypeInfo.Types[varName]
+	smtConstr, er := td.getSmtConstrAssert(varName, &tp)
+	if er != nil {
+		return bucket, nil
+	}
+
 	smtVar, er := td.getVarDeclaration(varName, &tp)
 	if er != nil {
 		return nil, er
 	}
 	bucket.Decls = append(bucket.Decls, smtVar)
 
-	smtConstr, er := td.getSmtConstrAssert(varName, &tp)
-	if er != nil {
-		return nil, er
-	}
+	// smtConstr, er := td.getSmtConstrAssert(varName, &tp)
+	// if er != nil {
+	// 	return nil, er
+	// }
 	bucket.Asserts = append(bucket.Asserts, smtConstr)
 
 	return bucket, nil
@@ -209,7 +222,7 @@ func (td *TypeTranslator) getDatatypesDeclaration() []string {
 //	string: The SMT-LIB variable declaration string.
 //	error: An error if the declaration could not be generated.
 func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
-	return fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType()), nil
+	return fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType(tp)), nil
 }
 
 // getSmtType returns the SMT-LIB sort name for a given Rego type definition based on its type depth.
@@ -221,10 +234,10 @@ func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) 
 // Returns:
 //
 //	string: The SMT-LIB sort name corresponding to the type depth.
-func (td *TypeTranslator) getSmtType() string {
-	return fmt.Sprintf("OType")
+func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
+	dpth := max(tp.TypeDepth()-1, 0)
+	return fmt.Sprintf("OTypeD%d", dpth)
 }
-
 // getSortDefinitions returns SMT-LIB sort definitions up to the given maximum depth.
 //
 // Parameters:
@@ -266,6 +279,15 @@ func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoType
 	assert := strings.Join(andArr, " ")
 	return fmt.Sprintf("(assert (and %s))", assert), nil
 }
+
+// func (td *TypeTranslator) getSmtConstrAssertWithoutErrors(smtValue string, tp *types.RegoTypeDef) string {
+// 	andArr, er := td.getSmtConstr(smtValue, tp)
+// 	if er != nil {
+// 		return ""
+// 	}
+// 	assert := strings.Join(andArr, " ")
+// 	return fmt.Sprintf("(assert (and %s))", assert)
+// }
 
 // getSmtConstr generates SMT-LIB constraints for a value and type.
 //

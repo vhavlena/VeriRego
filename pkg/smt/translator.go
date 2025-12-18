@@ -27,6 +27,13 @@ func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
 	}
 }
 
+func NewTransContextWithVarMapAndDecls(varMap map[string]string, decls []string) *TransContext {
+	return &TransContext{
+		VarMap: varMap,
+		Bucket: NewBucketWithDecls(decls),
+	}
+}
+
 //-------------------------------------------------------------
 
 // Translator is responsible for translating Rego terms to SMT expressions.
@@ -81,6 +88,10 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 	t.smtAsserts = append(t.smtAsserts, bucket.Asserts...)
 }
 
+func (t *Translator) AppendBucketAsserts(bucket *Bucket) {
+	t.smtAsserts = append(t.smtAsserts, bucket.Asserts...)
+}
+
 // AddTransContext merges the provided translation context into the
 // current Translator instance.
 //
@@ -97,6 +108,11 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 func (t *Translator) AddTransContext(context *TransContext) {
 	maps.Copy(t.VarMap, context.VarMap)
 	t.AppendBucket(context.Bucket)
+}
+
+func (t *Translator) AddTransContextAndAsserts(context *TransContext) {
+	maps.Copy(t.VarMap, context.VarMap)
+	t.AppendBucketAsserts(context.Bucket)
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.

@@ -9,6 +9,10 @@ func And(clauses []string) string {
 	return fmt.Sprintf("(and %s)", strings.Join(clauses, " "))
 }
 
+func Type(depth int) string {
+	return fmt.Sprintf("OTypeD%d", depth)
+}
+
 func Eq(v1 *string, v2 *string) string {
 	return fmt.Sprintf("(= %s %s)", *v1, *v2)
 }
@@ -27,7 +31,7 @@ func Assert(exprSmt *string) string {
 
 func DefineFunc(funcName *string, argNames []string, bodySmt *string) string {
 	args := strings.Join(argNames, " " + VarType())
-	return fmt.Sprintf("(define-func %s (%s) %s %s)",
+	return fmt.Sprintf("(define-fun %s (%s) %s %s)",
 		*funcName,			// function name
 		args,
 		VarType(),	// return type

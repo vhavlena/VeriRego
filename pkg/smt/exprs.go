@@ -29,6 +29,13 @@ func NewExprTranslatorWithVarMap(typeTrans *TypeTranslator, varMap map[string]st
 	}
 }
 
+func NewExprTranslatorWithVarMapAndDecls(typeTrans *TypeTranslator, varMap map[string]string, decls []string) *ExprTranslator {
+	return &ExprTranslator{
+		TypeTrans: typeTrans,
+		context:   NewTransContextWithVarMapAndDecls(varMap, decls),
+	}
+}
+
 // GetTransContext returns the current translation context used by the
 // ExprTranslator.
 //
@@ -153,9 +160,19 @@ func (et *ExprTranslator) ExprToSmtWithInfo(expr *ast.Expr) (string, string, err
 	return smtStr, localVarDef, nil
 }
 
+func getVarNameFromDecl(decl string) string {
+	return strings.Split(decl, " ")[1]
+}
+
 func isLocalVariable(v *ast.Term, et *ExprTranslator) bool {
 	vName := et.TypeTrans.TypeInfo.Refs[v.String()].String()
-	return strings.Split(vName, ".")[0] == "data"
+	for _,decl := range et.context.Bucket.Decls {
+		definedName := getVarNameFromDecl(decl)
+		if vName == definedName {
+			return false
+		}
+	}
+	return true
 }
 
 func isPossibleAssignment(op string) bool {
@@ -377,19 +394,19 @@ func (et *ExprTranslator) declareUnintFunc(name string, terms []*ast.Term) error
 	// gather parameter types
 	pars := make([]string, len(terms)-1)
 	for i := 1; i < len(terms); i++ {
-		// tp, ok := et.TypeTrans.TypeInfo.Types[terms[i].String()]
-		// if !ok {
-		// 	return verr.ErrTypeNotFound
-		// }
-		pars[i-1] = et.TypeTrans.getSmtType()
+		tp, ok := et.TypeTrans.TypeInfo.Types[terms[i].String()]
+		if !ok {
+			return verr.ErrTypeNotFound
+		}
+		pars[i-1] = et.TypeTrans.getSmtType(&tp)
 	}
-	// // gather return type
-	// rtype, ok := et.TypeTrans.TypeInfo.Types[terms[0].String()]
-	// if !ok {
-	// 	return verr.ErrTypeNotFound
-	// }
+	// gather return type
+	rtype, ok := et.TypeTrans.TypeInfo.Types[terms[0].String()]
+	if !ok {
+		return verr.ErrTypeNotFound
+	}
 
-	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), et.TypeTrans.getSmtType())
+	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), et.TypeTrans.getSmtType(&rtype))
 	et.context.Bucket.Decls = append(et.context.Bucket.Decls, decls)
 	return nil
 }

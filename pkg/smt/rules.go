@@ -77,7 +77,7 @@ func (t *Translator) BodyToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (strin
 			localVarDefs = append(localVarDefs, localVarDef)
 		}
 	}
-	t.AddTransContext(exprTrans.GetTransContext())	// TODO ask: why doing this?
+	t.AddTransContextAndAsserts(exprTrans.GetTransContext())	// TODO ask: why doing this?
 
 	var bodySmt string
 	switch len(bodySmts) {
@@ -104,7 +104,7 @@ func (t *Translator) BodyToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (strin
 //
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold. It is equal to the else value otherwise (or Undef, if no else branch is suitable)
 func (t *Translator) RuleToSmt(rule *ast.Rule) (string,error) {
-	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
+	exprTrans := NewExprTranslatorWithVarMapAndDecls(t.TypeTrans, t.VarMap, t.smtDecls)
 	smtHead, err := t.ruleHeadToSmt(rule, exprTrans)
 	if err != nil {
 		return "", err
@@ -150,7 +150,7 @@ func (t *Translator) ParametricRuleToSmt(rule *ast.Rule) (string,error) {
 	if rule == nil {
 		return "undefined", nil	// FIXME: return correct SMT undefined value
 	}
-	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
+	exprTrans := NewExprTranslatorWithVarMapAndDecls(t.TypeTrans, t.VarMap, t.smtDecls)
 	// Get head value
 	var smtValue string
 	if rule.Head.Value == nil {
@@ -223,7 +223,7 @@ func (t *Translator) RuleToAssert(rule *ast.Rule) error {
 	if err != nil {
 		return err
 	}
-	funcDef := fmt.Sprintf("(define-func %s %s %s %s)", funcName, argList, retType, funcBody)
+	funcDef := fmt.Sprintf("(define-fun %s %s %s %s)", funcName, argList, retType, funcBody)
 	t.smtDecls = append(t.smtDecls, funcDef)
 	return nil
 }
