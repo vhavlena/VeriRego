@@ -10,7 +10,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      Z3_VERSION: "z3-4.13.4"
+      Z3_VERSION: "z3-4.15.4"
       Z3_PREFIX: "${{ github.workspace }}/.z3"
     steps:
       - name: Checkout code
