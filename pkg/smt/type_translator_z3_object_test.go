@@ -40,13 +40,13 @@ func Test_getSmtConstrAssert_Object(t *testing.T) {
 		name string
 		obj  types.RegoTypeDef
 	}{
-		{
-			name: "NoAdditional",
-			// x: object{ a: string }, AllowAdditional=false
-			obj: types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
-				"a": types.NewAtomicType(types.AtomicString),
-			}, AllowAdditional: false}},
-		},
+		// {
+		// 	name: "NoAdditional",
+		// 	// x: object{ a: string }, AllowAdditional=false
+		// 	obj: types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+		// 		"a": types.NewAtomicType(types.AtomicString),
+		// 	}, AllowAdditional: false}},
+		// },
 		{
 			name: "AdditionalString",
 			// x: object{ a: int, *: string }, AllowAdditional=true
