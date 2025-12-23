@@ -1,41 +1,27 @@
 # Rego Types to SMT Type Encoding
 
-This document describes how internal Rego types (`RegoTypeDef`) are mapped to SMT-LIB sorts and constraints, as implemented in `pkg/smt/type_translator.go` and used by the SMT translation tool.
+This document describes how internal Rego types (`types.RegoTypeDef`) are mapped to SMT-LIB datatypes and constraints, as implemented in `pkg/smt/type_translator.go`.
 
-It focuses on the *type layer* only: how values and shapes are encoded, not on how individual Rego expressions and rules are translated.
+Scope: only the *type layer* (value shapes and type guards). Expression/rule translation lives elsewhere (see `pkg/smt/rego_to_smt.md`).
 
-## Overview
+## Overview: depth-indexed value datatypes
 
-VeriRego uses a small algebra of generic SMT datatypes:
+The current implementation uses a **depth-indexed family of datatypes** named `OTypeD0`, `OTypeD1`, ..., where depth is derived from `RegoTypeDef.TypeDepth()`.
 
-- `OAtom` – atomic values (string, integer/number, boolean, null, undefined)
-- `OGenType T` – generic container for:
-  - `Atom OAtom`
-  - `OObj (Array String T)` – objects as maps from string keys to values of type `T`
-  - `OArray (Array Int T)` – arrays as maps from integer indices to values of type `T`
-- `OGenTypeAtom` – specialization of `OGenType` where nested values are always `OAtom`.
+- `OTypeD0` represents **atomic values only**.
+- `OTypeD(d>0)` represents a **value** that can be atomic, object, or array, where nested values are stored one depth lower (`OTypeD(d-1)`).
 
-For nested types, a family of *depth-indexed* sorts is defined:
+This is the “simplified scheme” referenced in `getDatatypesDeclaration`.
 
-- `OTypeD0  = OGenType OGenTypeAtom`
-- `OTypeD1  = OGenType OTypeD0`
-- `OTypeD2  = OGenType OTypeD1`
-- … up to the maximum depth observed in the inferred type information.
+### Datatype declarations (generated)
 
-The depth of a Rego type (`TypeDepth()`) is roughly:
+The translator always emits `OTypeD0` plus `OTypeD1..OTypeD(maxDepth)` (inclusive), where `maxDepth` is the maximum `TypeDepth()` among the variables selected by `GenerateTypeDecls`.
 
-- Atomic: depth 1
-- Array/object: `1 + max(depth of element/field types)`
-
-A Rego value of depth `d` is represented by the SMT sort `OTypeD(d-1)`.
-
-## SMT Datatype Declarations
-
-The generator always emits the following datatype declarations (see `getDatatypesDeclaration`):
+Shape (schematic):
 
 ```smtlib
 (declare-datatypes ()
-  ((OAtom
+  ((OTypeD0
     (OString (str String))
     (ONumber (num Int))
     (OBoolean (bool Bool))
@@ -44,189 +30,197 @@ The generator always emits the following datatype declarations (see `getDatatype
   ))
 )
 
-(declare-datatypes (T)
-  ((OGenType
-    (Atom (atom OAtom))
-    (OObj (obj (Array String T)))
-    (OArray (arr (Array Int T)))
+; for each d = 1..maxDepth:
+(declare-datatypes ()
+  ((OTypeD<d>
+    (Atom<d>   (atom<d>   OTypeD<d-1>))
+    (OObj<d>   (obj<d>    (Array String OTypeD<d-1>)))
+    (OArray<d> (arr<d>    (Array Int    OTypeD<d-1>)))
   ))
 )
-
-(declare-datatypes ()
-  ((OGenTypeAtom (Atom (atom OAtom))))
-)
 ```
 
-Then, depending on the maximum type depth `maxDepth` among all used variables, it emits sort aliases (see `getSortDefinitions`):
+Notes:
 
-```smtlib
-(define-sort OTypeD0 () (OGenType OGenTypeAtom))
-(define-sort OTypeD1 () (OGenType OTypeD0))
-(define-sort OTypeD2 () (OGenType OTypeD1))
-; ... up to OTypeD(maxDepth-1)
-```
+- Atomic constructors at `OTypeD0` are `OString`, `ONumber`, `OBoolean`, `ONull`, `OUndef`.
+- For `d>0`, the atomic case is represented via `Atom<d>` whose payload is an `OTypeD(d-1)` value.
 
-## Mapping Rego Types to SMT Sorts
+## Mapping Rego types to SMT sorts
 
-Given a Rego type `tp` with `tp.TypeDepth() = d >= 1`, its SMT sort is:
+The SMT sort chosen for a `RegoTypeDef tp` is:
 
 ```text
-OTypeD(d-1)
+OTypeD(tp.TypeDepth())
 ```
 
-This mapping is implemented in `getSmtType`.
+This is implemented by `getSmtType`.
 
-Examples:
+Important consequence: **atomic types do not necessarily use `OTypeD0` for variables**. Variables are declared using `OTypeD(depth)` even for atomic `tp`, so atoms can be “embedded” at the right depth when needed by the overall model.
 
-- Atomic type (`string`, `int`, `boolean`, `null`): `TypeDepth() = 1` → sort `OTypeD0`
-- Array of atomic (`[string]`): `TypeDepth() = 2` → sort `OTypeD1`
-- Object with nested object field: `TypeDepth() >= 3` → sort `OTypeD2` or deeper.
+## Type predicates (guards)
 
-All declared variables use this mapping:
+The translator uses constructor testers to guard the shape of values.
+
+### Atomic predicates
+
+For atomic `tp`, the predicate name is one of:
+
+- `is-OString`
+- `is-ONumber`
+- `is-OBoolean`
+- `is-ONull`
+- `is-OUndef`
+
+This is implemented by `getTypeConstr` for `tp.IsAtomic()`.
+
+### Object/array predicates
+
+For non-atomic types, predicates are **depth-indexed**:
+
+- Object: `is-OObj<d>`
+- Array: `is-OArray<d>`
+
+where `d = max(tp.TypeDepth(), 0)` for the current value.
+
+## Constraint generation by type kind
+
+The main entry is `getSmtConstr(smtValue, tp)`; `getSmtConstrAssert` wraps the result into `(assert (and ...))`.
+
+### Atomic types
+
+For atomic values, the constraint is a single predicate application:
 
 ```smtlib
-(declare-fun x () OTypeD1)
-(declare-fun input_review_object () OTypeD2)
+(is-OString x)
+(is-ONumber x)
+(is-OBoolean x)
+(is-ONull x)
+(is-OUndef x)
 ```
 
-## Type Kind Predicates
+This is produced by `getSmtAtomConstr`.
 
-A helper predicate name is chosen from a Rego type using `getTypeConstr(tp)`:
+Atomic *values* used in expressions are wrapped using `getSmtValue` / `getAtomValue`:
 
-- Atomic → `is-Atom`
-- Array  → `is-OArray`
-- Object → `is-OObj`
+- At depth 0:
+  - string: `(str <expr>)`
+  - int: `(num <expr>)`
+  - bool: `(bool <expr>)`
+- At depth $d>0$ (embedding into `OTypeD<d>`):
+  - string: `(str (atom<d> <expr>))`
+  - int: `(num (atom<d> <expr>))`
+  - bool: `(bool (atom<d> <expr>))`
 
-These are used as *guards* to state that a value is of the expected variant of `OGenType`.
+`null` and `undefined` are represented as `ONull` / `OUndef`.
 
-## Constraint Generation per Rego Type
+### Object types
 
-For each variable or intermediate value, `getSmtConstr` generates a set of SMT constraints that enforce the shape implied by the Rego type.
+For an object value `o` with depth `d = tp.TypeDepth()`, the translator emits:
 
-The final assertion for a variable `v` is:
+1) A shape guard:
 
 ```smtlib
-(assert (and <constraints for v>))
+(is-OObj<d> o)
 ```
 
-(See `getSmtConstrAssert`.)
-
-### Atomic Types
-
-Atomic types correspond to `Atom` values carrying a specific `OAtom` constructor:
-
-- Rego `string`   → `(Atom (OString ...))`
-- Rego `int`      → `(Atom (ONumber ...))`
-- Rego `boolean`  → `(Atom (OBoolean ...))`
-- Rego `null`     → `(Atom ONull)`
-
-For an atomicly-typed value `x` (of some `OTypeDk`), constraints are of the form:
+2) Per-field constraints for each explicit field key `$k$` (keys are sorted for determinism):
 
 ```smtlib
-(is-Atom x)
-; plus additional constraints when x is known to be specifically string/int/bool/null
+(let ((sel (select (obj<d> o) "k"))) ...)
 ```
 
-(Details of the per-constructor tests are handled in the expression translation and are not repeated here.)
-
-### Object Types
-
-Rego objects are represented as `OObj` over an SMT array `(Array String T)`.
-
-Given an object-typed value `o` and its type description with fields `f1, ..., fn`, `getSmtObjectConstr` generates:
-
-1. A guard that `o` is an object when it contains non-atomic fields.
-2. For each *declared* field `fi`:
-   - A select over the underlying array:
-     ```smtlib
-     (select (obj o) "fi")
-     ```
-   - A kind guard when the field type is non-atomic:
-     ```smtlib
-     (is-OObj (select (obj o) "fi"))
-     ; or is-OArray, etc.
-     ```
-   - Recursively generated constraints for the selected value (using `getSmtConstr`).
-
-3. A universal constraint over *all* string keys, encoding `additionalProperties` semantics from the type layer:
-
-   - If additional properties are **not allowed**:
-     ```smtlib
-     (forall ((k String))
-       (or (= k "f1") ... (= k "fn")
-           (= (select (obj o) k) (Atom OUndef)))
-     )
-     ```
-
-   - If additional properties are allowed with a specific type `T_add`:
-     ```smtlib
-     (forall ((k String))
-       (or (= k "f1") ... (= k "fn")
-           ; value at k must satisfy constraints of T_add
-           <constraints for (select (obj o) k) wrt T_add>)
-     )
-     ```
-
-   - If additional properties are allowed and unconstrained, the universal quantifier is omitted and unlisted keys may map to any value.
-
-The quantified key variable name is generated using `RandString` to avoid collisions.
-
-### Array Types
-
-Rego arrays are represented as `OArray` over an SMT array `(Array Int T)`.
-
-For an array-typed value `a` with element type `E`, `getSmtArrConstr` (not fully shown here) generates:
-
-1. A guard that `a` is an array (when necessary):
-   ```smtlib
-   (is-OArray a)
-   ```
-
-2. A universal constraint over integer indices, enforcing the element type:
-   ```smtlib
-   (forall ((i Int))
-     <constraints for (select (arr a) i) wrt element type E>
-   )
-   ```
-
-When `E` is an object type that itself has `additionalProperties`, those constraints are nested accordingly.
-
-### Union Types
-
-Rego union types (e.g. coming from JSON Schema `anyOf`/`oneOf` or internal merges) are encoded as a disjunction of member constraints.
-
-Given `tp` where `tp.IsUnion()` holds and a value `v`:
+In practice the selection is inlined:
 
 ```smtlib
-(or
-  <constraints for v wrt member_1>
-  <constraints for v wrt member_2>
-  ...
+(select (obj<d> o) "k")
+```
+
+- If the field type is non-atomic, an additional depth-indexed predicate is added for the selected value using `getTypeConstr(d-1, fieldType)`.
+- Then `getSmtConstr` recurses into the selected value for full structural constraints.
+
+3) `additionalProperties` constraints
+
+Object additional-properties behavior is driven by `types.ObjectFieldSet`:
+
+- `AllowAdditional == false`: additional keys are **disallowed**.
+- `AllowAdditional == true` and a synthetic entry exists under key `types.AdditionalPropKey` (`"*"`): additional keys are **allowed and typed**.
+- `AllowAdditional == true` with no `"*"` entry: additional keys are **allowed and unconstrained** (no universal constraint emitted).
+
+When additional keys are disallowed *or* an additional-property type is set, `getSmtObjectConstr` emits a universal constraint over all `String` keys:
+
+```smtlib
+(forall ((k String))
+  (or
+    (= k "f1")
+    ...
+    (= k "fn")
+    <default-condition>
+  )
 )
 ```
 
-This is implemented by `getSmtUnionConstr`.
+The `<default-condition>` is:
 
-## Variable Declarations and Usage
+- If additional keys are disallowed:
+  - `(is-OUndef (select (obj<d> o) k))`
+- If additional keys are allowed and typed with type `T_add`:
+  - `(<pred-for-T_add> (select (obj<d> o) k)) (is-OUndef (select (obj<d> o) k))`
+  - Note: the current implementation places **both** conjuncts directly into the `or` list, effectively allowing either the additional-type predicate or `OUndef`.
 
-For each Rego variable `x` whose type has been inferred, `GenerateVarDecl` produces:
+The quantified key name is generated via `RandString(5)`.
 
-- A declaration using `getSmtType`:
-  ```smtlib
-  (declare-fun x () OTypeDk)
-  ```
-- A matching assertion with all structural constraints:
-  ```smtlib
-  (assert (and <constraints for x>))
-  ```
+### Array types
 
-`GenerateTypeDecls` is responsible for emitting the shared datatype and sort declarations for **all** used variables, based on the maximum type depth.
+For an array value `a` with depth `d = tp.TypeDepth()`, the translator emits:
 
-## Summary
+1) A shape guard:
 
-- All Rego values live in a small family of polymorphic SMT datatypes (`OAtom`, `OGenType`).
-- The depth of a Rego type determines which `OTypeDk` sort is used.
-- Objects and arrays are backed by SMT arrays and constrained via quantified formulas.
-- JSON Schema–derived and analysis-derived types are treated uniformly at this layer – once they are expressed as `RegoTypeDef`, they follow the same SMT encoding.
+```smtlib
+(is-OArray<d> a)
+```
 
-For the translation of actual Rego *expressions* and *rules* on top of this encoding, see `pkg/smt/rego_to_smt.md` and the implementations in `pkg/smt/exprs.go` and `pkg/smt/rules.go`.
+2) A universal constraint over all integer indices enforcing the element type:
+
+```smtlib
+(forall ((i Int))
+  (let ((elem (select (arr<d> a) i)))
+    (and <constraints-for-elem>)
+  )
+)
+```
+
+The element constraints are generated by recursing with `getSmtConstr("elem", tp.ArrayType)`.
+
+### Union types
+
+Union types (`tp.IsUnion()`) are encoded as a single disjunction. For each union member, its constraints are computed for the **same** `smtValue` and concatenated inside one big `(or ...)`:
+
+```smtlib
+(or <member1-constraints...> <member2-constraints...> ...)
+```
+
+This is implemented in `getSmtUnionConstr`.
+
+## Variable declarations
+
+For each used variable name `x`, `GenerateVarDecl` emits:
+
+```smtlib
+(declare-fun x () OTypeD<tp.TypeDepth()>)
+(assert (and <constraints-for-x>))
+```
+
+`GenerateTypeDecls` chooses the maximum depth across the selected variables and emits datatype declarations up to that depth.
+
+## Limitations / non-supported types
+
+`types.AtomicFunction` and `types.AtomicSet` are currently rejected in type constraints (`ErrUnsupportedAtomic`).
+
+## Pointers into the implementation
+
+- Sort selection: `TypeTranslator.getSmtType`
+- Datatype generation: `TypeTranslator.getDatatypesDeclaration`
+- Constraint generation entry: `TypeTranslator.getSmtConstr` / `TypeTranslator.getSmtConstrAssert`
+- Object constraints: `TypeTranslator.getSmtObjectConstr`
+- Array constraints: `TypeTranslator.getSmtArrConstr`
+- Unions: `TypeTranslator.getSmtUnionConstr`

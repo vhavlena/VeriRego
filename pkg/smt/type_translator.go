@@ -232,7 +232,7 @@ func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) 
 	return fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType(tp)), nil
 }
 
-// getSmtType returns the SMT-LIB sort name for a given Rego type definition based on its type depth.
+// getSmtType returns the SMT-LIB type name for a given Rego type definition based on its type depth.
 //
 // Parameters:
 //
@@ -251,6 +251,15 @@ func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
 // getSmtConstrAssert generates an SMT-LIB assertion for the constraints of a value and type.
 //
 // Parameters:
+//
+// getSmtObjectConstr generates SMT-LIB constraints for an object value.
+// It asserts the object predicate at the appropriate depth, adds per-field
+// constraints by selecting `(select (obj<depth> <smtValue>) "<field>")` and
+// recursing into field types (adding a type predicate for non-atomic fields).
+// If additional properties are disallowed or an additional-property type is
+// present, emits a `(forall ((k String)) ...)` requiring keys to be explicit
+// or map to `OUndef` / satisfy the additional type. Returns constraint
+// fragments or an error if `tp` is not an object.
 //
 //	smtValue string: The SMT variable or value name.
 //	tp *types.RegoTypeDef: The Rego type definition.
@@ -329,42 +338,23 @@ func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeD
 	return []string{fmt.Sprintf("(or %s)", strings.Join(orConstr, " "))}, nil
 }
 
-// getSmtObjectConstr builds SMT-LIB constraints that encode the rules for an
-// object-typed value according to the provided Rego type definition.
+// getSmtObjectConstr generates SMT-LIB constraints for an object value.
 //
 // Behaviour:
-//   - For each explicitly declared field the function adds:
-//   - (select (obj <smtValue>) "<field>") for that field and
-//   - per-field constraints derived from the field's type
-//     (recursively produced by getSmtConstr).
-//   - If a field's type is non-atomic the function also inserts a call to
-//     the appropriate type constructor (e.g. is-OObj / is-OArray) for the
-//     selected field value.
-//   - Additional properties handling:
-//   - If additional properties are not allowed the function generates a
-//     universal quantifier that requires any string key to either be one
-//     of the explicit keys or to map to OUndef.
-//   - If additional properties are allowed and an explicit additional
-//     property type is present the universal quantifier requires that any
-//     non-explicit key's value satisfies the additional property type.
-//     The universal quantifier uses a generated temporary symbol for the
-//     quantified key name (created via RandString).
+//   - Assert the object predicate at depth: `(is-OObj<d> <smtValue>)`.
+//   - For each declared field (sorted): select `(select (obj<d> <smtValue>) "<field>")`,
+//     recurse into the field type and add a type predicate for non-atomic fields.
+//   - If additional properties are disallowed or an additional-property type is set,
+//     emit a `(forall ((k String)) ...)` that requires keys to be explicit or
+//     have `OUndef` / satisfy the additional type.
 //
 // Parameters:
-//
-//	smtValue string: The SMT variable or expression that identifies the
-//	    object value (e.g. a variable name or a select chain).
-//	tp *types.RegoTypeDef: The object Rego type which must satisfy
-//	    tp.IsObject().
+// - `smtValue string`: SMT expression for the object value.
+// - `tp *types.RegoTypeDef`: Rego object type (must satisfy `IsObject()`).
 //
 // Returns:
-//
-//	[]string: A slice of SMT-LIB expression strings. Each entry represents
-//	    a constraint (e.g. "(is-OString (atom ...))", a nested (and ...),
-//	    or a (forall ...) quantifier). Callers typically combine them
-//	    with an outer (and ...) when producing an assert.
-//	error: An error when `tp` is not an object or when the type information
-//	    for a declared field cannot be found or converted.
+// - `[]string`: Constraint fragments (combine with `(and ...)` for assertions).
+// - `error`: Non-nil if `tp` is not an object or a field type is missing.
 func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
 	if !tp.IsObject() {
 		return nil, err.ErrUnsupportedType
