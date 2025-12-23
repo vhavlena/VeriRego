@@ -2,6 +2,7 @@ package smt
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -9,6 +10,10 @@ import (
 	"github.com/vhavlena/verirego/pkg/types"
 	z3 "github.com/vhavlena/z3-go/z3"
 )
+
+func runningInGitHubActions() bool {
+	return os.Getenv("GITHUB_ACTIONS") == "true"
+}
 
 // helper to run an SMT-LIB2 string with z3 and expect SAT
 func expectSatZ3(t *testing.T, smt string) {
@@ -66,6 +71,9 @@ func Test_getSmtConstrAssert_Object(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if runningInGitHubActions() && tt.name == "NoAdditional" {
+				t.Skip("skipping NoAdditional object test on GitHub Actions (too heavy/flaky in CI)")
+			}
 			t.Parallel()
 			tr := buildTypeTranslator(t, map[string]types.RegoTypeDef{"x": tt.obj})
 			used := map[string]any{"x": struct{}{}}

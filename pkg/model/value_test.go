@@ -21,13 +21,11 @@ func newOTypeEnv(ctx *z3.Context) (*oTypeEnv, error) {
 	nullCtor := ctx.MkConstructor("ONull", "is-ONull", nil)
 	undefCtor := ctx.MkConstructor("OUndef", "is-OUndef", nil)
 
-	atomSort, atomDecls := ctx.MkDatatype("OAtom", []*z3.Constructor{stringCtor, numberCtor, booleanCtor, nullCtor, undefCtor})
-	atomCtor := ctx.MkConstructor("Atom", "is-Atom", []z3.ADTField{{Name: "atom", Sort: atomSort}})
-	genTypeSort, genDecls := ctx.MkDatatype("OGenTypeAtom", []*z3.Constructor{atomCtor})
+	atomSort, atomDecls := ctx.MkDatatype("OTypeD0", []*z3.Constructor{stringCtor, numberCtor, booleanCtor, nullCtor, undefCtor})
 
 	return &oTypeEnv{
-		sort:        genTypeSort,
-		atomCtor:    genDecls[0].Constructor,
+		sort:        atomSort,
+		atomCtor:    z3.FuncDecl{},
 		stringCtor:  atomDecls[0].Constructor,
 		numberCtor:  atomDecls[1].Constructor,
 		booleanCtor: atomDecls[2].Constructor,
@@ -44,20 +42,20 @@ func mustNewOTypeEnv(t *testing.T, ctx *z3.Context) *oTypeEnv {
 }
 
 func (e *oTypeEnv) atomFromString(ctx *z3.Context, v string) z3.AST {
-	return ctx.App(e.atomCtor, ctx.App(e.stringCtor, ctx.StringVal(v)))
+	return ctx.App(e.stringCtor, ctx.StringVal(v))
 }
 
 func (e *oTypeEnv) atomFromBool(ctx *z3.Context, v bool) z3.AST {
-	return ctx.App(e.atomCtor, ctx.App(e.booleanCtor, ctx.BoolVal(v)))
+	return ctx.App(e.booleanCtor, ctx.BoolVal(v))
 }
 
 func (e *oTypeEnv) atomFromInt(ctx *z3.Context, v int64) z3.AST {
-	return ctx.App(e.atomCtor, ctx.App(e.numberCtor, ctx.IntVal(v)))
+	return ctx.App(e.numberCtor, ctx.IntVal(v))
 }
 
 const otypeSortsScript = `
 (declare-datatypes ()
-	((OAtom
+	((OTypeD0
 		(OString (str String))
 		(ONumber (num Int))
 		(OBoolean (bool Bool))
@@ -65,35 +63,30 @@ const otypeSortsScript = `
 		OUndef))
 )
 
-(declare-datatypes (T)
-	((OGenType
-		(Atom (atom OAtom))
-		(OObj (obj (Array String T)))
-		(OArray (arr (Array Int T)))))
-)
-
 (declare-datatypes ()
-	((OGenTypeAtom (Atom (atom OAtom))))
+  ((OTypeD1
+    (Atom1 (atom1 OTypeD0))
+	(OObj1 (obj1 (Array String OTypeD0)))
+	(OArray1 (arr1 (Array Int OTypeD0)))
+  ))
 )
-
-(define-sort OTypeD0 () (OGenType OGenTypeAtom))
 
 `
 
 const smtObjectScript = otypeSortsScript + `
 
-(declare-fun x () OTypeD0)
-(assert (is-OObj x))
-(assert (is-OString (atom (select (obj x) "a"))))
+(declare-fun x () OTypeD1)
+(assert (is-OObj1 x))
+(assert (is-OString (select (obj1 x) "a")))
 `
 
 const smtObjectMultiFieldScript = otypeSortsScript + `
 
-(declare-fun x () OTypeD0)
-(assert (is-OObj x))
-(assert (is-OString (atom (select (obj x) "b"))))
-(assert (is-OString (atom (select (obj x) "c"))))
-(assert (is-ONumber (atom (select (obj x) "d"))))
+(declare-fun x () OTypeD1)
+(assert (is-OObj1 x))
+(assert (is-OString (select (obj1 x) "b")))
+(assert (is-OString (select (obj1 x) "c")))
+(assert (is-ONumber (select (obj1 x) "d")))
 `
 
 func TestValueFromSimpleAST_StringViaModel(t *testing.T) {

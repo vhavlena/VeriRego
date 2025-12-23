@@ -18,7 +18,7 @@ func TestTypeDefs_getSmtConstr_AtomicString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(constr) != 1 || constr[0] != "(is-OString (atom x))" {
+	if len(constr) != 1 || constr[0] != "(is-OString x)" {
 		t.Errorf("unexpected constraint: %v", constr)
 	}
 }
@@ -34,7 +34,7 @@ func TestTypeDefs_getSmtConstr_AtomicInt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(constr) != 1 || constr[0] != "(is-ONumber (atom y))" {
+	if len(constr) != 1 || constr[0] != "(is-ONumber y)" {
 		t.Errorf("unexpected constraint: %v", constr)
 	}
 }
@@ -69,12 +69,13 @@ func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := map[string]bool{
-		"(is-OObj (select (obj z) \"baz\"))": false,
+		"(is-OObj2 z)":                         false,
+		"(is-OObj1 (select (obj2 z) \"baz\"))": false,
 	}
 	atomicChecks := map[string]bool{
-		"(is-OString (atom (select (obj z) \"foo\")))":                       false,
-		"(is-ONumber (atom (select (obj z) \"bar\")))":                       false,
-		"(is-OBoolean (atom (select (obj (select (obj z) \"baz\")) \"x\")))": false,
+		"(is-OString (select (obj2 z) \"foo\"))":                        false,
+		"(is-ONumber (select (obj2 z) \"bar\"))":                        false,
+		"(is-OBoolean (select (obj1 (select (obj2 z) \"baz\")) \"x\"))": false,
 	}
 	for _, c := range constr {
 		if _, ok := want[c]; ok {
@@ -126,12 +127,13 @@ func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := map[string]bool{
-		"(is-OObj (select (obj n) \"outer\"))": false,
+		"(is-OObj2 n)":                           false,
+		"(is-OObj1 (select (obj2 n) \"outer\"))": false,
 	}
 	atomicChecks := map[string]bool{
-		"(is-OBoolean (atom (select (obj n) \"flag\")))":                          false,
-		"(is-OString (atom (select (obj (select (obj n) \"outer\")) \"inner\")))": false,
-		"(is-ONumber (atom (select (obj (select (obj n) \"outer\")) \"num\")))":   false,
+		"(is-OBoolean (select (obj2 n) \"flag\"))":                           false,
+		"(is-OString (select (obj1 (select (obj2 n) \"outer\")) \"inner\"))": false,
+		"(is-ONumber (select (obj1 (select (obj2 n) \"outer\")) \"num\"))":   false,
 	}
 	for _, c := range constr {
 		if _, ok := want[c]; ok {
@@ -206,10 +208,11 @@ func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	checks := []string{
-		"(is-OObj (select (obj n) \"outer\"))",
-		"(is-OBoolean (atom (select (obj n) \"flag\")))",
-		"(is-OString (atom (select (obj (select (obj n) \"outer\")) \"inner\")))",
-		"(is-ONumber (atom (select (obj (select (obj n) \"outer\")) \"num\")))",
+		"(is-OObj2 n)",
+		"(is-OObj1 (select (obj2 n) \"outer\"))",
+		"(is-OBoolean (select (obj2 n) \"flag\"))",
+		"(is-OString (select (obj1 (select (obj2 n) \"outer\")) \"inner\"))",
+		"(is-ONumber (select (obj1 (select (obj2 n) \"outer\")) \"num\"))",
 	}
 	for _, c := range checks {
 		if !strings.Contains(assertStr, c) {
@@ -240,10 +243,10 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 	if len(constr) != 2 {
 		t.Errorf("expected 2 constraints, got %d", len(constr))
 	}
-	if constr[0] != "(is-OArray a)" {
+	if constr[0] != "(is-OArray1 a)" {
 		t.Errorf("missing or incorrect OArray constraint: %v", constr[0])
 	}
-	if !strings.Contains(constr[1], "(is-OString (atom elem))") {
+	if !strings.Contains(constr[1], "(is-OString elem)") {
 		t.Errorf("missing or incorrect atomic string constraint in forall: %v", constr[1])
 	}
 
@@ -266,13 +269,13 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 	if len(nestedConstr) != 2 {
 		t.Errorf("expected 2 constraints for nested array, got %d", len(nestedConstr))
 	}
-	if nestedConstr[0] != "(is-OArray b)" {
+	if nestedConstr[0] != "(is-OArray2 b)" {
 		t.Errorf("missing or incorrect OArray constraint for nested array: %v", nestedConstr[0])
 	}
-	if !strings.Contains(nestedConstr[1], "(is-OArray elem)") {
+	if !strings.Contains(nestedConstr[1], "(is-OArray1 elem)") {
 		t.Errorf("missing or incorrect nested OArray constraint in forall: %v", nestedConstr[1])
 	}
-	if !strings.Contains(nestedConstr[1], "(is-ONumber (atom elem)") {
+	if !strings.Contains(nestedConstr[1], "(is-ONumber elem") {
 		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedConstr[1])
 	}
 }
@@ -305,10 +308,10 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	if !strings.Contains(constr[0], "(or ") {
 		t.Errorf("union constraint should contain 'or': %v", constr[0])
 	}
-	if !strings.Contains(constr[0], "(is-OString (atom u))") {
+	if !strings.Contains(constr[0], "(is-OString u)") {
 		t.Errorf("missing string constraint in union: %v", constr[0])
 	}
-	if !strings.Contains(constr[0], "(is-ONumber (atom u))") {
+	if !strings.Contains(constr[0], "(is-ONumber u)") {
 		t.Errorf("missing int constraint in union: %v", constr[0])
 	}
 
@@ -350,13 +353,13 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 		t.Errorf("complex union constraint should contain 'or': %v", complexConstraintStr)
 	}
 	// Check that it contains all member constraints
-	if !strings.Contains(complexConstraintStr, "(is-OString (atom v))") {
+	if !strings.Contains(complexConstraintStr, "(is-OString v)") {
 		t.Errorf("missing string constraint in complex union: %v", complexConstraintStr)
 	}
-	if !strings.Contains(complexConstraintStr, "(is-OBoolean (atom (select (obj v) \"field1\")))") {
+	if !strings.Contains(complexConstraintStr, "(is-OBoolean (select (obj1 v) \"field1\"))") {
 		t.Errorf("missing object field constraint in complex union: %v", complexConstraintStr)
 	}
-	if !strings.Contains(complexConstraintStr, "(is-OArray v)") {
+	if !strings.Contains(complexConstraintStr, "(is-OArray1 v)") {
 		t.Errorf("missing array constraint in complex union: %v", complexConstraintStr)
 	}
 
@@ -395,13 +398,13 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 		t.Errorf("nested union constraint should contain 'or': %v", nestedConstraintStr)
 	}
 	// Should contain all flattened constraints
-	if !strings.Contains(nestedConstraintStr, "(is-OString (atom w))") {
+	if !strings.Contains(nestedConstraintStr, "(is-OString w)") {
 		t.Errorf("missing string constraint in nested union: %v", nestedConstraintStr)
 	}
-	if !strings.Contains(nestedConstraintStr, "(is-ONumber (atom w))") {
+	if !strings.Contains(nestedConstraintStr, "(is-ONumber w)") {
 		t.Errorf("missing int constraint in nested union: %v", nestedConstraintStr)
 	}
-	if !strings.Contains(nestedConstraintStr, "(is-OBoolean (atom w))") {
+	if !strings.Contains(nestedConstraintStr, "(is-OBoolean w)") {
 		t.Errorf("missing boolean constraint in nested union: %v", nestedConstraintStr)
 	}
 }

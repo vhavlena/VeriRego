@@ -282,7 +282,8 @@ func (et *ExprTranslator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		smtAssert := fmt.Sprintf("(assert (= (select (arr %s) %d) %s))", varName, i, elemSmt)
+		depth := max(tp.TypeDepth(), 0)
+		smtAssert := fmt.Sprintf("(assert (= (select (arr%d %s) %d) %s))", depth, varName, i, elemSmt)
 		et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, smtAssert)
 	}
 

@@ -110,8 +110,8 @@ func TestRefToSmt_NonInputRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// For an atomic int the SMT representation should be (num (atom <name>))
-	expected := "(num (atom " + ref.String() + "))"
+	// For an atomic int the SMT representation should be (num <name>)
+	expected := "(num " + ref.String() + ")"
 	if smt != expected {
 		t.Errorf("expected %q, got %q", expected, smt)
 	}
@@ -176,7 +176,7 @@ func TestTermToSmt_BasicTypes(t *testing.T) {
 		{"number", ast.NewTerm(ast.Number("42")), "42", false},
 		{"boolean true", ast.NewTerm(ast.Boolean(true)), "true", false},
 		{"boolean false", ast.NewTerm(ast.Boolean(false)), "false", false},
-		{"var", ast.NewTerm(ast.Var("x")), "(num (atom x))", false},
+		{"var", ast.NewTerm(ast.Var("x")), "(num x)", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -474,10 +474,10 @@ func TestExplicitArrayToSmt_CompareFullSmtLib(t *testing.T) {
 	}
 	smtlib := sb.String()
 
-	expectedDeclPrefix := "(declare-fun " + varName + " () OTypeD0)"
-	expectedElem0 := "(assert (= (select (arr " + varName + ") 0) 1))"
-	expectedElem1 := "(assert (= (select (arr " + varName + ") 1) 2))"
-	expectedElem2 := "(assert (= (select (arr " + varName + ") 2) 3))"
+	expectedDeclPrefix := "(declare-fun " + varName + " () OTypeD1)"
+	expectedElem0 := "(assert (= (select (arr1 " + varName + ") 0) 1))"
+	expectedElem1 := "(assert (= (select (arr1 " + varName + ") 1) 2))"
+	expectedElem2 := "(assert (= (select (arr1 " + varName + ") 2) 3))"
 
 	if !strings.Contains(smtlib, expectedDeclPrefix) {
 		t.Errorf("expected SMT-LIB to contain declaration: %q\nGot:\n%s", expectedDeclPrefix, smtlib)
@@ -522,7 +522,7 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			t.Fatalf("expected non-empty variable name")
 		}
 		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
-		expected := "(declare-fun " + varName + " () OTypeD0)\n(assert (and (is-OString (atom (select (obj " + varName + ") \"name\"))) (is-ONumber (atom (select (obj " + varName + ") \"value\")))))"
+		expected := "(declare-fun " + varName + " () OTypeD1)\n(assert (and (is-OObj1 " + varName + ") (is-OString (select (obj1 " + varName + ") \"name\")) (is-ONumber (select (obj1 " + varName + ") \"value\"))))"
 		if joined != expected {
 			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
 		}
@@ -570,7 +570,7 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			t.Fatalf("expected non-empty variable name")
 		}
 		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
-		expected := "(declare-fun const_obj () OTypeD1)\n(assert (and (is-OBoolean (atom (select (obj const_obj) \"active\"))) (is-OObj (select (obj const_obj) \"user\")) (is-ONumber (atom (select (obj (select (obj const_obj) \"user\")) \"age\"))) (is-OString (atom (select (obj (select (obj const_obj) \"user\")) \"name\")))))"
+		expected := "(declare-fun const_obj () OTypeD2)\n(assert (and (is-OObj2 const_obj) (is-OBoolean (select (obj2 const_obj) \"active\")) (is-OObj1 (select (obj2 const_obj) \"user\")) (is-OObj1 (select (obj2 const_obj) \"user\")) (is-ONumber (select (obj1 (select (obj2 const_obj) \"user\")) \"age\")) (is-OString (select (obj1 (select (obj2 const_obj) \"user\")) \"name\"))))"
 		if joined != expected {
 			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
 		}

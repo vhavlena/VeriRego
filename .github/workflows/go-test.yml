@@ -9,6 +9,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      Z3_VERSION: "z3-4.15.4"
+      Z3_PREFIX: "${{ github.workspace }}/.z3"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,10 +31,43 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Install Z3 (Ubuntu)
+      - name: Cache Z3 build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.z3
+            ${{ github.workspace }}/.z3-src
+          key: ${{ runner.os }}-z3-${{ env.Z3_VERSION }}
+
+      - name: Build Z3 from source
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y z3 libz3-dev
+          sudo apt-get install -y cmake ninja-build python3 git
+
+          if [ -x "${Z3_PREFIX}/bin/z3" ]; then
+            echo "Using cached Z3 at ${Z3_PREFIX}"
+          else
+            rm -rf "${Z3_PREFIX}" "${{ github.workspace }}/.z3-src"
+            git clone --depth 1 --branch "${Z3_VERSION}" https://github.com/Z3Prover/z3.git "${{ github.workspace }}/.z3-src"
+            cmake -S "${{ github.workspace }}/.z3-src" -B "${{ github.workspace }}/.z3-src/build" \
+              -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX="${Z3_PREFIX}" \
+              -DZ3_BUILD_LIBZ3_SHARED=ON
+            cmake --build "${{ github.workspace }}/.z3-src/build" --parallel
+            cmake --install "${{ github.workspace }}/.z3-src/build"
+          fi
+
+          # Make Z3 available in *this* step (GITHUB_PATH takes effect next steps).
+          export PATH="${Z3_PREFIX}/bin:${PATH}"
+          export LD_LIBRARY_PATH="${Z3_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+
+          test -x "${Z3_PREFIX}/bin/z3"
+          which z3
+          echo "${Z3_PREFIX}/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=${Z3_PREFIX}/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          z3 --version
 
       - name: Install dependencies
         run: go mod download
