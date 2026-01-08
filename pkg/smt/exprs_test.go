@@ -570,7 +570,7 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			t.Fatalf("expected non-empty variable name")
 		}
 		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
-		expected := "(declare-fun const_obj () OTypeD2)\n(assert (and (is-OObj2 const_obj) (is-OBoolean (select (obj2 const_obj) \"active\")) (is-OObj1 (select (obj2 const_obj) \"user\")) (is-OObj1 (select (obj2 const_obj) \"user\")) (is-ONumber (select (obj1 (select (obj2 const_obj) \"user\")) \"age\")) (is-OString (select (obj1 (select (obj2 const_obj) \"user\")) \"name\"))))"
+		expected := "(declare-fun const_obj () OTypeD2)\n(assert (and (is-OObj2 const_obj) (is-OBoolean (atom1 (select (obj2 const_obj) \"active\"))) (is-OObj1 (select (obj2 const_obj) \"user\")) (is-ONumber (select (obj1 (select (obj2 const_obj) \"user\")) \"age\")) (is-OString (select (obj1 (select (obj2 const_obj) \"user\")) \"name\"))))"
 		if joined != expected {
 			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
 		}
