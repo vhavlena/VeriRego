@@ -73,8 +73,8 @@ func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 		"(is-OObj1 (select (obj2 z) \"baz\"))": false,
 	}
 	atomicChecks := map[string]bool{
-		"(is-OString (select (obj2 z) \"foo\"))":                        false,
-		"(is-ONumber (select (obj2 z) \"bar\"))":                        false,
+		"(is-OString (atom1 (select (obj2 z) \"foo\")))":                        false,
+		"(is-ONumber (atom1 (select (obj2 z) \"bar\")))":                        false,
 		"(is-OBoolean (select (obj1 (select (obj2 z) \"baz\")) \"x\"))": false,
 	}
 	for _, c := range constr {
@@ -131,7 +131,7 @@ func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 		"(is-OObj1 (select (obj2 n) \"outer\"))": false,
 	}
 	atomicChecks := map[string]bool{
-		"(is-OBoolean (select (obj2 n) \"flag\"))":                           false,
+		"(is-OBoolean (atom1 (select (obj2 n) \"flag\")))":                           false,
 		"(is-OString (select (obj1 (select (obj2 n) \"outer\")) \"inner\"))": false,
 		"(is-ONumber (select (obj1 (select (obj2 n) \"outer\")) \"num\"))":   false,
 	}
@@ -210,7 +210,7 @@ func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 	checks := []string{
 		"(is-OObj2 n)",
 		"(is-OObj1 (select (obj2 n) \"outer\"))",
-		"(is-OBoolean (select (obj2 n) \"flag\"))",
+		"(is-OBoolean (atom1 (select (obj2 n) \"flag\")))",
 		"(is-OString (select (obj1 (select (obj2 n) \"outer\")) \"inner\"))",
 		"(is-ONumber (select (obj1 (select (obj2 n) \"outer\")) \"num\"))",
 	}

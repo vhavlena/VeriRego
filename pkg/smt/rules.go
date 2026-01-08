@@ -62,6 +62,42 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 	return fmt.Sprintf("(= %s %s)", ruleVarSmt, ruleValSmt), nil
 }
 
+func (t *Translator) RuleToSmtString(rule *ast.Rule) (string,error) {
+	if rule == nil {
+		return "true",nil
+	}
+	println(" RuleToSmtString: ", rule.String())
+	// get head
+	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
+	smtHead, err := t.ruleHeadToSmt(rule, exprTrans)
+	if err != nil {
+		return "",err
+	}
+
+	// Convert all body expressions to SMT
+	bodySmts := make([]string, 0, len(rule.Body))
+	for _, expr := range rule.Body {
+		smtStr, err := exprTrans.ExprToSmt(expr)
+		if err != nil {
+			return "",fmt.Errorf("failed to convert rule body expr: %w", err)
+		}
+		bodySmts = append(bodySmts, smtStr)
+	}
+	t.AddTransContext(exprTrans.GetTransContext())
+	bodySmt := fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+
+	// get else
+	elseSmt, err := t.RuleToSmtString(rule.Else)
+	if err != nil {
+		return "",err
+	}
+
+	// return
+	smt := fmt.Sprintf("(ite %s %s %s)", bodySmt, smtHead, elseSmt)
+	println(" returns ", smt)
+	return smt,nil
+}
+
 // RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.
 //
 // Parameters:
@@ -75,34 +111,13 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
 // The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
 func (t *Translator) RuleToSmt(rule *ast.Rule) error {
-	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
-	smtHead, err := t.ruleHeadToSmt(rule, exprTrans)
+	println("RuleToSmt: ", rule.String())
+	smt,err := t.RuleToSmtString(rule)
 	if err != nil {
 		return err
 	}
 
-	// Convert all body expressions to SMT
-	bodySmts := make([]string, 0, len(rule.Body))
-	for _, expr := range rule.Body {
-		smtStr, err := exprTrans.ExprToSmt(expr)
-		if err != nil {
-			return fmt.Errorf("failed to convert rule body expr: %w", err)
-		}
-		bodySmts = append(bodySmts, smtStr)
-	}
-	t.AddTransContext(exprTrans.GetTransContext())
-
-	var bodySmt string
-	switch len(bodySmts) {
-	case 0:
-		bodySmt = "true"
-	case 1:
-		bodySmt = bodySmts[0]
-	default:
-		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
-	}
-
-	assertion := fmt.Sprintf("(assert (= %s %s))", smtHead, bodySmt)
+	assertion := fmt.Sprintf("(assert %s)", smt)
 	t.smtAsserts = append(t.smtAsserts, assertion)
 	return nil
 }
