@@ -95,6 +95,127 @@ func (et *ExprTranslator) ExprToSmt(expr *ast.Expr) (string, error) {
 	return smtStr, nil
 }
 
+// isDeclared returns whether a variable name is present in variable declarations.
+//
+// Parameters:
+//
+//	varName string: name of the variable
+//	decls []string: array of declarations of type (define-... name type)
+//
+// Returns:
+//
+// bool: true - varName is declared, false otherwise
+func isDeclared(varName string, decls []string) bool {
+	for _,decl := range decls {
+		definedName := strings.Split(decl, " ")[1]
+		if varName == definedName {
+			return true
+		}
+	}
+	return false
+}
+
+// BodyExprsToSmt converts all body expressions to SMT
+//
+// Parameters:
+//
+//	ruleBody *ast.Body: body (array of expressions) for the processed rule
+//
+// Returns:
+//
+//	string: The SMT-LIB string representation of the body (a conjunction of expressions).
+//	error: An error if the body cannot be converted.
+func (exprTrans *ExprTranslator) BodyExprsToSmt(ruleBody *ast.Body) (string,error) {
+	bodySmts := make([]string, 0, len(*ruleBody))
+	for _, expr := range *ruleBody {
+		smtStr, err := exprTrans.ExprToSmt(expr)
+		if err != nil {
+			return "",fmt.Errorf("failed to convert rule body expr: %w", err)
+		}
+		bodySmts = append(bodySmts, smtStr)
+	}
+	bodySmt := fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+	return bodySmt,nil
+}
+
+func (et *ExprTranslator) getTermName(term *ast.Term) (string,bool) {
+	if value,found := et.TypeTrans.TypeInfo.Refs[term.String()]; found {
+		return value.String(),found
+	}
+	return "",false
+}
+
+func getLiteralSmt(term *ast.Term) string {
+	switch term.Value.(type) {
+	case ast.String:
+		return "OString"
+	case ast.Number:
+		return "ONumber"
+	case ast.Boolean:
+		return "OBoolean"
+	case ast.Call:
+		// calls + expressions
+		return "getLiteralSmt-NotImplementedForCalls"
+	default:
+		return ""
+	}
+}
+
+// GetLocalVariablesSmt returns a SMT-LIB representation of definition of local variables, or empty string if there are none.
+//
+// Parameters:
+//
+//	rule *ast.Rule: The Rego rule whose head is to be converted.
+//	decls []string: All current variable declarations
+//
+// Returns:
+//
+//	localVarsDef string: The SMT-LIB representation of local variable definitions; Empty if there are no local variables.
+//	error: An error if the body expressions are in invalid format.
+func (et *ExprTranslator) GetLocalVariablesSmt(ruleBody *ast.Body, decls []string) (string,error) {
+	localVarDefs := make([]string, 0)
+	for _, expr := range *ruleBody {
+		// skip single terms
+		if _, ok := expr.Terms.(*ast.Term); ok {
+			continue
+		}
+		terms, ok := expr.Terms.([]*ast.Term)
+		if !ok {
+			return "", verr.ErrInvalidEmptyTerm
+		}
+		if len(terms) != 3 { continue }	// always assign/eq with 2 args
+
+		opStr := removeQuotes(terms[0].String())
+		varName,isVar := et.getTermName(terms[1])
+		if !isVar { continue }
+		rhs := terms[2]
+		if (opStr == ast.Assign.Name) || (opStr == ast.Equality.Name && !isDeclared(varName,decls)) {
+			// varName is a local variable
+			val,err := et.termToSmt(rhs)
+			if err != nil {
+				return "",err
+			}
+			// convert literal types to atomic
+			// TODO handle assignments of variables
+			// example: x := y  would now get translated to (let (x (num y))), but we want it (let (x y))
+			// TODO TODO TODO:
+			// handle expressions, for example 1+1
+			if literalSmt := getLiteralSmt(rhs); literalSmt != "" {
+				val = fmt.Sprintf("(%s %s)", literalSmt, val)
+			}
+
+			varDef := fmt.Sprintf("(%s %s)", varName, val)
+			localVarDefs = append(localVarDefs, varDef)
+		}
+	}
+	if len(localVarDefs) == 0 {
+		return "",nil
+	} else {
+		localVarsDef :=	fmt.Sprintf("(%s)", strings.Join(localVarDefs, " "))
+		return localVarsDef,nil
+	}
+}
+
 // termToSmt converts a Rego AST term to its SMT-LIB string representation.
 //
 // Parameters:
@@ -178,6 +299,7 @@ func (et *ExprTranslator) regoFuncToSmt(op string, args []string, terms []*ast.T
 		"indexof":    "str.indexof",
 		"substring":  "str.substr",
 		"equal":      "=",
+		"assign":      "=",
 		"gt":         ">",
 		"lt":         "<",
 	}

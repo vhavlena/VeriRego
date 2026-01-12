@@ -20,7 +20,7 @@ func TestTranslateAndCheckZ3(t *testing.T) {
 	package test
 
 	p := x if {
-		x == 1
+		x := 1
 	}
 `
 
@@ -64,6 +64,7 @@ func TestTranslateAndCheckZ3(t *testing.T) {
 	}
 
 	smt := strings.Join(tr.SmtLines(), "\n")
+	// println("--- smt ---",smt)
 
 	// Z3: assert SMT-LIB2 string and check SAT
 	ctx := z3.NewContext(nil)
