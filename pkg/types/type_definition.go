@@ -31,7 +31,6 @@ const (
 
 // RegoTypeDef represents a full type definition in Rego
 type RegoTypeDef struct {
-	Depth		 int
 	Kind         TypeKind       // The kind of type (atomic, array, object)
 	AtomicType   AtomicType     // The specific atomic type if Kind is atomic
 	ArrayType    *RegoTypeDef   // The type of array elements if Kind is array
@@ -635,9 +634,6 @@ func CopyTypeMap(src map[string]RegoTypeDef) map[string]RegoTypeDef {
 //
 //	int: The depth of the type. For atomic and unknown types, the depth is 1. For arrays and objects, it is 1 plus the maximum depth of nested types.
 func (t *RegoTypeDef) TypeDepth() int {
-	if t.Depth > 0 {
-		return t.Depth
-	}
 	switch t.Kind {
 	case KindAtomic, KindUnknown:
 		return 0

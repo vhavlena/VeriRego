@@ -373,15 +373,12 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 		if !found {
 			return nil, err.ErrSmtFieldConstraints(key, err.ErrTypeNotFound)
 		}
-		val.Depth = depth-1
 		sel := fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtValue, key)
-		// if !val.IsAtomic() {
-		// 	constr, err := getTypeConstr(depth-1, val)
-		// 	if err != nil {
-		// 		return nil, err
-		// 	}
-		// 	andConstr = append(andConstr, fmt.Sprintf("(%s %s)", constr, sel))
-		// }
+		// unwrap
+		selDepth := max(val.TypeDepth(), 0)
+		for d := depth-1; d > selDepth; d-- {
+			sel = fmt.Sprintf("(atom%d %s)", d, sel)
+		}
 
 		valAnalysis, er := td.getSmtConstr(sel, val)
 		if er != nil {
@@ -458,9 +455,8 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	andConstr := make([]string, 0, 64)
 	andConstr = append(andConstr, fmt.Sprintf("(is-OArray%d %s)", depth, smtValue))
 
-	tpElem := tp.ArrayType
-	tpElem.Depth = depth-1
-	valAnalysis, er := td.getSmtConstr("elem", tpElem)
+	// TODO: what if it is an array of objects?
+	valAnalysis, er := td.getSmtConstr("elem", tp.ArrayType)
 	if er != nil {
 		return nil, er
 	}
