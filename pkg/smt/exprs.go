@@ -6,6 +6,7 @@ import (
 
 	"github.com/open-policy-agent/opa/v1/ast"
 	verr "github.com/vhavlena/verirego/pkg/err"
+	"github.com/vhavlena/verirego/pkg/types"
 )
 
 // ExprTranslator handles the translation of Rego expressions to SMT-LIB format.
@@ -145,20 +146,89 @@ func (et *ExprTranslator) getTermName(term *ast.Term) (string,bool) {
 	return "",false
 }
 
-func getLiteralSmt(term *ast.Term) string {
-	switch term.Value.(type) {
+// getSmtAtomConstructor returns a SMT-LIB constructor for OTypeD0 from a rego type of term
+//
+// Parameters:
+//	term *ast.Term:	promoted term to OTypeD0
+//
+// Returns:
+// 	constructor string: correct constructor for term SMT-LIB value, or empty if it is in SMT-LIB compatible state
+//	error: error for use of unknown function
+func (et *ExprTranslator) getSmtAtomConstructor(term *ast.Term) (string,error) {
+	switch v := term.Value.(type) {
 	case ast.String:
-		return "OString"
+		return "OString",nil
 	case ast.Number:
-		return "ONumber"
+		return "ONumber",nil
 	case ast.Boolean:
-		return "OBoolean"
+		return "OBoolean",nil
 	case ast.Call:
 		// calls + expressions
-		return "getLiteralSmt-NotImplementedForCalls"
+		opName := v[0].String()
+		opType,err := getOperationReturnType(opName)
+		if err != nil {
+			return "",verr.ErrUnsupportedFunction
+		}
+		switch opType {
+		case types.AtomicString:
+			return "OString",nil
+		case types.AtomicInt:
+			return "ONumber",nil
+		case types.AtomicBoolean:
+			return "OBoolean",nil
+		default:
+			return "",nil
+		}
+	case ast.Var:
+		tp, ok := et.TypeTrans.TypeInfo.Types[v.String()]
+		if !ok {
+			return "",verr.ErrTypeNotFound
+		}
+		if !tp.IsAtomic() {
+			return "",nil
+		}
+		switch tp.AtomicType {
+		case types.AtomicString:
+			return "OString",nil
+		case types.AtomicInt:
+			return "ONumber",nil
+		case types.AtomicBoolean:
+			return "OBoolean",nil
+		default:
+			return "",nil
+		}
 	default:
-		return ""
+		return "",nil
 	}
+}
+
+func /*(et *ExprTranslator)*/ getOperationReturnType(opName string) (types.AtomicType,error) {
+	funcMap := map[string]types.AtomicType{
+		ast.Plus.Name:          types.AtomicInt,        // +
+		ast.Minus.Name:         types.AtomicInt,        // -
+		ast.Multiply.Name:      types.AtomicInt,        // *
+		ast.Divide.Name:        types.AtomicInt,        // /
+		ast.Equal.Name:         types.AtomicBoolean,    // ==
+		ast.Equality.Name:      types.AtomicBoolean,    // =
+		ast.Assign.Name:        types.AtomicBoolean,    // :=
+		ast.GreaterThan.Name:   types.AtomicBoolean,    // >
+		ast.GreaterThanEq.Name:	types.AtomicBoolean,    // >=
+		ast.LessThan.Name:      types.AtomicBoolean,    // <
+		ast.LessThanEq.Name:    types.AtomicBoolean,    // <=
+		ast.Concat.Name:        types.AtomicString,     // concat
+		ast.Contains.Name:      types.AtomicBoolean,    // contains
+		ast.StartsWith.Name:    types.AtomicBoolean,    // startswith
+		ast.EndsWith.Name:      types.AtomicBoolean,    // endswith
+		ast.IndexOf.Name:       types.AtomicInt,        // indexof
+		ast.Substring.Name:     types.AtomicString,     // substring
+		// "length" does not exist
+	}
+
+	// TODO: user defined functions
+	if atomicType,found := funcMap[opName]; found {
+		return atomicType,nil
+	}
+	return types.AtomicUndef,verr.ErrUnsupportedFunction
 }
 
 // GetLocalVariablesSmt returns a SMT-LIB representation of definition of local variables, or empty string if there are none.
@@ -198,9 +268,11 @@ func (et *ExprTranslator) GetLocalVariablesSmt(ruleBody *ast.Body, decls []strin
 			// convert literal types to atomic
 			// TODO handle assignments of variables
 			// example: x := y  would now get translated to (let (x (num y))), but we want it (let (x y))
-			// TODO TODO TODO:
-			// handle expressions, for example 1+1
-			if literalSmt := getLiteralSmt(rhs); literalSmt != "" {
+			literalSmt,err := et.getSmtAtomConstructor(rhs)
+			if err != nil {
+				return "",err
+			}
+			if literalSmt != "" {
 				val = fmt.Sprintf("(%s %s)", literalSmt, val)
 			}
 
@@ -299,7 +371,7 @@ func (et *ExprTranslator) regoFuncToSmt(op string, args []string, terms []*ast.T
 		"indexof":    "str.indexof",
 		"substring":  "str.substr",
 		"equal":      "=",
-		"assign":      "=",
+		"assign":     "=",
 		"gt":         ">",
 		"lt":         "<",
 	}
