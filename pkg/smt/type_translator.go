@@ -16,6 +16,19 @@ import (
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 const letterStartBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+const smtUndef = "OUndef"
+
+// RandString returns a random SMT-LIB symbol-like string of length `n`.
+//
+// Behaviour:
+//   - Ensures the first character is a letter so the result is a valid SMT-LIB symbol.
+//   - Uses a time-based seed and draws subsequent characters from an alpha-numeric set.
+//
+// Parameters:
+// - `n int`: Desired length.
+//
+// Returns:
+// - `string`: Random string of length `n` (or empty if `n == 0`).
 func RandString(n int) string {
 	rand.Seed(time.Now().UnixNano())
 	b := make([]byte, n)
@@ -31,12 +44,18 @@ func RandString(n int) string {
 
 //----------------------------------------------------------------
 
-// TypeTranslator handles SMT type definitions and type-related operations
+// TypeTranslator handles SMT type declarations and type-related operations.
 type TypeTranslator struct {
 	TypeInfo *types.TypeAnalyzer // Type information for Rego terms
 }
 
-// NewTypeDefs creates a new TypeDefs instance with the given TypeAnalyzer.
+// NewTypeDefs constructs a TypeTranslator with the given type analyzer.
+//
+// Parameters:
+// - `typeInfo *types.TypeAnalyzer`: Analyzer holding inferred types.
+//
+// Returns:
+// - `*TypeTranslator`: New translator instance.
 func NewTypeDefs(typeInfo *types.TypeAnalyzer) *TypeTranslator {
 	return &TypeTranslator{
 		TypeInfo: typeInfo,
@@ -51,6 +70,10 @@ type Bucket struct {
 	Asserts   []string // SMT assertions
 }
 
+// NewBucket creates an empty Bucket with pre-allocated capacity.
+//
+// Returns:
+// - `*Bucket`: Bucket with empty `Decls`, `Asserts`, and `TypeDecls`.
 func NewBucket() *Bucket {
 	return &Bucket{
 		Decls:     make([]string, 0, 64),
@@ -59,6 +82,10 @@ func NewBucket() *Bucket {
 	}
 }
 
+// Append merges the contents of `other` into `b`.
+//
+// Parameters:
+// - `other *Bucket`: Bucket to append.
 func (b *Bucket) Append(other *Bucket) {
 	b.Decls = append(b.Decls, other.Decls...)
 	b.Asserts = append(b.Asserts, other.Asserts...)
@@ -67,17 +94,18 @@ func (b *Bucket) Append(other *Bucket) {
 
 //----------------------------------------------------------------
 
-// GenerateTypeDecls generates SMT-LIB datatype and sort declarations
-// required by the types of the variables listed in usedVars.
+// GenerateTypeDecls generates SMT-LIB datatype/sort declarations for `usedVars`.
+//
+// Behaviour:
+//   - Computes the maximum type depth among variables present in `usedVars`.
+//   - Emits datatype declarations up to that depth.
 //
 // Parameters:
-//
-//	usedVars map[string]any: map whose keys are variable names that should be considered.
+// - `usedVars map[string]any`: Keys are variable names to consider.
 //
 // Returns:
-//
-//	*Bucket: Bucket containing TypeDecls (datatype and sort definitions).
-//	error: An error if generation fails.
+// - `*Bucket`: Bucket with `TypeDecls` populated.
+// - `error`: Non-nil if generation fails.
 func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, error) {
 	bucket := NewBucket()
 
@@ -94,17 +122,14 @@ func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, e
 	return bucket, nil
 }
 
-// GenerateVarDecl generates the SMT-LIB declaration and constraint assertion
-// for a single variable named varName.
+// GenerateVarDecl generates the SMT-LIB declaration and constraint assertion for `varName`.
 //
 // Parameters:
-//
-//	varName string: The variable name. Must exist in td.TypeInfo.Types.
+// - `varName string`: Variable name (must exist in `td.TypeInfo.Types`).
 //
 // Returns:
-//
-//	*Bucket: A Bucket with one entry in Decls (declare-fun) and one in Asserts (constraint assertion).
-//	error: An error if generation fails.
+// - `*Bucket`: Bucket containing a declaration in `Decls` and constraints in `Asserts`.
+// - `error`: Non-nil if generation fails.
 func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 	bucket := NewBucket()
 	tp := td.TypeInfo.Types[varName]
@@ -123,17 +148,14 @@ func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 	return bucket, nil
 }
 
-// GenerateVarDecls generates SMT-LIB variable declarations and constraint
-// assertions for every variable whose name appears as a key in usedVars.
+// GenerateVarDecls generates declarations and constraints for every variable in `usedVars`.
 //
 // Parameters:
-//
-//	usedVars map[string]any: map with variable names to generate declarations for.
+// - `usedVars map[string]any`: Keys are variable names to generate declarations for.
 //
 // Returns:
-//
-//	*Bucket: Aggregated Bucket of declarations and assertions.
-//	error: An error if any generation fails.
+// - `*Bucket`: Aggregated bucket of `Decls` and `Asserts`.
+// - `error`: Non-nil if any variable generation fails.
 func (td *TypeTranslator) GenerateVarDecls(usedVars map[string]any) (*Bucket, error) {
 	bucket := NewBucket()
 	for name := range usedVars {
@@ -146,15 +168,15 @@ func (td *TypeTranslator) GenerateVarDecls(usedVars map[string]any) (*Bucket, er
 	return bucket, nil
 }
 
-// getTypeConstr returns the SMT type constraint function name for a given Rego type.
+// getTypeConstr returns the SMT predicate name enforcing a type at `depth`.
 //
 // Parameters:
-//
-//	tp *types.RegoTypeDef: The Rego type definition.
+// - `depth int`: Value depth used to choose depth-indexed predicates for arrays/objects.
+// - `tp *types.RegoTypeDef`: Rego type definition.
 //
 // Returns:
-//
-//	string: The SMT type constraint function name.
+// - `string`: SMT predicate name (e.g. `is-OString`, `is-OObj2`).
+// - `error`: Non-nil for unsupported atomic kinds.
 func getTypeConstr(depth int, tp *types.RegoTypeDef) (string, error) {
 	if tp.IsAtomic() {
 		switch tp.AtomicType {
@@ -179,11 +201,17 @@ func getTypeConstr(depth int, tp *types.RegoTypeDef) (string, error) {
 	return fmt.Sprintf("is-OObj%d", depth), nil
 }
 
-// getDatatypesDeclaration returns SMT-LIB datatype declarations for the supported types.
+// getDatatypesDeclaration returns SMT-LIB datatype declarations up to `maxDepth`.
+//
+// Notes:
+//   - `OTypeD0` represents atomic values.
+//   - `OTypeD1..N` represent nested values where object/array elements refer to `OTypeD(d-1)`.
+//
+// Parameters:
+// - `maxDepth int`: Maximum depth to declare.
 //
 // Returns:
-//
-//	[]string: A slice of SMT-LIB datatype declaration strings.
+// - `*Bucket`: Bucket with `TypeDecls` populated.
 func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
 	// Simplified scheme:
 	// - OTypeD0 is the atomic datatype (previously called OAtom).
@@ -217,32 +245,31 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
 	return bucket
 }
 
-// getVarDeclaration returns the SMT-LIB variable declaration for a given variable name and type.
+// getVarDeclaration emits a `(declare-fun ...)` for `name` using `tp`'s sort.
 //
 // Parameters:
-//
-//	name string: The variable name.
-//	tp *types.RegoTypeDef: The Rego type definition for the variable.
+// - `name string`: SMT variable name.
+// - `tp *types.RegoTypeDef`: Rego type definition.
 //
 // Returns:
-//
-//	string: The SMT-LIB variable declaration string.
-//	error: An error if the declaration could not be generated.
+// - `*Bucket`: Bucket with a single entry in `Decls`.
+// - `error`: Always nil in current implementation.
 func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) (*Bucket, error) {
 	bucket := NewBucket()
 	bucket.Decls = append(bucket.Decls, fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType(tp)))
 	return bucket, nil
 }
 
-// getSmtType returns the SMT-LIB type name for a given Rego type definition based on its type depth.
+// getSmtType returns the SMT-LIB sort name for `tp`.
+//
+// Behaviour:
+//   - Uses `tp.TypeDepth()` to select a depth-indexed sort `OTypeD<d>`.
 //
 // Parameters:
-//
-//	ttp *types.RegoTypeDef: The Rego type definition.
+// - `tp *types.RegoTypeDef`: Rego type definition.
 //
 // Returns:
-//
-//	string: The SMT-LIB sort name corresponding to the type depth.
+// - `string`: SMT sort name.
 func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
 	// With simplified scheme, atomic values are OTypeD0 and non-atomic values
 	// start at OTypeD1.
@@ -250,27 +277,15 @@ func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
 	return fmt.Sprintf("OTypeD%d", dpth)
 }
 
-// getSmtConstrAssert generates an SMT-LIB assertion for the constraints of a value and type.
+// getSmtConstrAssert wraps the constraints for `smtValue` in a single SMT `(assert ...)`.
 //
 // Parameters:
-//
-// getSmtObjectConstr generates SMT-LIB constraints for an object value.
-// It asserts the object predicate at the appropriate depth, adds per-field
-// constraints by selecting `(select (obj<depth> <smtValue>) "<field>")` and
-// recursing into field types (adding a type predicate for non-atomic fields).
-// If additional properties are disallowed or an additional-property type is
-// present, emits a `(forall ((k String)) ...)` requiring keys to be explicit
-// or map to `OUndef` / satisfy the additional type. Returns constraint
-// fragments or an error if `tp` is not an object.
-//
-//	smtValue string: The SMT variable or value name.
-//	tp *types.RegoTypeDef: The Rego type definition.
+// - `smtValue string`: SMT expression/value to constrain.
+// - `tp *types.RegoTypeDef`: Expected Rego type.
 //
 // Returns:
-//
-//	string: The SMT-LIB assertion string.
-//	error: An error if constraints could not be generated.
-
+// - `*Bucket`: Bucket with one `(assert ...)` in `Asserts`.
+// - `error`: Non-nil if constraint generation fails.
 func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	bucket := NewBucket()
 	andBucket, er := td.getSmtConstr(smtValue, tp)
@@ -282,17 +297,15 @@ func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoType
 	return bucket, nil
 }
 
-// getSmtConstr generates SMT-LIB constraints for a value and type.
+// getSmtConstr generates SMT constraint fragments for `smtValue` of type `tp`.
 //
 // Parameters:
-//
-//	smtValue string: The SMT variable or value name.
-//	tp *types.RegoTypeDef: The Rego type definition.
+// - `smtValue string`: SMT expression/value to constrain.
+// - `tp *types.RegoTypeDef`: Expected Rego type.
 //
 // Returns:
-//
-//	[]string: A slice of SMT-LIB constraint strings.
-//	error: An error if constraints could not be generated.
+// - `*Bucket`: Bucket with constraint fragments in `Asserts`.
+// - `error`: Non-nil if the type is unsupported or constraint generation fails.
 
 func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	switch {
@@ -309,20 +322,18 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 	}
 }
 
-// getSmtUnionConstr generates SMT-LIB constraints for a union type by combining
-// the constraints of each union member with a logical 'or'.
+// getSmtUnionConstr generates constraints for a union type.
+//
+// Behaviour:
+//   - Produces a single SMT `(or ...)` over member-constraint conjunctions.
 //
 // Parameters:
-//
-//	smtValue string: The SMT variable or value name.
-//	tp *types.RegoTypeDef: The Rego union type definition.
+// - `smtValue string`: SMT expression/value to constrain.
+// - `tp *types.RegoTypeDef`: Union type definition.
 //
 // Returns:
-//
-//	[]string: A slice containing a single SMT-LIB 'or' expression that
-//		combines member constraints, or an empty slice on error.
-//	error: An error if any member constraint generation fails or if the
-//		type is not a union.
+// - `*Bucket`: Bucket with one `(or ...)` in `Asserts`.
+// - `error`: Non-nil if `tp` is not a union or member constraints fail.
 
 func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	if !tp.IsUnion() {
@@ -426,7 +437,182 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 	return bucket, nil
 }
 
-// getSmtAtomConstr generates a single SMT-LIB constraint for an atomic value.
+//----------------------------------------------------------------
+// Object store-based construction (simple objects)
+
+// getSmtUndefValue returns an `OUndef` value at a given value-depth.
+//
+// Behaviour:
+//   - For depth 0: returns `OUndef`.
+//   - For depth > 0: returns nested `Atom<d>` constructors around `OUndef`.
+//
+// Parameters:
+// - `depth int`: Value depth.
+//
+// Returns:
+// - `string`: SMT expression of the appropriate `OTypeD<depth>` sort.
+func (td *TypeTranslator) getSmtUndefValue(depth int) string {
+	if depth <= 0 {
+		return smtUndef
+	}
+	val := smtUndef
+	for d := 1; d <= depth; d++ {
+		val = fmt.Sprintf("(Atom%d %s)", d, val)
+	}
+	return val
+}
+
+// getSmtLeafVarDefs emits declaration/assertions for an atomic leaf symbol.
+//
+// Notes:
+//   - Declares `leafName` as a 0-arity SMT function returning the atomic sort.
+//   - Adds an assertion restricting the value to the expected atomic constructor.
+//
+// Parameters:
+// - `leafName string`: SMT symbol to declare.
+// - `leafType *types.RegoTypeDef`: Leaf type (must be atomic).
+//
+// Returns:
+// - `*Bucket`: Bucket with the declaration in `Decls` and assertions in `Asserts`.
+// - `error`: Non-nil if `leafType` is nil or non-atomic.
+func (td *TypeTranslator) getSmtLeafVarDefs(leafName string, leafType *types.RegoTypeDef) (*Bucket, error) {
+	if leafType == nil || !leafType.IsAtomic() {
+		return nil, err.ErrUnsupportedType
+	}
+
+	bucket := NewBucket()
+	leafSort := td.getSmtType(leafType)
+
+	bucket.Decls = append(bucket.Decls, fmt.Sprintf("(declare-fun %s () %s)", leafName, leafSort))
+
+	// Constrain the backing constant to be of the desired atomic constructor.
+	constrBucket, err2 := td.getSmtAtomConstr(leafName, leafType)
+	if err2 != nil {
+		return nil, err2
+	}
+	for _, c := range constrBucket.Asserts {
+		bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(assert %s)", c))
+	}
+
+	return bucket, nil
+}
+
+// getSmtObjStoreExpr builds an SMT expression for a *simple* object using array `store`.
+//
+// Notes:
+//   - "Simple object" means depth-1 object with only atomic leaf fields.
+//   - This intentionally ignores `AllowAdditional` / additionalProperties.
+//
+// Parameters:
+// - `tp *types.RegoTypeDef`: Object type (must be a simple object).
+//
+// Returns:
+// - `string`: SMT expression of sort `OTypeD<depth>` representing the object.
+// - `*Bucket`: Bucket containing leaf declarations and leaf constraints.
+// - `error`: Non-nil if `tp` is not a supported simple object.
+func (td *TypeTranslator) getSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bucket, error) {
+	if tp == nil || !tp.IsObject() {
+		return "", nil, err.ErrUnsupportedType
+	}
+
+	depth := max(tp.TypeDepth(), 0)
+	if depth != 1 {
+		// "simple object" = object with only atomic leaf fields (no nested objects/arrays/unions)
+		return "", nil, err.ErrUnsupportedType
+	}
+
+	keys := tp.ObjectFields.GetKeys()
+	sort.Strings(keys)
+
+	usedVars := make(map[string]string)
+	bucket := NewBucket()
+
+	innerDepth := depth - 1
+	innerSort := fmt.Sprintf("OTypeD%d", innerDepth)
+	defaultVal := td.getSmtUndefValue(innerDepth)
+	arrExpr := fmt.Sprintf("((as const (Array String %s)) %s)", innerSort, defaultVal)
+
+	for _, key := range keys {
+		fieldType, found := tp.ObjectFields.Get(key)
+		if !found {
+			return "", nil, err.ErrTypeNotFound
+		}
+		if fieldType == nil || !fieldType.IsAtomic() {
+			return "", nil, err.ErrUnsupportedType
+		}
+
+		leafName := td.getFreshVariable("leaf_"+key, usedVars)
+		usedVars[leafName] = leafName
+
+		leafBucket, leafErr := td.getSmtLeafVarDefs(leafName, fieldType)
+		if leafErr != nil {
+			return "", nil, leafErr
+		}
+		bucket.Append(leafBucket)
+
+		arrExpr = fmt.Sprintf("(store %s \"%s\" %s)", arrExpr, key, leafName)
+	}
+
+	objExpr := fmt.Sprintf("(OObj%d %s)", depth, arrExpr)
+	return objExpr, bucket, nil
+}
+
+// GetSmtObjStoreExpr is an exported wrapper around `getSmtObjStoreExpr`.
+//
+// Parameters:
+// - `tp *types.RegoTypeDef`: Object type.
+//
+// Returns:
+// - `string`: SMT expression for the object.
+// - `*Bucket`: Bucket with leaf declarations/assertions.
+// - `error`: Non-nil if the object type is unsupported.
+func (td *TypeTranslator) GetSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bucket, error) {
+	return td.getSmtObjStoreExpr(tp)
+}
+
+// getSmtObjectConstrStore constructs a simple object via `store` and asserts equality.
+//
+// Parameters:
+// - `smtValue string`: SMT symbol/expression to equate to the constructed object.
+// - `tp *types.RegoTypeDef`: Object type (must be a supported simple object).
+//
+// Returns:
+// - `*Bucket`: Bucket containing leaf declarations/assertions plus the equality assertion.
+// - `error`: Non-nil if object construction fails.
+func (td *TypeTranslator) getSmtObjectConstrStore(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+	objExpr, defsBucket, err2 := td.getSmtObjStoreExpr(tp)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	bucket := NewBucket()
+	bucket.Append(defsBucket)
+	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(assert (= %s %s))", smtValue, objExpr))
+	return bucket, nil
+}
+
+// GetSmtObjectConstrStore is an exported wrapper around `getSmtObjectConstrStore`.
+//
+// Parameters:
+// - `smtValue string`: SMT symbol/expression to equate to a constructed object.
+// - `tp *types.RegoTypeDef`: Object type.
+//
+// Returns:
+// - `*Bucket`: Bucket containing required declarations/assertions.
+// - `error`: Non-nil if object construction fails.
+func (td *TypeTranslator) GetSmtObjectConstrStore(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+	return td.getSmtObjectConstrStore(smtValue, tp)
+}
+
+// getSmtAtomConstr generates a single type predicate constraint for an atomic value.
+//
+// Parameters:
+// - `smtValue string`: SMT expression/value to constrain.
+// - `tp *types.RegoTypeDef`: Atomic type.
+//
+// Returns:
+// - `*Bucket`: Bucket containing one constraint fragment in `Asserts`.
+// - `error`: Non-nil if `tp` is not atomic or unsupported.
 func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	if !tp.IsAtomic() {
 		return nil, err.ErrUnsupportedType
@@ -440,17 +626,19 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 	return bucket, nil
 }
 
-// getSmtArrConstr generates SMT-LIB constraints for an array value and type.
+// getSmtArrConstr generates constraints for an array value and its element type.
+//
+// Behaviour:
+//   - Asserts `(is-OArray<d> smtValue)`.
+//   - Adds a `forall` over indices constraining each selected element.
 //
 // Parameters:
-//
-//	smtValue string: The SMT variable or value name.
-//	tp *types.RegoTypeDef: The Rego array type definition.
+// - `smtValue string`: SMT expression/value to constrain.
+// - `tp *types.RegoTypeDef`: Array type.
 //
 // Returns:
-//
-//	[]string: A slice of SMT-LIB constraint strings for the array and its elements.
-//	error: An error if constraints could not be generated.
+// - `*Bucket`: Bucket containing array and element constraints.
+// - `error`: Non-nil if `tp` is not an array or element constraints fail.
 func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	if !tp.IsArray() {
 		return nil, err.ErrUnsupportedType
@@ -472,18 +660,17 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	return bucket, nil
 }
 
-// getSmtRef constructs an SMT-LIB reference string by traversing a path through nested object types.
+// getSmtRef constructs an SMT select-chain by traversing an object-typed path.
 //
 // Parameters:
-//
-//	smtvar string: The base SMT variable name.
-//	path []string: The path to traverse as a slice of field names.
-//	tp *types.RegoTypeDef: The starting Rego type definition.
+// - `smtvar string`: Base SMT variable/expression.
+// - `path []string`: Field-name path to traverse.
+// - `tp *types.RegoTypeDef`: Starting type for traversal.
 //
 // Returns:
-//
-//	string: The SMT-LIB reference string for the given path.
-//	error: An error if the path cannot be traversed due to type mismatches.
+// - `string`: SMT expression selecting the nested value.
+// - `*types.RegoTypeDef`: Type definition of the selected value.
+// - `error`: Non-nil if a non-object is traversed or a field is missing.
 func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *types.RegoTypeDef, error) {
 	smtref := smtvar
 	actType := tp
@@ -502,15 +689,13 @@ func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *ty
 	return smtref, actType, nil
 }
 
-// refToPath converts a Rego AST reference to a slice of strings representing the path.
+// refToPath converts a Rego AST ref into a string path.
 //
 // Parameters:
-//
-//	ref ast.Ref: The reference to convert.
+// - `ref ast.Ref`: Rego reference.
 //
 // Returns:
-//
-//	[]string: The path as a slice of strings.
+// - `[]string`: Path segments.
 func refToPath(ref ast.Ref) []string {
 	path := make([]string, 0, len(ref))
 	for _, term := range ref {
@@ -523,15 +708,13 @@ func refToPath(ref ast.Ref) []string {
 	return path
 }
 
-// removeQuotes removes leading and trailing double quotes from a string, if present.
+// removeQuotes strips a single leading/trailing double quote pair, if present.
 //
 // Parameters:
-//
-//	s string: The input string.
+// - `s string`: Input string.
 //
 // Returns:
-//
-//	string: The string without leading and trailing quotes.
+// - `string`: Unquoted string if quoted; otherwise `s` unchanged.
 func removeQuotes(s string) string {
 	if len(s) < 2 {
 		return s
@@ -542,48 +725,42 @@ func removeQuotes(s string) string {
 	return s
 }
 
-// getSchemaVar constructs a schema variable name from a Rego reference for input.review.object.<name>.
+// getSchemaVar constructs a schema variable name for `input.review.object.<name>`.
 //
 // Parameters:
-//
-//	ref ast.Ref: The reference to convert.
+// - `ref ast.Ref`: Reference expected to have 4 terms.
 //
 // Returns:
-//
-//	string: The schema variable name as a dot-separated string.
+// - `string`: Dot-separated schema variable name.
 func getSchemaVar(ref ast.Ref) string {
 	// input.review.object.<name>
 	return fmt.Sprintf("%s.%s.%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()), removeQuotes(ref[2].String()), removeQuotes(ref[3].String()))
 }
 
-// getParamVar constructs a parameter variable name from a Rego reference for input.parameters.<name>.
+// getParamVar constructs a parameter variable name for `input.parameters.<name>`.
 //
 // Parameters:
-//
-//	ref ast.Ref: The reference to convert.
+// - `ref ast.Ref`: Reference expected to have 3 terms.
 //
 // Returns:
-//
-//	string: The parameter variable name as a dot-separated string.
+// - `string`: Dot-separated parameter variable name.
 func getParamVar(ref ast.Ref) string {
 	// input.parameters.<name>
 	return fmt.Sprintf("%s.%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()), removeQuotes(ref[2].String()))
 }
 
-// getFreshVariable returns a fresh temporary variable name that does not
-// clash with any existing variable tracked in the translator or with any
-// names provided in the supplied map.
+// getFreshVariable returns a fresh SMT symbol name that does not clash with known names.
+//
+// Behaviour:
+//   - Avoids names in `td.TypeInfo.Types` and the values of `usedVars`.
+//   - If `prefix` is taken, appends `_<n>` until a free name is found.
 //
 // Parameters:
-//
-//	prefix string: the prefix to use for the generated variable name.
-//	usedVars map[string]string: map of names to avoid (values are variable names)
+// - `prefix string`: Prefix for the generated name.
+// - `usedVars map[string]string`: Additional names to avoid (values are treated as used).
 //
 // Returns:
-//
-//	string: a fresh variable name beginning with the given prefix. If the
-//	prefix is already taken the function appends an underscore and a numeric
-//	suffix ("_1", "_2", ...) until an unused name is found.
+// - `string`: Fresh variable name.
 func (td *TypeTranslator) getFreshVariable(prefix string, usedVars map[string]string) string {
 	// Collect all used names: keys in TypeDefs.TypeInfo.Types and values in VarMap
 	used := make(map[string]struct{})
@@ -607,20 +784,19 @@ func (td *TypeTranslator) getFreshVariable(prefix string, usedVars map[string]st
 	}
 }
 
-// getAtomValue returns the SMT-LIB atomic representation for a named value
-// according to the provided Rego atomic type. The returned string is the
-// textual SMT expression representing the atom wrapper (for example,
-// "(num (atom x))" for integers or "(str (atom s))" for strings).
+// getAtomValue returns the SMT atomic accessor for `name` according to `tp`.
+//
+// Notes:
+//   - For depth 0 values, wraps directly with `str`/`num`/`bool`.
+//   - For depth > 0, unwraps via `atom<d>` before applying `str`/`num`/`bool`.
 //
 // Parameters:
-//   name string: the variable name or SMT expression to wrap (e.g. "x" or a
-//                select-chain).
-//   tp *types.RegoTypeDef: the Rego type definition which must be atomic.
+// - `name string`: SMT expression to wrap (e.g. a variable name or select-chain).
+// - `tp *types.RegoTypeDef`: Atomic type definition.
 //
 // Returns:
-//   string: the SMT-LIB expression representing the atomic wrapper.
-//   error: an error if the atomic type is unsupported.
-
+// - `string`: SMT expression accessing the underlying primitive.
+// - `error`: Non-nil for unsupported atomic kinds.
 func (td *TypeTranslator) getAtomValue(name string, tp *types.RegoTypeDef) (string, error) {
 	depth := max(tp.TypeDepth(), 0)
 	switch tp.AtomicType {
@@ -650,20 +826,19 @@ func (td *TypeTranslator) getAtomValue(name string, tp *types.RegoTypeDef) (stri
 	}
 }
 
-// getSmtValue returns the SMT-LIB expression for a value given its Rego type.
-// For atomic types this wraps the provided name into the appropriate atom
-// constructor (e.g. num/str/bool). For non-atomic types (objects, arrays,
-// unions) the function returns the provided SMT expression unchanged because
-// object/array expressions are represented by select-chains or variables.
+// getSmtValue returns an SMT expression for `smt` consistent with `tp`.
+//
+// Behaviour:
+//   - For atomic types, returns a primitive accessor expression (via `getAtomValue`).
+//   - For objects/arrays/unions, returns `smt` unchanged.
 //
 // Parameters:
-//   smt string: the base SMT expression or variable name.
-//   tp *types.RegoTypeDef: the Rego type definition for the value.
+// - `smt string`: Base SMT expression or symbol.
+// - `tp *types.RegoTypeDef`: Expected type.
 //
 // Returns:
-//   string: the SMT-LIB expression appropriate for the type.
-//   error: an error if conversion is not possible.
-
+// - `string`: SMT expression suitable for use in generated assertions.
+// - `error`: Non-nil if an atomic conversion is unsupported.
 func (td *TypeTranslator) getSmtValue(smt string, tp *types.RegoTypeDef) (string, error) {
 	// If the type is atomic, convert to the wrapped atom form (num/str/bool etc.).
 	// For non-atomic types (object, array, union) return the SMT expression
@@ -677,18 +852,14 @@ func (td *TypeTranslator) getSmtValue(smt string, tp *types.RegoTypeDef) (string
 	return smt, nil
 }
 
-// getVarValue looks up the type for the given variable name in the
-// TypeTranslator's TypeInfo and returns the SMT-LIB expression representing
-// that variable according to its type (atoms are wrapped; non-atomic types
-// are returned as the variable name / select expression).
+// getVarValue returns an SMT expression for the variable `name` according to inferred type.
 //
 // Parameters:
-//   name string: the variable name to translate.
+// - `name string`: Variable name.
 //
 // Returns:
-//   string: the SMT-LIB expression for the variable.
-//   error: an error if the variable type is not found or cannot be converted.
-
+// - `string`: SMT expression for the variable (atomic accessors or raw symbol).
+// - `error`: Non-nil if the variable type is missing or atomic conversion fails.
 func (td *TypeTranslator) getVarValue(name string) (string, error) {
 	tp, ok := td.TypeInfo.Types[name]
 	if !ok {

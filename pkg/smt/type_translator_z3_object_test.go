@@ -101,3 +101,136 @@ func Test_getSmtConstrAssert_Object(t *testing.T) {
 		})
 	}
 }
+
+func Test_getSmtObjectConstrStore_SimpleObject_Z3(t *testing.T) {
+	t.Parallel()
+
+	obj := types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+		"a": types.NewAtomicType(types.AtomicString),
+		"b": types.NewAtomicType(types.AtomicInt),
+		"c": types.NewAtomicType(types.AtomicBoolean),
+	}, AllowAdditional: false}}
+
+	tr := buildTypeTranslator(t, map[string]types.RegoTypeDef{"x": obj})
+	used := map[string]any{"x": struct{}{}}
+
+	typeBucket, err := tr.GenerateTypeDecls(used)
+	if err != nil {
+		t.Fatalf("type decls error: %v", err)
+	}
+	declBucket, err := tr.getVarDeclaration("x", &obj)
+	if err != nil {
+		t.Fatalf("decl error: %v", err)
+	}
+	storeBucket, err := tr.getSmtObjectConstrStore("x", &obj)
+	if err != nil {
+		t.Fatalf("store constr error: %v", err)
+	}
+
+	smtLines := make([]string, 0, len(typeBucket.TypeDecls)+len(declBucket.Decls)+len(storeBucket.Decls)+len(storeBucket.Asserts)+2)
+	smtLines = append(smtLines, typeBucket.TypeDecls...)
+	smtLines = append(smtLines, declBucket.Decls...)
+	smtLines = append(smtLines, storeBucket.Decls...)
+	smtLines = append(smtLines, storeBucket.Asserts...)
+	smt := strings.Join(smtLines, "\n")
+
+	if !strings.Contains(smt, "(as const (Array String") {
+		t.Fatalf("expected as const in SMT, got:\n%s", smt)
+	}
+	if !strings.Contains(smt, "(store") {
+		t.Fatalf("expected store in SMT, got:\n%s", smt)
+	}
+
+	expectSatZ3(t, smt)
+}
+
+func Test_getSmtObjectConstrStore_VariousObjects_Z3(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		obj           types.RegoTypeDef
+		expectStore   bool
+		skipInActions bool
+	}{
+		{
+			name: "SimpleABC_NoAdditional",
+			obj: types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+				"a": types.NewAtomicType(types.AtomicString),
+				"b": types.NewAtomicType(types.AtomicInt),
+				"c": types.NewAtomicType(types.AtomicBoolean),
+			}, AllowAdditional: false}},
+			expectStore: true,
+		},
+		{
+			name:        "EmptyObject_NoAdditional",
+			obj:         types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{}, AllowAdditional: false}},
+			expectStore: false,
+		},
+		{
+			name: "AllowAdditional_WithoutStar",
+			obj: types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+				"a": types.NewAtomicType(types.AtomicBoolean),
+			}, AllowAdditional: true}},
+			expectStore: true,
+		},
+		{
+			name: "AllowAdditional_WithStarAtomic",
+			obj: types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+				"a":                     types.NewAtomicType(types.AtomicInt),
+				types.AdditionalPropKey: types.NewAtomicType(types.AtomicString),
+			}, AllowAdditional: true}},
+			expectStore: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if runningInGitHubActions() && tt.skipInActions {
+				t.Skip("skipping heavy/flaky Z3 test on GitHub Actions")
+			}
+			t.Parallel()
+
+			tr := buildTypeTranslator(t, map[string]types.RegoTypeDef{"x": tt.obj})
+			used := map[string]any{"x": struct{}{}}
+
+			typeBucket, err := tr.GenerateTypeDecls(used)
+			if err != nil {
+				t.Fatalf("type decls error: %v", err)
+			}
+			declBucket, err := tr.getVarDeclaration("x", &tt.obj)
+			if err != nil {
+				t.Fatalf("decl error: %v", err)
+			}
+			storeBucket, err := tr.getSmtObjectConstrStore("x", &tt.obj)
+			if err != nil {
+				t.Fatalf("store constr error: %v", err)
+			}
+
+			smtLines := make([]string, 0, len(typeBucket.TypeDecls)+len(declBucket.Decls)+len(storeBucket.Decls)+len(storeBucket.Asserts)+2)
+			smtLines = append(smtLines, typeBucket.TypeDecls...)
+			smtLines = append(smtLines, declBucket.Decls...)
+			smtLines = append(smtLines, storeBucket.Decls...)
+			smtLines = append(smtLines, storeBucket.Asserts...)
+			smt := strings.Join(smtLines, "\n")
+
+			if !strings.Contains(smt, "(as const (Array String") {
+				t.Fatalf("expected as const in SMT, got:\n%s", smt)
+			}
+			if tt.expectStore {
+				if !strings.Contains(smt, "(store") {
+					t.Fatalf("expected store in SMT, got:\n%s", smt)
+				}
+			} else {
+				if strings.Contains(smt, "(store") {
+					t.Fatalf("did not expect store in SMT, got:\n%s", smt)
+				}
+			}
+			if !strings.Contains(smt, "(assert (= x ") {
+				t.Fatalf("expected equality assertion against x, got:\n%s", smt)
+			}
+
+			expectSatZ3(t, smt)
+		})
+	}
+}

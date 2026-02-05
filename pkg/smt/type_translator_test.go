@@ -410,3 +410,67 @@ func TestTypeDefs_getSmtConstr_UnionWithError(t *testing.T) {
 		t.Error("expected error for non-union type passed to getSmtUnionConstr, got nil")
 	}
 }
+
+func TestGetSmtObjStoreExpr_SimpleObject(t *testing.T) {
+	t.Parallel()
+	td := &TypeTranslator{TypeInfo: nil}
+
+	tp := types.NewObjectType(map[string]types.RegoTypeDef{
+		"a": types.NewAtomicType(types.AtomicString),
+		"b": types.NewAtomicType(types.AtomicInt),
+	})
+
+	expr, bucket, err := td.getSmtObjStoreExpr(&tp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bucket == nil {
+		t.Fatalf("expected bucket")
+	}
+	if !strings.Contains(expr, "(OObj1") {
+		t.Fatalf("expected object constructor in expr, got: %s", expr)
+	}
+	if !strings.Contains(expr, "(as const (Array String OTypeD0))") {
+		t.Fatalf("expected as-const array in expr, got: %s", expr)
+	}
+	if !strings.Contains(expr, "(store") {
+		t.Fatalf("expected store chain in expr, got: %s", expr)
+	}
+
+	decls := strings.Join(bucket.Decls, "\n")
+	if !strings.Contains(decls, "(declare-fun") {
+		t.Fatalf("expected leaf declarations, got: %s", decls)
+	}
+	// Leaves are constrained via additional (assert ...) lines.
+	asserts := strings.Join(bucket.Asserts, "\n")
+	if !strings.Contains(asserts, "(assert (is-") {
+		t.Fatalf("expected atomic leaf assertions, got: %s", asserts)
+	}
+}
+
+func TestGetSmtObjectConstrStore_AssertsEquality(t *testing.T) {
+	t.Parallel()
+	td := &TypeTranslator{TypeInfo: nil}
+
+	tp := types.NewObjectType(map[string]types.RegoTypeDef{
+		"x": types.NewAtomicType(types.AtomicBoolean),
+	})
+
+	bucket, err := td.getSmtObjectConstrStore("obj", &tp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bucket == nil {
+		t.Fatalf("expected bucket")
+	}
+	foundEq := false
+	for _, a := range bucket.Asserts {
+		if strings.Contains(a, "(assert (= obj") {
+			foundEq = true
+			break
+		}
+	}
+	if !foundEq {
+		t.Fatalf("expected equality assertion against obj, got asserts: %v", bucket.Asserts)
+	}
+}
