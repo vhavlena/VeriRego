@@ -209,6 +209,15 @@ func collectStringArrayStores(arrayAST z3.AST) (map[string]z3.AST, error) {
 		cursor = cursor.Child(0)
 	}
 	if defaultVal, ok := constArrayDefaultValue(cursor); ok {
+		// Z3 object arrays are often modeled as const-arrays with OUndef/ONull as the
+		// default element. For decoding into a concrete object Value, treat these as
+		// absent keys rather than materializing the wildcard entry.
+		if defaultVal.IsApp() {
+			switch defaultVal.Decl().Name() {
+			case "OUndef", "ONull":
+				return entries, nil
+			}
+		}
 		entries["*"] = defaultVal
 	}
 	return entries, nil

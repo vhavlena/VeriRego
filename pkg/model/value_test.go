@@ -89,6 +89,20 @@ const smtObjectMultiFieldScript = otypeSortsScript + `
 (assert (is-ONumber (select (obj1 x) "d")))
 `
 
+const smtObjectFromStoreLeavesScript = otypeSortsScript + `
+
+(declare-fun x () OTypeD1)
+(declare-fun leaf_a () OTypeD0)
+(declare-fun leaf_b () OTypeD0)
+(declare-fun leaf_c () OTypeD0)
+
+(assert (is-OString leaf_a))
+(assert (is-ONumber leaf_b))
+(assert (is-OBoolean leaf_c))
+
+(assert (= x (OObj1 (store (store (store ((as const (Array String OTypeD0)) OUndef) "a" leaf_a) "b" leaf_b) "c" leaf_c))))
+`
+
 func TestValueFromSimpleAST_StringViaModel(t *testing.T) {
 	ctx := z3.NewContext(nil)
 	if ctx == nil {
@@ -251,6 +265,45 @@ func TestValueFromModelVar_FromSMTLIBScriptWithFields(t *testing.T) {
 	})
 	if !val.Equal(&expected) {
 		t.Fatalf("decoded value mismatch: got %#v, want %#v", val.AsInterface(), expected.AsInterface())
+	}
+}
+
+func TestValueFromModelVar_FromSMTLIBStoreLeavesFormula(t *testing.T) {
+	ctx := z3.NewContext(nil)
+	if ctx == nil {
+		t.Fatalf("failed to allocate z3 context")
+	}
+	defer ctx.Close()
+
+	solver := ctx.NewSolver()
+	defer solver.Close()
+
+	if err := solver.AssertSMTLIB2String(smtObjectFromStoreLeavesScript); err != nil {
+		t.Fatalf("AssertSMTLIB2String error: %v", err)
+	}
+
+	model := checkModel(t, solver)
+	defer model.Close()
+
+	val, err := ValueFromModelVar(ctx, model, "x")
+	if err != nil {
+		t.Fatalf("ValueFromModelVar error: %v", err)
+	}
+	if val.Kind() != ValueMap {
+		t.Fatalf("expected ValueMap kind, got %s", val.Kind())
+	}
+
+	got, ok := val.Map()
+	if !ok {
+		t.Fatalf("expected map payload")
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 keys (a,b,c), got %d: %#v", len(got), val.AsInterface())
+	}
+	for _, k := range []string{"a", "b", "c"} {
+		if _, exists := got[k]; !exists {
+			t.Fatalf("missing expected key %q in decoded object: %#v", k, val.AsInterface())
+		}
 	}
 }
 
