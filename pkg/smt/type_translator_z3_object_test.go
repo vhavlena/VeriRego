@@ -151,6 +151,7 @@ func Test_getSmtObjectConstrStore_VariousObjects_Z3(t *testing.T) {
 		name          string
 		obj           types.RegoTypeDef
 		expectStore   bool
+		expectHas     []string
 		skipInActions bool
 	}{
 		{
@@ -161,6 +162,32 @@ func Test_getSmtObjectConstrStore_VariousObjects_Z3(t *testing.T) {
 				"c": types.NewAtomicType(types.AtomicBoolean),
 			}, AllowAdditional: false}},
 			expectStore: true,
+		},
+		{
+			name: "NestedDepth2_NoAdditional",
+			obj: types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+				"outer": {Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+					"a": types.NewAtomicType(types.AtomicString),
+					"b": types.NewAtomicType(types.AtomicInt),
+				}, AllowAdditional: false}},
+				"flag": types.NewAtomicType(types.AtomicBoolean),
+			}, AllowAdditional: false}},
+			expectStore: true,
+			expectHas:   []string{"(OObj2", "(OObj1", "(Atom1"},
+		},
+		{
+			name: "NestedDepth3_NoAdditional",
+			obj: types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+				"outer": {Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+					"inner": {Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+						"a": types.NewAtomicType(types.AtomicString),
+					}, AllowAdditional: false}},
+					"n": types.NewAtomicType(types.AtomicInt),
+				}, AllowAdditional: false}},
+				"flag": types.NewAtomicType(types.AtomicBoolean),
+			}, AllowAdditional: false}},
+			expectStore: true,
+			expectHas:   []string{"(OObj3", "(OObj2", "(OObj1", "(Atom2", "(Atom1"},
 		},
 		{
 			name:        "EmptyObject_NoAdditional",
@@ -185,6 +212,7 @@ func Test_getSmtObjectConstrStore_VariousObjects_Z3(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -225,6 +253,11 @@ func Test_getSmtObjectConstrStore_VariousObjects_Z3(t *testing.T) {
 			}
 			if !strings.Contains(smt, "(assert (= x ") {
 				t.Fatalf("expected equality assertion against x, got:\n%s", smt)
+			}
+			for _, sub := range tt.expectHas {
+				if !strings.Contains(smt, sub) {
+					t.Fatalf("expected SMT to contain %q, got:\n%s", sub, smt)
+				}
 			}
 
 			expectSatZ3(t, smt)

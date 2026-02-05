@@ -448,6 +448,41 @@ func TestGetSmtObjStoreExpr_SimpleObject(t *testing.T) {
 	}
 }
 
+func TestGetSmtObjStoreExpr_NestedObject(t *testing.T) {
+	t.Parallel()
+	td := &TypeTranslator{TypeInfo: nil}
+
+	inner := types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
+		"a": types.NewAtomicType(types.AtomicString),
+	}, false)}
+
+	tp := types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
+		"outer": inner,
+		"flag":  types.NewAtomicType(types.AtomicBoolean),
+	}, false)}
+
+	expr, bucket, err := td.getSmtObjStoreExpr(&tp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bucket == nil {
+		t.Fatalf("expected bucket")
+	}
+	if !strings.Contains(expr, "(OObj2") {
+		t.Fatalf("expected top-level OObj2 constructor in expr, got: %s", expr)
+	}
+	if !strings.Contains(expr, "(OObj1") {
+		t.Fatalf("expected nested OObj1 constructor in expr, got: %s", expr)
+	}
+	if !strings.Contains(expr, "(as const (Array String OTypeD1))") {
+		t.Fatalf("expected as-const array of OTypeD1 in expr, got: %s", expr)
+	}
+	// Atomic leaves at element-depth 1 must be lifted via Atom1.
+	if !strings.Contains(expr, "(Atom1") {
+		t.Fatalf("expected atomic lift via Atom1 in expr, got: %s", expr)
+	}
+}
+
 func TestGetSmtObjStoreExpr_RejectsAllowAdditional(t *testing.T) {
 	t.Parallel()
 	td := &TypeTranslator{TypeInfo: nil}

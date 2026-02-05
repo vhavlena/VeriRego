@@ -497,11 +497,12 @@ func (td *TypeTranslator) getSmtLeafVarDefs(leafName string, leafType *types.Reg
 	return bucket, nil
 }
 
-// getSmtObjStoreExpr builds an SMT expression for a *simple* object using array `store`.
+// getSmtObjStoreExpr builds an SMT expression for an object using array `store`.
 //
 // Notes:
-//   - "Simple object" means depth-1 object with only atomic leaf fields.
-//   - This intentionally ignores `AllowAdditional` / additionalProperties.
+//   - Supports arbitrarily nested *objects* by recursively constructing nested `(OObj<d> ...)`.
+//   - Atomic leaves are declared as `OTypeD0` and lifted to the parent element-depth via `Atom<d>`.
+//   - This intentionally ignores `AllowAdditional` / additionalProperties; callers should gate usage.
 //
 // Parameters:
 // - `tp *types.RegoTypeDef`: Object type (must be a simple object).
@@ -511,20 +512,42 @@ func (td *TypeTranslator) getSmtLeafVarDefs(leafName string, leafType *types.Reg
 // - `*Bucket`: Bucket containing leaf declarations and leaf constraints.
 // - `error`: Non-nil if `tp` is not a supported simple object.
 func (td *TypeTranslator) getSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bucket, error) {
+	usedVars := make(map[string]string)
+	return td.getSmtObjStoreExprRec(tp, usedVars)
+}
+
+// getSmtObjStoreExprRec builds an SMT expression for an object using array `store`.
+//
+// Notes:
+//   - Recursively supports arbitrarily nested objects by invoking itself for object fields.
+//   - Shares the `usedVars` map across recursion to avoid fresh-name collisions
+//     when declaring atomic leaf symbols.
+//   - Atomic leaves are declared as `OTypeD0` and lifted to the parent element-depth
+//     via `Atom<d>` wrappers when needed.
+//   - Arrays and unions nested inside objects are not constructed here and will cause
+//     an `err.ErrUnsupportedType` error.
+//
+// Parameters:
+// - `tp *types.RegoTypeDef`: Object type (must be a simple object).
+// - `usedVars map[string]string`: Map of already-used SMT symbol names to avoid collisions.
+//
+// Returns:
+// - `string`: SMT expression of sort `OTypeD<depth>` representing the object.
+// - `*Bucket`: Bucket containing leaf declarations and leaf constraints.
+// - `error`: Non-nil if `tp` is not a supported simple object.
+func (td *TypeTranslator) getSmtObjStoreExprRec(tp *types.RegoTypeDef, usedVars map[string]string) (string, *Bucket, error) {
 	if tp == nil || !tp.IsObject() {
 		return "", nil, err.ErrUnsupportedType
 	}
 
 	depth := max(tp.TypeDepth(), 0)
-	if depth != 1 {
-		// "simple object" = object with only atomic leaf fields (no nested objects/arrays/unions)
+	if depth < 1 {
 		return "", nil, err.ErrUnsupportedType
 	}
 
 	keys := tp.ObjectFields.GetKeys()
 	sort.Strings(keys)
 
-	usedVars := make(map[string]string)
 	bucket := NewBucket()
 
 	innerDepth := depth - 1
@@ -537,20 +560,46 @@ func (td *TypeTranslator) getSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bu
 		if !found {
 			return "", nil, err.ErrTypeNotFound
 		}
-		if fieldType == nil || !fieldType.IsAtomic() {
+		if fieldType == nil {
 			return "", nil, err.ErrUnsupportedType
 		}
 
-		leafName := td.getFreshVariable("leaf_"+key, usedVars)
-		usedVars[leafName] = leafName
+		switch {
+		case fieldType.IsAtomic():
+			leafName := td.getFreshVariable("leaf_"+key, usedVars)
+			usedVars[leafName] = leafName
 
-		leafBucket, leafErr := td.getSmtLeafVarDefs(leafName, fieldType)
-		if leafErr != nil {
-			return "", nil, leafErr
+			leafBucket, leafErr := td.getSmtLeafVarDefs(leafName, fieldType)
+			if leafErr != nil {
+				return "", nil, leafErr
+			}
+			bucket.Append(leafBucket)
+
+			storeVal := leafName
+			if innerDepth > 0 {
+				for d := 1; d <= innerDepth; d++ {
+					storeVal = fmt.Sprintf("(Atom%d %s)", d, storeVal)
+				}
+			}
+			arrExpr = fmt.Sprintf("(store %s \"%s\" %s)", arrExpr, key, storeVal)
+
+		case fieldType.IsObject():
+			fieldDepth := max(fieldType.TypeDepth(), 0)
+			if fieldDepth != innerDepth {
+				// Object nesting should decrease depth by exactly 1 at each step.
+				return "", nil, err.ErrUnsupportedType
+			}
+			childExpr, childBucket, childErr := td.getSmtObjStoreExprRec(fieldType, usedVars)
+			if childErr != nil {
+				return "", nil, childErr
+			}
+			bucket.Append(childBucket)
+			arrExpr = fmt.Sprintf("(store %s \"%s\" %s)", arrExpr, key, childExpr)
+
+		default:
+			// Arrays/unions are not constructed here (only object nesting requested).
+			return "", nil, err.ErrUnsupportedType
 		}
-		bucket.Append(leafBucket)
-
-		arrExpr = fmt.Sprintf("(store %s \"%s\" %s)", arrExpr, key, leafName)
 	}
 
 	objExpr := fmt.Sprintf("(OObj%d %s)", depth, arrExpr)
@@ -573,11 +622,11 @@ func (td *TypeTranslator) GetSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bu
 	return td.getSmtObjStoreExpr(tp)
 }
 
-// getSmtObjectConstrStore constructs a simple object via `store` and asserts equality.
+// getSmtObjectConstrStore constructs an object via `store` and asserts equality.
 //
 // Parameters:
 // - `smtValue string`: SMT symbol/expression to equate to the constructed object.
-// - `tp *types.RegoTypeDef`: Object type (must be a supported simple object).
+// - `tp *types.RegoTypeDef`: Object type (must be supported by store-based construction).
 //
 // Returns:
 // - `*Bucket`: Bucket containing leaf declarations/assertions plus the equality assertion.

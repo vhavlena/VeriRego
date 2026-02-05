@@ -73,6 +73,16 @@ const otypeSortsScript = `
 
 `
 
+const otypeSortsScriptD2 = otypeSortsScript + `
+(declare-datatypes ()
+	((OTypeD2
+		(Atom2 (atom2 OTypeD1))
+		(OObj2 (obj2 (Array String OTypeD1)))
+		(OArray2 (arr2 (Array Int OTypeD1)))
+	))
+)
+`
+
 const smtObjectScript = otypeSortsScript + `
 
 (declare-fun x () OTypeD1)
@@ -101,6 +111,29 @@ const smtObjectFromStoreLeavesScript = otypeSortsScript + `
 (assert (is-OBoolean leaf_c))
 
 (assert (= x (OObj1 (store (store (store ((as const (Array String OTypeD0)) OUndef) "a" leaf_a) "b" leaf_b) "c" leaf_c))))
+`
+
+const smtNestedObjectFromStoreLeavesD2Script = otypeSortsScriptD2 + `
+
+(declare-fun x () OTypeD2)
+(declare-fun leaf_flag () OTypeD0)
+(declare-fun leaf_a () OTypeD0)
+(declare-fun leaf_b () OTypeD0)
+
+(assert (is-OBoolean leaf_flag))
+(assert (is-OString leaf_a))
+(assert (is-ONumber leaf_b))
+
+(assert (= x
+	(OObj2
+		(store
+			(store ((as const (Array String OTypeD1)) (Atom1 OUndef))
+						 "flag" (Atom1 leaf_flag))
+			"outer"
+			(OObj1
+				(store
+					(store ((as const (Array String OTypeD0)) OUndef) "a" leaf_a)
+					"b" leaf_b))))))
 `
 
 func TestValueFromSimpleAST_StringViaModel(t *testing.T) {
@@ -304,6 +337,68 @@ func TestValueFromModelVar_FromSMTLIBStoreLeavesFormula(t *testing.T) {
 		if _, exists := got[k]; !exists {
 			t.Fatalf("missing expected key %q in decoded object: %#v", k, val.AsInterface())
 		}
+	}
+}
+
+func TestValueFromModelVar_FromSMTLIBNestedStoreLeavesFormula_D2(t *testing.T) {
+	ctx := z3.NewContext(nil)
+	if ctx == nil {
+		t.Fatalf("failed to allocate z3 context")
+	}
+	defer ctx.Close()
+
+	solver := ctx.NewSolver()
+	defer solver.Close()
+
+	if err := solver.AssertSMTLIB2String(smtNestedObjectFromStoreLeavesD2Script); err != nil {
+		t.Fatalf("AssertSMTLIB2String error: %v", err)
+	}
+
+	model := checkModel(t, solver)
+	defer model.Close()
+
+	val, err := ValueFromModelVar(ctx, model, "x")
+	if err != nil {
+		t.Fatalf("ValueFromModelVar error: %v", err)
+	}
+	if val.Kind() != ValueMap {
+		t.Fatalf("expected ValueMap kind, got %s", val.Kind())
+	}
+
+	root, ok := val.Map()
+	if !ok {
+		t.Fatalf("expected map payload")
+	}
+	if _, exists := root["flag"]; !exists {
+		t.Fatalf("missing expected key %q in decoded object: %#v", "flag", val.AsInterface())
+	}
+	if _, exists := root["outer"]; !exists {
+		t.Fatalf("missing expected key %q in decoded object: %#v", "outer", val.AsInterface())
+	}
+
+	flagVal := root["flag"]
+	if flagVal.Kind() != ValueBool {
+		t.Fatalf("expected flag to be bool, got %s: %#v", flagVal.Kind(), flagVal.AsInterface())
+	}
+
+	outerVal := root["outer"]
+	if outerVal.Kind() != ValueMap {
+		t.Fatalf("expected outer to be map, got %s: %#v", outerVal.Kind(), outerVal.AsInterface())
+	}
+	outer, _ := outerVal.Map()
+	if _, exists := outer["a"]; !exists {
+		t.Fatalf("missing expected key %q in decoded outer: %#v", "a", outerVal.AsInterface())
+	}
+	if _, exists := outer["b"]; !exists {
+		t.Fatalf("missing expected key %q in decoded outer: %#v", "b", outerVal.AsInterface())
+	}
+	aVal := outer["a"]
+	if aVal.Kind() != ValueString {
+		t.Fatalf("expected outer.a to be string, got %s: %#v", aVal.Kind(), aVal.AsInterface())
+	}
+	bVal := outer["b"]
+	if bVal.Kind() != ValueInt {
+		t.Fatalf("expected outer.b to be int, got %s: %#v", bVal.Kind(), bVal.AsInterface())
 	}
 }
 
