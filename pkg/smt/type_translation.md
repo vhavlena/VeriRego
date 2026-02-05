@@ -169,6 +169,73 @@ The `<default-condition>` is:
 
 The quantified key name is generated via `RandString(5)`.
 
+### Store-based object construction (`store` + `as const`)
+
+In addition to emitting *constraints* for object-typed values, the implementation also supports constructing a **concrete object expression** using SMT arrays and `store`.
+
+This path is intended for **simple objects with no additional properties** (in JSON Schema terms) and is implemented by:
+
+- `TypeTranslator.GetSmtObjStoreExpr(tp)`
+- `TypeTranslator.GetSmtObjectConstrStore(smtValue, tp)`
+
+#### When it applies
+
+`GetSmtObjStoreExpr` is only supported when the type definition satisfies:
+
+- `tp.HasNoAdditionalPropertiesDeep()` is true (i.e., every reachable object has `AllowAdditional == false` and no `"*"` additional-properties entry).
+
+It additionally assumes a *simple object nesting shape*:
+
+- Object fields may be **atomic** or **objects** only.
+- Nested object depth must decrease by exactly 1 at each step.
+- Arrays and unions **inside** these objects are rejected (construction returns `ErrUnsupportedType`).
+
+These restrictions exist because the construction deliberately does **not** encode additionalProperties rules; it relies on a default value of `OUndef` for all non-explicit keys.
+
+#### Constructed shape
+
+For an object type at depth $d \ge 1$, the constructed expression has the form:
+
+```smtlib
+(OObj<d>
+  (store
+    (store
+      ((as const (Array String OTypeD<d-1>)) <default>)
+      "k1" <v1>)
+    "k2" <v2>))
+```
+
+Key details:
+
+- The underlying object payload is an SMT array `(Array String OTypeD<d-1>)`.
+- The base array is created with `as const` and a **default value** used for any key not explicitly stored.
+- The default value is `OUndef` at the element depth, lifted via `Atom` constructors when needed:
+
+  - If `d-1 == 0`: `<default> = OUndef`
+  - If `d-1 > 0`: `<default> = (Atom<d-1> (Atom<d-2> ... (Atom1 OUndef)))`
+
+This lifting is implemented by `getSmtUndefValue`.
+
+#### Atomic leaves
+
+Atomic leaf values are introduced as fresh SMT symbols (e.g. `leaf_a`) declared at sort `OTypeD0` and constrained with the corresponding atomic tester (e.g. `(assert (is-OString leaf_a))`).
+
+When storing a leaf into an object whose element depth is $e = d-1 > 0$, the leaf is lifted to `OTypeD<e>` by wrapping it in `Atom` constructors:
+
+```smtlib
+; e == 2 example
+(store arr "a" (Atom2 (Atom1 leaf_a)))
+```
+
+#### Equality assertion helper
+
+`GetSmtObjectConstrStore(x, tp)` combines:
+
+- leaf declarations + leaf assertions, and
+- one equality assertion `(assert (= x <constructed-object-expr>))`.
+
+This is useful when you need a *witness* object term rather than only a set of shape constraints.
+
 ### Array types
 
 For an array value `a` with depth `d = tp.TypeDepth()`, the translator emits:
@@ -216,11 +283,18 @@ For each used variable name `x`, `GenerateVarDecl` emits:
 
 `types.AtomicFunction` and `types.AtomicSet` are currently rejected in type constraints (`ErrUnsupportedAtomic`).
 
+Store-based object construction additionally rejects:
+
+- objects that allow additional properties (at any depth),
+- arrays/unions nested inside objects, and
+- object types whose depth does not decrease by exactly 1 per nesting level.
+
 ## Pointers into the implementation
 
 - Sort selection: `TypeTranslator.getSmtType`
 - Datatype generation: `TypeTranslator.getDatatypesDeclaration`
 - Constraint generation entry: `TypeTranslator.getSmtConstr` / `TypeTranslator.getSmtConstrAssert`
 - Object constraints: `TypeTranslator.getSmtObjectConstr`
+- Store-based object construction: `TypeTranslator.GetSmtObjStoreExpr`, `TypeTranslator.GetSmtObjectConstrStore`
 - Array constraints: `TypeTranslator.getSmtArrConstr`
 - Unions: `TypeTranslator.getSmtUnionConstr`
