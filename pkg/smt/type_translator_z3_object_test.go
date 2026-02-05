@@ -82,16 +82,20 @@ func Test_getSmtConstrAssert_Object(t *testing.T) {
 				t.Fatalf("type decls error: %v", err)
 			}
 
-			decl, err := tr.getVarDeclaration("x", &tt.obj)
+			declBucket, err := tr.getVarDeclaration("x", &tt.obj)
 			if err != nil {
 				t.Fatalf("decl error: %v", err)
 			}
-			constr, err := tr.getSmtConstrAssert("x", &tt.obj)
+			constrBucket, err := tr.getSmtConstrAssert("x", &tt.obj)
 			if err != nil {
 				t.Fatalf("constr error: %v", err)
 			}
 
-			smt := strings.Join(append(append([]string{}, bucket.TypeDecls...), decl, constr), "\n")
+			smtLines := make([]string, 0, len(bucket.TypeDecls)+len(declBucket.Decls)+len(constrBucket.Asserts)+2)
+			smtLines = append(smtLines, bucket.TypeDecls...)
+			smtLines = append(smtLines, declBucket.Decls...)
+			smtLines = append(smtLines, constrBucket.Asserts...)
+			smt := strings.Join(smtLines, "\n")
 			fmt.Printf("%s\n", smt)
 			expectSatZ3(t, smt)
 		})

@@ -14,12 +14,12 @@ func TestTypeDefs_getSmtConstr_AtomicString(t *testing.T) {
 		Kind:       types.KindAtomic,
 		AtomicType: types.AtomicString,
 	}
-	constr, err := td.getSmtConstr("x", typeDef)
+	b, err := td.getSmtConstr("x", typeDef)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(constr) != 1 || constr[0] != "(is-OString x)" {
-		t.Errorf("unexpected constraint: %v", constr)
+	if len(b.Asserts) != 1 || b.Asserts[0] != "(is-OString x)" {
+		t.Errorf("unexpected constraint: %v", b.Asserts)
 	}
 }
 
@@ -30,12 +30,12 @@ func TestTypeDefs_getSmtConstr_AtomicInt(t *testing.T) {
 		Kind:       types.KindAtomic,
 		AtomicType: types.AtomicInt,
 	}
-	constr, err := td.getSmtConstr("y", typeDef)
+	b, err := td.getSmtConstr("y", typeDef)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(constr) != 1 || constr[0] != "(is-ONumber y)" {
-		t.Errorf("unexpected constraint: %v", constr)
+	if len(b.Asserts) != 1 || b.Asserts[0] != "(is-ONumber y)" {
+		t.Errorf("unexpected constraint: %v", b.Asserts)
 	}
 }
 
@@ -64,7 +64,7 @@ func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 			},
 		}, false),
 	}
-	constr, err := td.getSmtConstr("z", objType)
+	b, err := td.getSmtConstr("z", objType)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 		"(is-ONumber (select (obj2 z) \"bar\"))":                        false,
 		"(is-OBoolean (select (obj1 (select (obj2 z) \"baz\")) \"x\"))": false,
 	}
-	for _, c := range constr {
+	for _, c := range b.Asserts {
 		if _, ok := want[c]; ok {
 			want[c] = true
 		}
@@ -122,7 +122,7 @@ func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 			},
 		}, false),
 	}
-	constr, err := td.getSmtConstr("n", nestedType)
+	b, err := td.getSmtConstr("n", nestedType)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 		"(is-OString (select (obj1 (select (obj2 n) \"outer\")) \"inner\"))": false,
 		"(is-ONumber (select (obj1 (select (obj2 n) \"outer\")) \"num\"))":   false,
 	}
-	for _, c := range constr {
+	for _, c := range b.Asserts {
 		if _, ok := want[c]; ok {
 			want[c] = true
 		}
@@ -203,10 +203,14 @@ func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 			},
 		}, false),
 	}
-	assertStr, err := td.getSmtConstrAssert("n", nestedType)
+	b, err := td.getSmtConstrAssert("n", nestedType)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if b == nil || len(b.Asserts) != 1 {
+		t.Fatalf("expected exactly one assert, got: %#v", b)
+	}
+	assertStr := b.Asserts[0]
 	checks := []string{
 		"(is-OObj2 n)",
 		"(is-OObj1 (select (obj2 n) \"outer\"))",
@@ -236,18 +240,18 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 			AtomicType: types.AtomicString,
 		},
 	}
-	constr, err := td.getSmtArrConstr("a", arrType)
+	b, err := td.getSmtArrConstr("a", arrType)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(constr) != 2 {
-		t.Errorf("expected 2 constraints, got %d", len(constr))
+	if len(b.Asserts) != 2 {
+		t.Errorf("expected 2 constraints, got %d", len(b.Asserts))
 	}
-	if constr[0] != "(is-OArray1 a)" {
-		t.Errorf("missing or incorrect OArray constraint: %v", constr[0])
+	if b.Asserts[0] != "(is-OArray1 a)" {
+		t.Errorf("missing or incorrect OArray constraint: %v", b.Asserts[0])
 	}
-	if !strings.Contains(constr[1], "(is-OString elem)") {
-		t.Errorf("missing or incorrect atomic string constraint in forall: %v", constr[1])
+	if !strings.Contains(b.Asserts[1], "(is-OString elem)") {
+		t.Errorf("missing or incorrect atomic string constraint in forall: %v", b.Asserts[1])
 	}
 
 	// Test nested array: array of array of ints
@@ -261,22 +265,21 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 			},
 		},
 	}
-	nestedConstr, err := td.getSmtArrConstr("b", nestedArrType)
-
+	nestedB, err := td.getSmtArrConstr("b", nestedArrType)
 	if err != nil {
 		t.Fatalf("unexpected error for nested array: %v", err)
 	}
-	if len(nestedConstr) != 2 {
-		t.Errorf("expected 2 constraints for nested array, got %d", len(nestedConstr))
+	if len(nestedB.Asserts) != 2 {
+		t.Errorf("expected 2 constraints for nested array, got %d", len(nestedB.Asserts))
 	}
-	if nestedConstr[0] != "(is-OArray2 b)" {
-		t.Errorf("missing or incorrect OArray constraint for nested array: %v", nestedConstr[0])
+	if nestedB.Asserts[0] != "(is-OArray2 b)" {
+		t.Errorf("missing or incorrect OArray constraint for nested array: %v", nestedB.Asserts[0])
 	}
-	if !strings.Contains(nestedConstr[1], "(is-OArray1 elem)") {
-		t.Errorf("missing or incorrect nested OArray constraint in forall: %v", nestedConstr[1])
+	if !strings.Contains(nestedB.Asserts[1], "(is-OArray1 elem)") {
+		t.Errorf("missing or incorrect nested OArray constraint in forall: %v", nestedB.Asserts[1])
 	}
-	if !strings.Contains(nestedConstr[1], "(is-ONumber elem") {
-		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedConstr[1])
+	if !strings.Contains(nestedB.Asserts[1], "(is-ONumber elem") {
+		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedB.Asserts[1])
 	}
 }
 
@@ -288,71 +291,55 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	simpleUnionType := &types.RegoTypeDef{
 		Kind: types.KindUnion,
 		Union: []types.RegoTypeDef{
-			{
-				Kind:       types.KindAtomic,
-				AtomicType: types.AtomicString,
-			},
-			{
-				Kind:       types.KindAtomic,
-				AtomicType: types.AtomicInt,
-			},
+			{Kind: types.KindAtomic, AtomicType: types.AtomicString},
+			{Kind: types.KindAtomic, AtomicType: types.AtomicInt},
 		},
 	}
-	constr, err := td.getSmtConstr("u", simpleUnionType)
+	b, err := td.getSmtConstr("u", simpleUnionType)
 	if err != nil {
 		t.Fatalf("unexpected error for simple union: %v", err)
 	}
-	if len(constr) != 1 {
-		t.Errorf("expected 1 constraint for simple union, got %d", len(constr))
+	if len(b.Asserts) != 1 {
+		t.Errorf("expected 1 constraint for simple union, got %d", len(b.Asserts))
 	}
-	if !strings.Contains(constr[0], "(or ") {
-		t.Errorf("union constraint should contain 'or': %v", constr[0])
+	if !strings.Contains(b.Asserts[0], "(or ") {
+		t.Errorf("union constraint should contain 'or': %v", b.Asserts[0])
 	}
-	if !strings.Contains(constr[0], "(is-OString u)") {
-		t.Errorf("missing string constraint in union: %v", constr[0])
+	if !strings.Contains(b.Asserts[0], "(is-OString u)") {
+		t.Errorf("missing string constraint in union: %v", b.Asserts[0])
 	}
-	if !strings.Contains(constr[0], "(is-ONumber u)") {
-		t.Errorf("missing int constraint in union: %v", constr[0])
+	if !strings.Contains(b.Asserts[0], "(is-ONumber u)") {
+		t.Errorf("missing int constraint in union: %v", b.Asserts[0])
 	}
 
 	// Test complex union: string | object | array
 	complexUnionType := &types.RegoTypeDef{
 		Kind: types.KindUnion,
 		Union: []types.RegoTypeDef{
-			{
-				Kind:       types.KindAtomic,
-				AtomicType: types.AtomicString,
-			},
+			{Kind: types.KindAtomic, AtomicType: types.AtomicString},
 			{
 				Kind: types.KindObject,
 				ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
-					"field1": {
-						Kind:       types.KindAtomic,
-						AtomicType: types.AtomicBoolean,
-					},
+					"field1": {Kind: types.KindAtomic, AtomicType: types.AtomicBoolean},
 				}, false),
 			},
 			{
-				Kind: types.KindArray,
-				ArrayType: &types.RegoTypeDef{
-					Kind:       types.KindAtomic,
-					AtomicType: types.AtomicInt,
-				},
+				Kind:      types.KindArray,
+				ArrayType: &types.RegoTypeDef{Kind: types.KindAtomic, AtomicType: types.AtomicInt},
 			},
 		},
 	}
-	complexConstr, err := td.getSmtConstr("v", complexUnionType)
+	b, err = td.getSmtConstr("v", complexUnionType)
 	if err != nil {
 		t.Fatalf("unexpected error for complex union: %v", err)
 	}
-	if len(complexConstr) != 1 {
-		t.Errorf("expected 1 constraint for complex union, got %d", len(complexConstr))
+	if len(b.Asserts) != 1 {
+		t.Errorf("expected 1 constraint for complex union, got %d", len(b.Asserts))
 	}
-	complexConstraintStr := complexConstr[0]
+	complexConstraintStr := b.Asserts[0]
 	if !strings.Contains(complexConstraintStr, "(or ") {
 		t.Errorf("complex union constraint should contain 'or': %v", complexConstraintStr)
 	}
-	// Check that it contains all member constraints
 	if !strings.Contains(complexConstraintStr, "(is-OString v)") {
 		t.Errorf("missing string constraint in complex union: %v", complexConstraintStr)
 	}
@@ -370,34 +357,24 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 			{
 				Kind: types.KindUnion,
 				Union: []types.RegoTypeDef{
-					{
-						Kind:       types.KindAtomic,
-						AtomicType: types.AtomicString,
-					},
-					{
-						Kind:       types.KindAtomic,
-						AtomicType: types.AtomicInt,
-					},
+					{Kind: types.KindAtomic, AtomicType: types.AtomicString},
+					{Kind: types.KindAtomic, AtomicType: types.AtomicInt},
 				},
 			},
-			{
-				Kind:       types.KindAtomic,
-				AtomicType: types.AtomicBoolean,
-			},
+			{Kind: types.KindAtomic, AtomicType: types.AtomicBoolean},
 		},
 	}
-	nestedConstr, err := td.getSmtConstr("w", nestedUnionType)
+	b, err = td.getSmtConstr("w", nestedUnionType)
 	if err != nil {
 		t.Fatalf("unexpected error for nested union: %v", err)
 	}
-	if len(nestedConstr) != 1 {
-		t.Errorf("expected 1 constraint for nested union, got %d", len(nestedConstr))
+	if len(b.Asserts) != 1 {
+		t.Errorf("expected 1 constraint for nested union, got %d", len(b.Asserts))
 	}
-	nestedConstraintStr := nestedConstr[0]
+	nestedConstraintStr := b.Asserts[0]
 	if !strings.Contains(nestedConstraintStr, "(or ") {
 		t.Errorf("nested union constraint should contain 'or': %v", nestedConstraintStr)
 	}
-	// Should contain all flattened constraints
 	if !strings.Contains(nestedConstraintStr, "(is-OString w)") {
 		t.Errorf("missing string constraint in nested union: %v", nestedConstraintStr)
 	}
@@ -417,13 +394,8 @@ func TestTypeDefs_getSmtConstr_UnionWithError(t *testing.T) {
 	badUnionType := &types.RegoTypeDef{
 		Kind: types.KindUnion,
 		Union: []types.RegoTypeDef{
-			{
-				Kind:       types.KindAtomic,
-				AtomicType: types.AtomicString,
-			},
-			{
-				Kind: types.KindUnknown, // This should cause an error
-			},
+			{Kind: types.KindAtomic, AtomicType: types.AtomicString},
+			{Kind: types.KindUnknown}, // This should cause an error
 		},
 	}
 	_, err := td.getSmtConstr("x", badUnionType)
@@ -432,10 +404,7 @@ func TestTypeDefs_getSmtConstr_UnionWithError(t *testing.T) {
 	}
 
 	// Test non-union type passed to getSmtUnionConstr
-	nonUnionType := &types.RegoTypeDef{
-		Kind:       types.KindAtomic,
-		AtomicType: types.AtomicString,
-	}
+	nonUnionType := &types.RegoTypeDef{Kind: types.KindAtomic, AtomicType: types.AtomicString}
 	_, err = td.getSmtUnionConstr("y", nonUnionType)
 	if err == nil {
 		t.Error("expected error for non-union type passed to getSmtUnionConstr, got nil")

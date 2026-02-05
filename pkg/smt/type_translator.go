@@ -89,8 +89,8 @@ func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, e
 		maxDepth = max(maxDepth, tp.TypeDepth())
 	}
 
-	datatypes := td.getDatatypesDeclaration(maxDepth)
-	bucket.TypeDecls = append(bucket.TypeDecls, datatypes...)
+	datatypesBucket := td.getDatatypesDeclaration(maxDepth)
+	bucket.Append(datatypesBucket)
 	return bucket, nil
 }
 
@@ -108,17 +108,17 @@ func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, e
 func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 	bucket := NewBucket()
 	tp := td.TypeInfo.Types[varName]
-	smtVar, er := td.getVarDeclaration(varName, &tp)
+	varDeclBucket, er := td.getVarDeclaration(varName, &tp)
 	if er != nil {
 		return nil, er
 	}
-	bucket.Decls = append(bucket.Decls, smtVar)
+	bucket.Append(varDeclBucket)
 
-	smtConstr, er := td.getSmtConstrAssert(varName, &tp)
+	constrBucket, er := td.getSmtConstrAssert(varName, &tp)
 	if er != nil {
 		return nil, er
 	}
-	bucket.Asserts = append(bucket.Asserts, smtConstr)
+	bucket.Append(constrBucket)
 
 	return bucket, nil
 }
@@ -184,14 +184,14 @@ func getTypeConstr(depth int, tp *types.RegoTypeDef) (string, error) {
 // Returns:
 //
 //	[]string: A slice of SMT-LIB datatype declaration strings.
-func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) []string {
+func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
 	// Simplified scheme:
 	// - OTypeD0 is the atomic datatype (previously called OAtom).
 	// - OTypeD1..N are depth-indexed value datatypes whose Atom constructor
 	//   carries OTypeD0, and whose object/array fields also store OTypeD0,
 	//   then OTypeD(d-1) for higher depths.
-	decls := make([]string, 0, maxDepth+2)
-	decls = append(decls, `
+	bucket := NewBucket()
+	bucket.TypeDecls = append(bucket.TypeDecls, `
 (declare-datatypes ()
 	((OTypeD0
 		(OString (str String))
@@ -204,7 +204,7 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) []string {
 
 	for d := 1; d <= maxDepth; d++ {
 		inner := fmt.Sprintf("OTypeD%d", d-1)
-		decls = append(decls, fmt.Sprintf(`
+		bucket.TypeDecls = append(bucket.TypeDecls, fmt.Sprintf(`
 (declare-datatypes ()
   ((OTypeD%d
     (Atom%d (atom%d %s))
@@ -214,7 +214,7 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) []string {
 )`, d, d, d, inner, d, d, inner, d, d, inner))
 	}
 
-	return decls
+	return bucket
 }
 
 // getVarDeclaration returns the SMT-LIB variable declaration for a given variable name and type.
@@ -228,8 +228,10 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) []string {
 //
 //	string: The SMT-LIB variable declaration string.
 //	error: An error if the declaration could not be generated.
-func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) (string, error) {
-	return fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType(tp)), nil
+func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) (*Bucket, error) {
+	bucket := NewBucket()
+	bucket.Decls = append(bucket.Decls, fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType(tp)))
+	return bucket, nil
 }
 
 // getSmtType returns the SMT-LIB type name for a given Rego type definition based on its type depth.
@@ -268,13 +270,16 @@ func (td *TypeTranslator) getSmtType(tp *types.RegoTypeDef) string {
 //
 //	string: The SMT-LIB assertion string.
 //	error: An error if constraints could not be generated.
-func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoTypeDef) (string, error) {
-	andArr, er := td.getSmtConstr(smtValue, tp)
+
+func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+	bucket := NewBucket()
+	andBucket, er := td.getSmtConstr(smtValue, tp)
 	if er != nil {
-		return "", err.ErrSmtConstraints(er)
+		return nil, err.ErrSmtConstraints(er)
 	}
-	assert := strings.Join(andArr, " ")
-	return fmt.Sprintf("(assert (and %s))", assert), nil
+	assert := strings.Join(andBucket.Asserts, " ")
+	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(assert (and %s))", assert))
+	return bucket, nil
 }
 
 // getSmtConstr generates SMT-LIB constraints for a value and type.
@@ -288,14 +293,11 @@ func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoType
 //
 //	[]string: A slice of SMT-LIB constraint strings.
 //	error: An error if constraints could not be generated.
-func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+
+func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	switch {
 	case tp.IsAtomic():
-		c, er := td.getSmtAtomConstr(smtValue, tp)
-		if er != nil {
-			return nil, er
-		}
-		return []string{c}, nil
+		return td.getSmtAtomConstr(smtValue, tp)
 	case tp.IsObject():
 		return td.getSmtObjectConstr(smtValue, tp)
 	case tp.IsArray():
@@ -322,20 +324,23 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 //	error: An error if any member constraint generation fails or if the
 //		type is not a union.
 
-func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	if !tp.IsUnion() {
 		return nil, err.ErrUnsupportedType
 	}
 
+	bucket := NewBucket()
+
 	orConstr := make([]string, 0, 64)
 	for _, member := range tp.Union {
-		memberConstr, err := td.getSmtConstr(smtValue, &member)
+		memberBucket, err := td.getSmtConstr(smtValue, &member)
 		if err != nil {
 			return nil, err
 		}
-		orConstr = append(orConstr, memberConstr...)
+		orConstr = append(orConstr, memberBucket.Asserts...)
 	}
-	return []string{fmt.Sprintf("(or %s)", strings.Join(orConstr, " "))}, nil
+	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(or %s)", strings.Join(orConstr, " ")))
+	return bucket, nil
 }
 
 // getSmtObjectConstr generates SMT-LIB constraints for an object value.
@@ -355,14 +360,15 @@ func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeD
 // Returns:
 // - `[]string`: Constraint fragments (combine with `(and ...)` for assertions).
 // - `error`: Non-nil if `tp` is not an object or a field type is missing.
-func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	if !tp.IsObject() {
 		return nil, err.ErrUnsupportedType
 	}
 
+	bucket := NewBucket()
+
 	depth := max(tp.TypeDepth(), 0)
-	andConstr := make([]string, 0, 64)
-	andConstr = append(andConstr, fmt.Sprintf("(is-OObj%d %s)", depth, smtValue))
+	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(is-OObj%d %s)", depth, smtValue))
 	// Ensure deterministic enumeration of object fields by sorting keys.
 	keys := tp.ObjectFields.GetKeys()
 	sort.Strings(keys)
@@ -378,14 +384,14 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 			if err != nil {
 				return nil, err
 			}
-			andConstr = append(andConstr, fmt.Sprintf("(%s %s)", constr, sel))
+			bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(%s %s)", constr, sel))
 		}
 
 		valAnalysis, er := td.getSmtConstr(sel, val)
 		if er != nil {
 			return nil, err.ErrSmtFieldConstraints(key, er)
 		}
-		andConstr = append(andConstr, valAnalysis...)
+		bucket.Asserts = append(bucket.Asserts, valAnalysis.Asserts...)
 	}
 
 	// Helper to build a universal quantification over all string keys
@@ -415,21 +421,23 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 
 		disj = append(disj, defVal)
 		body := fmt.Sprintf("(or %s)", strings.Join(disj, " "))
-		andConstr = append(andConstr, fmt.Sprintf("(forall ((%s String)) %s)", kVar, body))
+		bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(forall ((%s String)) %s)", kVar, body))
 	}
-	return andConstr, nil
+	return bucket, nil
 }
 
 // getSmtAtomConstr generates a single SMT-LIB constraint for an atomic value.
-func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) (string, error) {
+func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	if !tp.IsAtomic() {
-		return "", err.ErrUnsupportedType
+		return nil, err.ErrUnsupportedType
 	}
 	constr, err := getTypeConstr(0, tp)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return fmt.Sprintf("(%s %s)", constr, smtValue), nil
+	bucket := NewBucket()
+	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(%s %s)", constr, smtValue))
+	return bucket, nil
 }
 
 // getSmtArrConstr generates SMT-LIB constraints for an array value and type.
@@ -443,24 +451,25 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 //
 //	[]string: A slice of SMT-LIB constraint strings for the array and its elements.
 //	error: An error if constraints could not be generated.
-func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) ([]string, error) {
+func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	if !tp.IsArray() {
 		return nil, err.ErrUnsupportedType
 	}
+
+	bucket := NewBucket()
 	depth := max(tp.TypeDepth(), 0)
-	andConstr := make([]string, 0, 64)
-	andConstr = append(andConstr, fmt.Sprintf("(is-OArray%d %s)", depth, smtValue))
+	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(is-OArray%d %s)", depth, smtValue))
 
 	valAnalysis, er := td.getSmtConstr("elem", tp.ArrayType)
 	if er != nil {
 		return nil, er
 	}
-	ands := fmt.Sprintf("(and %s)", strings.Join(valAnalysis, " "))
+	ands := fmt.Sprintf("(and %s)", strings.Join(valAnalysis.Asserts, " "))
 	qvar := RandString(5)
 	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands)
-	andConstr = append(andConstr, forall)
+	bucket.Asserts = append(bucket.Asserts, forall)
 
-	return andConstr, nil
+	return bucket, nil
 }
 
 // getSmtRef constructs an SMT-LIB reference string by traversing a path through nested object types.
