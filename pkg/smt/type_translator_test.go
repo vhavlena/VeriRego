@@ -448,6 +448,30 @@ func TestGetSmtObjStoreExpr_SimpleObject(t *testing.T) {
 	}
 }
 
+func TestGetSmtObjStoreExpr_RejectsAllowAdditional(t *testing.T) {
+	t.Parallel()
+	td := &TypeTranslator{TypeInfo: nil}
+
+	// NewObjectType defaults to AllowAdditional=true; exported wrapper should reject.
+	tpBad := types.NewObjectType(map[string]types.RegoTypeDef{
+		"a": types.NewAtomicType(types.AtomicString),
+	})
+	_, _, err := td.GetSmtObjStoreExpr(&tpBad)
+	if err == nil {
+		t.Fatalf("expected error for AllowAdditional=true")
+	}
+
+	// Explicitly disallow additional properties; wrapper should accept.
+	tpGood := types.RegoTypeDef{Kind: types.KindObject, ObjectFields: types.NewObjectFieldSet(map[string]types.RegoTypeDef{
+		"a": types.NewAtomicType(types.AtomicString),
+		"b": types.NewAtomicType(types.AtomicInt),
+	}, false)}
+	_, _, err = td.GetSmtObjStoreExpr(&tpGood)
+	if err != nil {
+		t.Fatalf("unexpected error for AllowAdditional=false: %v", err)
+	}
+}
+
 func TestGetSmtObjectConstrStore_AssertsEquality(t *testing.T) {
 	t.Parallel()
 	td := &TypeTranslator{TypeInfo: nil}

@@ -142,6 +142,78 @@ func TestRegoTypeDefFieldAccess(t *testing.T) {
 	}
 }
 
+func TestRegoTypeDef_HasNoAdditionalPropertiesDeep(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		tp   *RegoTypeDef
+		want bool
+	}{
+		{
+			name: "atomic",
+			tp:   &RegoTypeDef{Kind: KindAtomic, AtomicType: AtomicString},
+			want: true,
+		},
+		{
+			name: "object no additional",
+			tp: &RegoTypeDef{Kind: KindObject, ObjectFields: NewObjectFieldSet(map[string]RegoTypeDef{
+				"a": NewAtomicType(AtomicString),
+			}, false)},
+			want: true,
+		},
+		{
+			name: "object allows additional",
+			tp: &RegoTypeDef{Kind: KindObject, ObjectFields: NewObjectFieldSet(map[string]RegoTypeDef{
+				"a": NewAtomicType(AtomicString),
+			}, true)},
+			want: false,
+		},
+		{
+			name: "object has additionalPropKey entry",
+			tp: &RegoTypeDef{Kind: KindObject, ObjectFields: NewObjectFieldSet(map[string]RegoTypeDef{
+				"a":               NewAtomicType(AtomicString),
+				AdditionalPropKey: NewAtomicType(AtomicString),
+			}, false)},
+			want: false,
+		},
+		{
+			name: "array of object allows additional",
+			tp: &RegoTypeDef{Kind: KindArray, ArrayType: &RegoTypeDef{Kind: KindObject, ObjectFields: NewObjectFieldSet(map[string]RegoTypeDef{
+				"x": NewAtomicType(AtomicInt),
+			}, true)}},
+			want: false,
+		},
+		{
+			name: "union one bad member",
+			tp: &RegoTypeDef{Kind: KindUnion, Union: []RegoTypeDef{
+				{Kind: KindAtomic, AtomicType: AtomicString},
+				{Kind: KindObject, ObjectFields: NewObjectFieldSet(map[string]RegoTypeDef{"x": NewAtomicType(AtomicInt)}, true)},
+			}},
+			want: false,
+		},
+		{
+			name: "union all good members",
+			tp: &RegoTypeDef{Kind: KindUnion, Union: []RegoTypeDef{
+				{Kind: KindAtomic, AtomicType: AtomicString},
+				{Kind: KindObject, ObjectFields: NewObjectFieldSet(map[string]RegoTypeDef{"x": NewAtomicType(AtomicInt)}, false)},
+			}},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.tp.HasNoAdditionalPropertiesDeep()
+			if got != tt.want {
+				t.Fatalf("HasNoAdditionalPropertiesDeep() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetTypeFromPath(t *testing.T) {
 	t.Parallel()
 

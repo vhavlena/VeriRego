@@ -219,6 +219,62 @@ func (t *RegoTypeDef) IsUnion() bool {
 	return t.Kind == KindUnion
 }
 
+// HasNoAdditionalPropertiesDeep reports whether `AllowAdditional` is false for all object types
+// reachable from this type definition.
+//
+// Behaviour:
+//   - For atomic/unknown types: returns true.
+//   - For arrays: checks the element type recursively (nil element type is treated as true).
+//   - For unions: requires all members to satisfy the property.
+//   - For objects: requires `AllowAdditional == false` and that no synthetic additional-properties
+//     entry exists under `AdditionalPropKey`, then checks all explicit field types recursively.
+//
+// Returns:
+// - `bool`: True when no object type in the definition allows additional properties.
+func (t *RegoTypeDef) HasNoAdditionalPropertiesDeep() bool {
+	if t == nil {
+		return false
+	}
+
+	switch t.Kind {
+	case KindAtomic, KindUnknown:
+		return true
+	case KindArray:
+		if t.ArrayType == nil {
+			return true
+		}
+		return t.ArrayType.HasNoAdditionalPropertiesDeep()
+	case KindUnion:
+		for i := range t.Union {
+			if !(&t.Union[i]).HasNoAdditionalPropertiesDeep() {
+				return false
+			}
+		}
+		return true
+	case KindObject:
+		if t.ObjectFields.AllowAdditional {
+			return false
+		}
+		if t.ObjectFields.Fields != nil {
+			if _, has := t.ObjectFields.Fields[AdditionalPropKey]; has {
+				return false
+			}
+			for k, ft := range t.ObjectFields.Fields {
+				if k == AdditionalPropKey {
+					continue
+				}
+				ftCopy := ft
+				if !(&ftCopy).HasNoAdditionalPropertiesDeep() {
+					return false
+				}
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 // MakeUnion ensures the receiver is a union type and returns a pointer to it.
 //
 // If the receiver is already a union this method simply returns the receiver.

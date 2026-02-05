@@ -567,6 +567,9 @@ func (td *TypeTranslator) getSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bu
 // - `*Bucket`: Bucket with leaf declarations/assertions.
 // - `error`: Non-nil if the object type is unsupported.
 func (td *TypeTranslator) GetSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bucket, error) {
+	if tp == nil || !tp.HasNoAdditionalPropertiesDeep() {
+		return "", nil, err.ErrUnsupportedType
+	}
 	return td.getSmtObjStoreExpr(tp)
 }
 
