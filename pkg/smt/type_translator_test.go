@@ -515,7 +515,7 @@ func TestGetSmtObjectConstrStore_AssertsEquality(t *testing.T) {
 		"x": types.NewAtomicType(types.AtomicBoolean),
 	})
 
-	bucket, err := td.getSmtObjectConstrStore("obj", &tp)
+	bucket, err := td.GetSmtObjectConstrStore("obj", &tp)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

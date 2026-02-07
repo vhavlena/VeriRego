@@ -122,7 +122,7 @@ func Test_getSmtObjectConstrStore_SimpleObject_Z3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decl error: %v", err)
 	}
-	storeBucket, err := tr.getSmtObjectConstrStore("x", &obj)
+	storeBucket, err := tr.GetSmtObjectConstrStore("x", &obj)
 	if err != nil {
 		t.Fatalf("store constr error: %v", err)
 	}
@@ -184,7 +184,10 @@ func Test_getSmtObjectConstrStore_VariousObjects_Z3(t *testing.T) {
 					}, AllowAdditional: false}},
 					"n": types.NewAtomicType(types.AtomicInt),
 				}, AllowAdditional: false}},
-				"flag": types.NewAtomicType(types.AtomicBoolean),
+				"outer2": {Kind: types.KindObject, ObjectFields: types.ObjectFieldSet{Fields: map[string]types.RegoTypeDef{
+					"a": types.NewAtomicType(types.AtomicString),
+					"b": types.NewAtomicType(types.AtomicInt),
+				}, AllowAdditional: false}},
 			}, AllowAdditional: false}},
 			expectStore: true,
 			expectHas:   []string{"(OObj3", "(OObj2", "(OObj1", "(Atom2", "(Atom1"},
@@ -227,7 +230,7 @@ func Test_getSmtObjectConstrStore_VariousObjects_Z3(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decl error: %v", err)
 			}
-			storeBucket, err := tr.getSmtObjectConstrStore("x", &tt.obj)
+			storeBucket, err := tr.GetSmtObjectConstrStore("x", &tt.obj)
 			if err != nil {
 				t.Fatalf("store constr error: %v", err)
 			}

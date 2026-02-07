@@ -235,11 +235,11 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
 		bucket.TypeDecls = append(bucket.TypeDecls, fmt.Sprintf(`
 (declare-datatypes ()
   ((OTypeD%d
-    (Atom%d (atom%d %s))
+    (Atom%d (atom%d OTypeD0))
     (OObj%d (obj%d (Array String %s)))
     (OArray%d (arr%d (Array Int %s)))
   ))
-)`, d, d, d, inner, d, d, inner, d, d, inner))
+)`, d, d, d, d, d, inner, d, d, inner))
 	}
 
 	return bucket
@@ -456,10 +456,7 @@ func (td *TypeTranslator) getSmtUndefValue(depth int) string {
 		return smtUndef
 	}
 	val := smtUndef
-	for d := 1; d <= depth; d++ {
-		val = fmt.Sprintf("(Atom%d %s)", d, val)
-	}
-	return val
+	return fmt.Sprintf("(Atom%d %s)", depth, val)
 }
 
 // getSmtLeafVarDefs emits declaration/assertions for an atomic leaf symbol.
@@ -513,7 +510,7 @@ func (td *TypeTranslator) getSmtLeafVarDefs(leafName string, leafType *types.Reg
 // - `error`: Non-nil if `tp` is not a supported simple object.
 func (td *TypeTranslator) getSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bucket, error) {
 	usedVars := make(map[string]string)
-	return td.getSmtObjStoreExprRec(tp, usedVars)
+	return td.getSmtObjStoreExprRec(tp, tp.TypeDepth(), usedVars)
 }
 
 // getSmtObjStoreExprRec builds an SMT expression for an object using array `store`.
@@ -535,16 +532,10 @@ func (td *TypeTranslator) getSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bu
 // - `string`: SMT expression of sort `OTypeD<depth>` representing the object.
 // - `*Bucket`: Bucket containing leaf declarations and leaf constraints.
 // - `error`: Non-nil if `tp` is not a supported simple object.
-func (td *TypeTranslator) getSmtObjStoreExprRec(tp *types.RegoTypeDef, usedVars map[string]string) (string, *Bucket, error) {
+func (td *TypeTranslator) getSmtObjStoreExprRec(tp *types.RegoTypeDef, depth int, usedVars map[string]string) (string, *Bucket, error) {
 	if tp == nil || !tp.IsObject() {
 		return "", nil, err.ErrUnsupportedType
 	}
-
-	depth := max(tp.TypeDepth(), 0)
-	if depth < 1 {
-		return "", nil, err.ErrUnsupportedType
-	}
-
 	keys := tp.ObjectFields.GetKeys()
 	sort.Strings(keys)
 
@@ -577,19 +568,12 @@ func (td *TypeTranslator) getSmtObjStoreExprRec(tp *types.RegoTypeDef, usedVars 
 
 			storeVal := leafName
 			if innerDepth > 0 {
-				for d := 1; d <= innerDepth; d++ {
-					storeVal = fmt.Sprintf("(Atom%d %s)", d, storeVal)
-				}
+				storeVal = fmt.Sprintf("(Atom%d %s)", innerDepth, storeVal)
 			}
 			arrExpr = fmt.Sprintf("(store %s \"%s\" %s)", arrExpr, key, storeVal)
 
 		case fieldType.IsObject():
-			fieldDepth := max(fieldType.TypeDepth(), 0)
-			if fieldDepth != innerDepth {
-				// Object nesting should decrease depth by exactly 1 at each step.
-				return "", nil, err.ErrUnsupportedType
-			}
-			childExpr, childBucket, childErr := td.getSmtObjStoreExprRec(fieldType, usedVars)
+			childExpr, childBucket, childErr := td.getSmtObjStoreExprRec(fieldType, innerDepth, usedVars)
 			if childErr != nil {
 				return "", nil, childErr
 			}
@@ -622,7 +606,7 @@ func (td *TypeTranslator) GetSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bu
 	return td.getSmtObjStoreExpr(tp)
 }
 
-// getSmtObjectConstrStore constructs an object via `store` and asserts equality.
+// GetSmtObjectConstrStore constructs an object via `store` and asserts equality.
 //
 // Parameters:
 // - `smtValue string`: SMT symbol/expression to equate to the constructed object.
@@ -631,7 +615,7 @@ func (td *TypeTranslator) GetSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bu
 // Returns:
 // - `*Bucket`: Bucket containing leaf declarations/assertions plus the equality assertion.
 // - `error`: Non-nil if object construction fails.
-func (td *TypeTranslator) getSmtObjectConstrStore(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+func (td *TypeTranslator) GetSmtObjectConstrStore(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
 	objExpr, defsBucket, err2 := td.getSmtObjStoreExpr(tp)
 	if err2 != nil {
 		return nil, err2
@@ -641,19 +625,6 @@ func (td *TypeTranslator) getSmtObjectConstrStore(smtValue string, tp *types.Reg
 	bucket.Append(defsBucket)
 	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(assert (= %s %s))", smtValue, objExpr))
 	return bucket, nil
-}
-
-// GetSmtObjectConstrStore is an exported wrapper around `getSmtObjectConstrStore`.
-//
-// Parameters:
-// - `smtValue string`: SMT symbol/expression to equate to a constructed object.
-// - `tp *types.RegoTypeDef`: Object type.
-//
-// Returns:
-// - `*Bucket`: Bucket containing required declarations/assertions.
-// - `error`: Non-nil if object construction fails.
-func (td *TypeTranslator) GetSmtObjectConstrStore(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
-	return td.getSmtObjectConstrStore(smtValue, tp)
 }
 
 // getSmtAtomConstr generates a single type predicate constraint for an atomic value.
