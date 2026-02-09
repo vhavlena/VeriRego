@@ -33,9 +33,10 @@ Shape (schematic):
 ; for each d = 1..maxDepth:
 (declare-datatypes ()
   ((OTypeD<d>
-    (Atom<d>   (atom<d>   OTypeD<d-1>))
+    (Atom<d>   (atom<d>   OTypeD0))
     (OObj<d>   (obj<d>    (Array String OTypeD<d-1>)))
     (OArray<d> (arr<d>    (Array Int    OTypeD<d-1>)))
+    (Wrap<d>   (wrap<d>   OTypeD<d-1>))
   ))
 )
 ```
@@ -43,7 +44,9 @@ Shape (schematic):
 Notes:
 
 - Atomic constructors at `OTypeD0` are `OString`, `ONumber`, `OBoolean`, `ONull`, `OUndef`.
-- For `d>0`, the atomic case is represented via `Atom<d>` whose payload is an `OTypeD(d-1)` value.
+- Atomic constructors at `OTypeD0` are `OString`, `ONumber`, `OBoolean`, `ONull`, `OUndef`.
+- For `d>0`, the atomic case is represented via `Atom<d>` whose payload is always an `OTypeD0` value.
+- For `d>0`, `Wrap<d>` is an additional 1-argument constructor carrying an `OTypeD(d-1)` value.
 
 ## Mapping Rego types to SMT sorts
 
@@ -55,7 +58,7 @@ OTypeD(tp.TypeDepth())
 
 This is implemented by `getSmtType`.
 
-Important consequence: **atomic types do not necessarily use `OTypeD0` for variables**. Variables are declared using `OTypeD(depth)` even for atomic `tp`, so atoms can be “embedded” at the right depth when needed by the overall model.
+Important consequence: variables are declared using the sort at their type depth. In practice, plain atomic types are typically depth 0 (`OTypeD0`), while nested atomic values (e.g. inside an object) appear at the element depth and are accessed via `atom<d>` as described below.
 
 ## Type predicates (guards)
 
@@ -212,7 +215,7 @@ Key details:
 - The default value is `OUndef` at the element depth, lifted via `Atom` constructors when needed:
 
   - If `d-1 == 0`: `<default> = OUndef`
-  - If `d-1 > 0`: `<default> = (Atom<d-1> (Atom<d-2> ... (Atom1 OUndef)))`
+  - If `d-1 > 0`: `<default> = (Atom<d-1> OUndef)`
 
 This lifting is implemented by `getSmtUndefValue`.
 
@@ -224,7 +227,7 @@ When storing a leaf into an object whose element depth is $e = d-1 > 0$, the lea
 
 ```smtlib
 ; e == 2 example
-(store arr "a" (Atom2 (Atom1 leaf_a)))
+(store arr "a" (Atom2 leaf_a))
 ```
 
 #### Equality assertion helper

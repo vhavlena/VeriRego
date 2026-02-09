@@ -83,6 +83,11 @@ func ValueFromOTypeString(ast z3.AST) (Value, error) {
 			return Value{}, fmt.Errorf("model: %s expects 1 child, got %d", name, ast.NumChildren())
 		}
 		return parseOAtomAST(ast.Child(0))
+	case "Wrap":
+		if ast.NumChildren() != 1 {
+			return Value{}, fmt.Errorf("model: %s expects 1 child, got %d", name, ast.NumChildren())
+		}
+		return ValueFromOTypeString(ast.Child(0))
 	case "OObj":
 		return parseOObjAST(ast)
 	case "OArray":
@@ -241,13 +246,12 @@ func isAbsentObjectDefault(ast z3.AST) bool {
 	}
 	cur := ast
 	for cur.IsApp() {
-		name := cur.Decl().Name()
-		base := strings.TrimRight(name, "0123456789")
-		if base != "Atom" {
+		base := strings.TrimRight(cur.Decl().Name(), "0123456789")
+		if base != "Atom" && base != "Wrap" {
 			break
 		}
 		if cur.NumChildren() != 1 {
-			break
+			return false
 		}
 		cur = cur.Child(0)
 	}

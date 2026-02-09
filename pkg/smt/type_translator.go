@@ -238,8 +238,9 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
     (Atom%d (atom%d OTypeD0))
     (OObj%d (obj%d (Array String %s)))
     (OArray%d (arr%d (Array Int %s)))
+	(Wrap%d (wrap%d %s))
   ))
-)`, d, d, d, d, d, inner, d, d, inner))
+)`, d, d, d, d, d, inner, d, d, inner, d, d, inner))
 	}
 
 	return bucket

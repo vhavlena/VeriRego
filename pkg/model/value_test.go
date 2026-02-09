@@ -68,6 +68,7 @@ const otypeSortsScript = `
     (Atom1 (atom1 OTypeD0))
 	(OObj1 (obj1 (Array String OTypeD0)))
 	(OArray1 (arr1 (Array Int OTypeD0)))
+	(Wrap1 (wrap1 OTypeD0))
   ))
 )
 
@@ -79,8 +80,15 @@ const otypeSortsScriptD2 = otypeSortsScript + `
 		(Atom2 (atom2 OTypeD1))
 		(OObj2 (obj2 (Array String OTypeD1)))
 		(OArray2 (arr2 (Array Int OTypeD1)))
+		(Wrap2 (wrap2 OTypeD1))
 	))
 )
+`
+
+const smtWrapAtomicScript = otypeSortsScript + `
+
+(declare-fun x () OTypeD1)
+(assert (= x (Wrap1 (OString "hello"))))
 `
 
 const smtObjectScript = otypeSortsScript + `
@@ -399,6 +407,36 @@ func TestValueFromModelVar_FromSMTLIBNestedStoreLeavesFormula_D2(t *testing.T) {
 	bVal := outer["b"]
 	if bVal.Kind() != ValueInt {
 		t.Fatalf("expected outer.b to be int, got %s: %#v", bVal.Kind(), bVal.AsInterface())
+	}
+}
+
+func TestValueFromModelVar_FromSMTLIBWrapAtomic(t *testing.T) {
+	ctx := z3.NewContext(nil)
+	if ctx == nil {
+		t.Fatalf("failed to allocate z3 context")
+	}
+	defer ctx.Close()
+
+	solver := ctx.NewSolver()
+	defer solver.Close()
+
+	if err := solver.AssertSMTLIB2String(smtWrapAtomicScript); err != nil {
+		t.Fatalf("AssertSMTLIB2String error: %v", err)
+	}
+
+	model := checkModel(t, solver)
+	defer model.Close()
+
+	val, err := ValueFromModelVar(ctx, model, "x")
+	if err != nil {
+		t.Fatalf("ValueFromModelVar error: %v", err)
+	}
+	if val.Kind() != ValueString {
+		t.Fatalf("expected ValueString kind, got %s", val.Kind())
+	}
+	got, ok := val.String()
+	if !ok || got != "hello" {
+		t.Fatalf("unexpected string payload: %q (ok=%v)", got, ok)
 	}
 }
 
