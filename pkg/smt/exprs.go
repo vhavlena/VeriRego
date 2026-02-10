@@ -263,18 +263,18 @@ func (et *ExprTranslator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 	if !ok {
 		return "", verr.ErrTypeNotFound
 	}
-	varDecl, err := et.TypeTrans.getVarDeclaration(varName, &tp)
+	varDeclBucket, err := et.TypeTrans.getVarDeclaration(varName, &tp)
 	if err != nil {
 		return "", err
 	}
 	// store the variable in VarMap to store the fresh variable name
 	et.context.VarMap[termStr] = varName
-	varAssert, err := et.TypeTrans.getSmtConstrAssert(varName, &tp)
+	varAssertBucket, err := et.TypeTrans.getSmtConstrAssert(varName, &tp)
 	if err != nil {
 		return "", err
 	}
-	et.context.Bucket.Decls = append(et.context.Bucket.Decls, varDecl)
-	et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, varAssert)
+	et.context.Bucket.Append(varDeclBucket)
+	et.context.Bucket.Append(varAssertBucket)
 
 	for i := 0; i < arr.Len(); i++ {
 		elem := arr.Elem(i)
@@ -338,17 +338,17 @@ func (et *ExprTranslator) handleConstObject(obj ast.Object) (string, error) {
 		return "", verr.ErrTypeNotFound
 	}
 
-	decl, err := et.TypeTrans.getVarDeclaration(varName, &tp)
+	declBucket, err := et.TypeTrans.getVarDeclaration(varName, &tp)
 	if err != nil {
 		return "", err
 	}
-	et.context.Bucket.Decls = append(et.context.Bucket.Decls, decl)
+	et.context.Bucket.Append(declBucket)
 
-	smtConstr, er := et.TypeTrans.getSmtConstrAssert(varName, &tp)
+	smtConstrBucket, er := et.TypeTrans.getSmtConstrAssert(varName, &tp)
 	if er != nil {
 		return "", er
 	}
-	et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, smtConstr)
+	et.context.Bucket.Append(smtConstrBucket)
 
 	return varName, nil
 }

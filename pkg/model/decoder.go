@@ -83,6 +83,11 @@ func ValueFromOTypeString(ast z3.AST) (Value, error) {
 			return Value{}, fmt.Errorf("model: %s expects 1 child, got %d", name, ast.NumChildren())
 		}
 		return parseOAtomAST(ast.Child(0))
+	case "Wrap":
+		if ast.NumChildren() != 1 {
+			return Value{}, fmt.Errorf("model: %s expects 1 child, got %d", name, ast.NumChildren())
+		}
+		return ValueFromOTypeString(ast.Child(0))
 	case "OObj":
 		return parseOObjAST(ast)
 	case "OArray":
@@ -209,9 +214,56 @@ func collectStringArrayStores(arrayAST z3.AST) (map[string]z3.AST, error) {
 		cursor = cursor.Child(0)
 	}
 	if defaultVal, ok := constArrayDefaultValue(cursor); ok {
+		// Z3 object arrays are often modeled as const-arrays with OUndef/ONull as the
+		// default element. For decoding into a concrete object Value, treat these as
+		// absent keys rather than materializing the wildcard entry.
+		if isAbsentObjectDefault(defaultVal) {
+			return entries, nil
+		}
 		entries["*"] = defaultVal
 	}
 	return entries, nil
+}
+
+// isAbsentObjectDefault reports whether the provided AST represents an
+// "absent" default element for an object const-array.
+//
+// The helper unwraps any `AtomN` wrappers (for example `(Atom1 OUndef)` or
+// `(Atom2 (Atom1 OUndef))`) and returns true when the underlying constructor
+// is `OUndef` or `ONull`.
+//
+// Parameters:
+//
+//	ast z3.AST: AST to inspect.
+//
+// Returns:
+//
+//	bool: True when the AST decodes to an absent default (OUndef/ONull possibly
+//		wrapped by AtomN).
+func isAbsentObjectDefault(ast z3.AST) bool {
+	if ast.Kind() == z3.ASTKindUnknown {
+		return false
+	}
+	cur := ast
+	for cur.IsApp() {
+		base := strings.TrimRight(cur.Decl().Name(), "0123456789")
+		if base != "Atom" && base != "Wrap" {
+			break
+		}
+		if cur.NumChildren() != 1 {
+			return false
+		}
+		cur = cur.Child(0)
+	}
+	if !cur.IsApp() {
+		return false
+	}
+	switch cur.Decl().Name() {
+	case "OUndef", "ONull":
+		return true
+	default:
+		return false
+	}
 }
 
 // constArrayDefaultValue extracts the default element stored in a const-array

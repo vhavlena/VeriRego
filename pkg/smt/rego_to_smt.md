@@ -1,202 +1,80 @@
-# Rego Types to SMT-LIB Translation
+# Rego to SMT-LIB Translation
 
-This document summarizes how Rego types are translated into SMT-LIB datatypes and constraints, as implemented in the `pkg/smt/type_defs.go` file.
+This document summarizes the current Rego → SMT-LIB translation pipeline as implemented in:
 
-## Supported Rego Types
-- **Atomic types**: string, int, boolean, null
-- **Object types**: maps with string keys and typed values
-- **Array types**: arrays with homogeneous element types
+- `pkg/smt/translator.go` (orchestration)
+- `pkg/smt/type_translator.go` (SMT datatypes + type constraints)
+- `pkg/smt/exprs.go` (expression translation)
+- `pkg/smt/rules.go` (rule translation)
 
-## SMT-LIB Datatype Declarations
-The following SMT-LIB datatypes are used to represent Rego types:
+The type encoding details are documented more precisely in `pkg/smt/type_translation.md`.
 
-```smtlib
-(declare-datatypes ()
-  ((OAtom
-    (OString (str String))
-    (ONumber (num Int))
-    (OBoolean (bool Bool))
-    ONull
-    OUndef
-  ))
-)
+## High-level flow
 
-(declare-datatypes (T)
-  ((OGenType
-    (Atom (atom OAtom))
-    (OObj (obj (Array String T)))
-    (OArray (arr (Array Int T)))
-  ))
-)
+`Translator.GenerateSmtContent()` produces SMT-LIB in this order:
 
-(declare-datatypes ()
-  ((OGenTypeAtom (Atom (atom OAtom)) ))
-)
-```
+1. Datatype declarations for `OTypeD0..OTypeD<maxDepth>`
+2. Variable declarations for selected global variables
+3. Rule assertions for all rules in the module
 
-## Type Sorts
-Type sorts are defined recursively to support nested types:
+The final output is returned by `Translator.SmtLines()`.
+
+## Type layer (overview)
+
+The implementation uses a depth-indexed family of datatypes `OTypeD0`, `OTypeD1`, ...:
+
+- `OTypeD0` represents atomic values (`OString`, `ONumber`, `OBoolean`, `ONull`, `OUndef`).
+- For depth $d>0$, `OTypeD<d>` has constructors `Atom<d>`, `OObj<d>`, `OArray<d>`, and `Wrap<d>`.
+
+Datatype declarations are emitted via `TypeTranslator.GenerateTypeDecls`.
+
+Variables are declared via `TypeTranslator.GenerateVarDecls` using:
 
 ```smtlib
-(define-sort OTypeD0 () (OGenType OGenTypeAtom))
-(define-sort OTypeD1 () (OGenType OTypeD0))
-(define-sort OTypeD2 () (OGenType OTypeD1))
-; ... up to the required depth
+(declare-fun x () OTypeD<d>)
+(assert (and <type-constraints-for-x>))
 ```
 
-## Variable Declaration Example
-A variable `x` of type depth 1:
+See `pkg/smt/type_translation.md` for the exact constructor shapes and constraints.
+
+## Expression translation
+
+Expressions are translated by `ExprTranslator.ExprToSmt` / `termToSmt`.
+
+Supported term kinds (current behavior):
+
+- String/number/bool literals → SMT literals
+- Variables (`ast.Var`) → translated using type-aware access (`TypeTranslator.getVarValue`)
+- Input references (`ast.Ref` starting with `input`) → translated to selects over the schema/parameter variables and then made type-consistent via `TypeTranslator.getSmtValue`
+- Constant objects (`ast.Object`) → encoded using SMT arrays (`store` over `as const`) in `handleConstObject`
+- Explicit arrays (`*ast.Array`) → converted into a fresh SMT variable + constraints in `explicitArrayToSmt`
+
+Builtins/operators:
+
+- Several builtins are mapped to native SMT operators in `regoFuncToSmt` (e.g. `plus`→`+`, `eq`→`=`, `contains`→`str.contains`, etc.).
+- `neq` is encoded as `(not (= ...))`.
+- Unknown functions are declared as uninterpreted functions (with a fresh name) and then applied.
+
+Unsupported term kinds return an error (e.g. sets).
+
+## Rule translation
+
+Rules are translated by `Translator.RuleToSmt`.
+
+For a rule with head `(= <ruleVar> <ruleValue>)` and body conditions combined into `<body>`, the translator emits:
 
 ```smtlib
-(define-fun x () OTypeD1)
+(assert (= (= <ruleVar> <ruleValue>) <body>))
 ```
 
-## Type Constraint Functions
-- `is-Atom` for atomic types
-- `is-OObj` for objects
-- `is-OArray` for arrays
+Where `<body>` is:
 
-## Constraint Generation
-### Atomic Types
-For a variable `x` of atomic type:
-```smtlib
-(assert (is-OString (atom x)))
-(assert (is-ONumber (atom x)))
-(assert (is-OBoolean (atom x)))
-```
+- `true` if the rule has no body
+- a single SMT expression if the body has one expression
+- `(and e1 e2 ... en)` if the body has multiple expressions
 
-### Object Types
-For an object variable `objVar` with fields `foo` (string) and `bar` (int):
-```smtlib
-(assert (and
-  (is-OObj objVar)
-  (is-OString (atom (select (obj objVar) "foo")))
-  (is-ONumber (atom (select (obj objVar) "bar")))
-))
-```
+Notes:
 
-### Array Types
-For an array variable `arrVar` of strings:
-```smtlib
-(assert (and
-  (is-OArray arrVar)
-  (forall ((i Int))
-    (let ((elem (select (arr arrVar) i)))
-      (is-OString (atom elem))
-    )
-  )
-))
-```
+- Rule head values are converted through the expression translator.
+- Some head shapes (e.g. `violation[result]`) are currently handled in a simplified way (see comments in `pkg/smt/rules.go`).
 
-## Object Initialization Examples
-
-Objects are initialized in SMT-LIB using the `OObj` constructor and the SMT array, following the approach used in the `getSmtObjectConstr` function. Each field is inserted using the `store` operation, and constraints are generated recursively for each field.
-
-#### Example: Initializing an object with nested fields
-Suppose you have a Rego object type:
-
-```rego
-{
-  "foo": string,
-  "bar": { "baz": int }
-}
-```
-
-Constraints for each field are generated recursively, as in `getSmtObjectConstr`:
-
-```smtlib
-(assert (and
-  (is-OObj myObj)
-  (is-OString (atom (select (obj myObj) "foo")))
-  (is-OObj (select (obj myObj) "bar"))
-  (is-ONumber (atom (select (obj (select (obj myObj) "bar")) "baz")))
-))
-```
-
-### Accessing Object Fields
-To access a field, use:
-```smtlib
-(select (obj myObj) "foo") ; returns (Atom (OString "abc"))
-```
-
-### Example: Asserting Field Value
-```smtlib
-(assert (= (select (obj myObj) "foo") (Atom (OString "abc"))))
-```
-
-## Expression and Rule Translation
-
-### Expression Translation
-Rego expressions are translated to SMT-LIB using the following principles:
-- **Atomic expressions** (e.g., `x == 1`, `foo > 0`) are mapped to their SMT-LIB equivalents using the corresponding operator and arguments.
-- **Supported operators** include arithmetic (`plus`, `minus`, `mul`, `div`), comparison (`eq`, `neq`, `gt`, `lt`, `equal`), and string operations (`concat`, `contains`, `startswith`, `endswith`, etc.).
-- The translation is performed by converting the operator and its arguments to SMT-LIB syntax, e.g.:
-
-```rego
-x == 1
-```
-translates to:
-```smtlib
-(= x 1)
-```
-
-```rego
-x != 2
-```
-translates to:
-```smtlib
-(not (= x 2))
-```
-
-```rego
-plus(x, 1)
-```
-translates to:
-```smtlib
-(+ x 1)
-```
-
-### Rule Translation
-Each Rego rule is translated to a single SMT-LIB assertion. The rule variable is equal to the rule value if and only if all body expressions are satisfied. The general form is:
-
-```rego
-p = x {
-  x == 1
-  x > 0
-}
-```
-translates to:
-```smtlib
-(assert (= (= p x) (and (= x 1) (> x 0))))
-```
-
-If the rule has no body, the assertion is:
-```rego
-q = 42 {}
-```
-translates to:
-```smtlib
-(assert (= (= q 42) true))
-```
-
-#### Notes
-- The translation supports rules with head keys and references (e.g., `violation[result] { ... }`), which are mapped to equality or, in the future, to set membership.
-- All body expressions are combined using `and` in SMT-LIB.
-- The translation is implemented in `pkg/smt/exprs.go` and `pkg/smt/rules.go`.
-
-## Error Handling
-If a type is not supported, an error is returned.
-
-## Summary Table
-| Rego Type         | SMT-LIB Representation         |
-|-------------------|-------------------------------|
-| string            | (OString (str String))         |
-| int               | (ONumber (num Int))            |
-| boolean           | (OBoolean (bool Bool))         |
-| null              | ONull                          |
-| object            | (OObj (obj (Array String T)))  |
-| array             | (OArray (arr (Array Int T)))   |
-
----
-
-For more details, see the implementation in `pkg/smt/type_defs.go`.
