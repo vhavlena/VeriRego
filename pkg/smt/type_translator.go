@@ -322,9 +322,8 @@ func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoType
 // - `tp *types.RegoTypeDef`: Expected Rego type.
 //
 // Returns:
-// - `*Bucket`: Bucket with constraint fragments in `Asserts`.
+// - `*PropBucket`: Bucket with constraint fragments in `Props`.
 // - `error`: Non-nil if the type is unsupported or constraint generation fails.
-
 func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	switch {
 	case tp.IsAtomic():
@@ -350,9 +349,8 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 // - `tp *types.RegoTypeDef`: Union type definition.
 //
 // Returns:
-// - `*Bucket`: Bucket with one `(or ...)` in `Asserts`.
+// - `*PropBucket`: Bucket with one `(or ...)` proposition in `Props`.
 // - `error`: Non-nil if `tp` is not a union or member constraints fail.
-
 func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsUnion() {
 		return nil, err.ErrUnsupportedType
@@ -387,7 +385,7 @@ func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeD
 // - `tp *types.RegoTypeDef`: Rego object type (must satisfy `IsObject()`).
 //
 // Returns:
-// - `[]string`: Constraint fragments (combine with `(and ...)` for assertions).
+// - `*PropBucket`: Bucket with constraint fragments in `Props`.
 // - `error`: Non-nil if `tp` is not an object or a field type is missing.
 func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsObject() {
@@ -652,7 +650,7 @@ func (td *TypeTranslator) GetSmtObjectConstrStore(smtValue string, tp *types.Reg
 // - `tp *types.RegoTypeDef`: Atomic type.
 //
 // Returns:
-// - `*Bucket`: Bucket containing one constraint fragment in `Asserts`.
+// - `*PropBucket`: Bucket containing one constraint proposition in `Props`.
 // - `error`: Non-nil if `tp` is not atomic or unsupported.
 func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsAtomic() {
@@ -678,7 +676,7 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 // - `tp *types.RegoTypeDef`: Array type.
 //
 // Returns:
-// - `*Bucket`: Bucket containing array and element constraints.
+// - `*PropBucket`: Bucket containing array and element constraints in `Props`.
 // - `error`: Non-nil if `tp` is not an array or element constraints fail.
 func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsArray() {

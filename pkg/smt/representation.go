@@ -152,78 +152,61 @@ type SmtProposition struct {
 	value string
 }
 
-func (sp *SmtProposition) String() string {
+func (sp SmtProposition) String() string {
 	return sp.value
+}
+
+type propositionStringer interface {
+	String() string
+}
+
+// combineProps builds an SMT-LIB boolean term (e.g. (and ...) / (or ...)) from a slice of items.
+//
+// Semantics are intentionally kept consistent with the existing helpers in this package:
+// - empty => true
+// - single => the single proposition string; if it's already an *SmtProposition, return it as-is
+func combineProps[T propositionStringer](op string, props []T) *SmtProposition {
+	switch len(props) {
+	case 0:
+		return &SmtProposition{value: "true"}
+	case 1:
+		if p, ok := any(props[0]).(*SmtProposition); ok {
+			return p
+		}
+		return &SmtProposition{value: props[0].String()}
+	default:
+		var sb strings.Builder
+		sb.WriteByte('(')
+		sb.WriteString(op)
+		for _, p := range props {
+			sb.WriteByte(' ')
+			sb.WriteString(p.String())
+		}
+		sb.WriteByte(')')
+		return &SmtProposition{value: sb.String()}
+	}
 }
 
 // AndPtrs builds an SMT-LIB (and ...) from proposition pointers.
 // - empty => true
 // - single => that proposition
 func AndPtrs(props []*SmtProposition) *SmtProposition {
-	if len(props) == 0 {
-		return &SmtProposition{value: "true"}
-	}
-	if len(props) == 1 {
-		return props[0]
-	}
-	value := "(and"
-	for _, p := range props {
-		value += " " + p.String()
-	}
-	value += ")"
-	return &SmtProposition{value: value}
+	return combineProps("and", props)
 }
 
 // OrPtrs builds an SMT-LIB (or ...) from proposition pointers.
 // - empty => true
 // - single => that proposition
 func OrPtrs(props []*SmtProposition) *SmtProposition {
-	if len(props) == 0 {
-		return &SmtProposition{value: "true"}
-	}
-	if len(props) == 1 {
-		return props[0]
-	}
-	value := "(or"
-	for _, p := range props {
-		value += " " + p.String()
-	}
-	value += ")"
-	return &SmtProposition{value: value}
+	return combineProps("or", props)
 }
 
 func And(props []SmtProposition) *SmtProposition {
-	var value string
-	switch len(props) {
-	case 0:
-		value = "true"
-	case 1:
-		value = props[0].String()
-	default:
-		value = "(and"
-		for i := range len(props) {
-			value += " " + props[i].String()
-		}
-		value += ")"
-	}
-	return &SmtProposition{value: value}
+	return combineProps("and", props)
 }
 
 func Or(props []SmtProposition) *SmtProposition {
-	var value string
-	switch len(props) {
-	case 0:
-		value = "true"
-	case 1:
-		value = props[0].String()
-	default:
-		value = "(or"
-		for i := range len(props) {
-			value += " " + props[i].String()
-		}
-		value += ")"
-	}
-	return &SmtProposition{value: value}
+	return combineProps("or", props)
 }
 
 // SmtCommand represents a top-level SMT command, such as assert, define-func, etc.
