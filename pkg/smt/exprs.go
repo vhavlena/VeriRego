@@ -283,8 +283,8 @@ func (et *ExprTranslator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 			return "", err
 		}
 		depth := max(tp.TypeDepth(), 0)
-		smtAssert := fmt.Sprintf("(assert (= (select (arr%d %s) %d) %s))", depth, varName, i, elemSmt)
-		et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, smtAssert)
+		eq := RawProposition(fmt.Sprintf("(= (select (arr%d %s) %d) %s)", depth, varName, i, elemSmt))
+		et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, Assert(eq))
 	}
 
 	return varName, nil
@@ -316,8 +316,8 @@ func (et *ExprTranslator) declareUnintFunc(name string, terms []*ast.Term) error
 		return verr.ErrTypeNotFound
 	}
 
-	decls := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(pars, " "), et.TypeTrans.getSmtType(&rtype))
-	et.context.Bucket.Decls = append(et.context.Bucket.Decls, decls)
+	decl := DeclareFun(name, pars, et.TypeTrans.getSmtType(&rtype))
+	et.context.Bucket.Decls = append(et.context.Bucket.Decls, decl)
 	return nil
 }
 

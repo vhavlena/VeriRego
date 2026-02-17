@@ -33,9 +33,9 @@ func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
 type Translator struct {
 	TypeTrans    *TypeTranslator   // Type definitions and type-related operations
 	VarMap       map[string]string // Mapping of Rego term keys to SMT variable names
-	smtTypeDecls []string          // SMT type declarations
-	smtDecls     []string          // SMT variable declarations
-	smtAsserts   []string          // SMT assertions
+	smtTypeDecls []*SmtCommand     // SMT type declarations
+	smtDecls     []*SmtCommand     // SMT variable declarations
+	smtAsserts   []*SmtCommand     // SMT assertions
 	mod          *ast.Module
 }
 
@@ -44,9 +44,9 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 	t := &Translator{
 		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
-		smtTypeDecls: make([]string, 0, 32),
-		smtDecls:     make([]string, 0, 64),
-		smtAsserts:   make([]string, 0, 128),
+		smtTypeDecls: make([]*SmtCommand, 0, 32),
+		smtDecls:     make([]*SmtCommand, 0, 64),
+		smtAsserts:   make([]*SmtCommand, 0, 128),
 		mod:          mod,
 	}
 	return t
@@ -59,9 +59,15 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 //	[]string: A slice of SMT-LIB formatted strings representing the translation output.
 func (t *Translator) SmtLines() []string {
 	lines := make([]string, 0, len(t.smtTypeDecls)+len(t.smtDecls)+len(t.smtAsserts))
-	lines = append(lines, t.smtTypeDecls...)
-	lines = append(lines, t.smtDecls...)
-	lines = append(lines, t.smtAsserts...)
+	for _, c := range t.smtTypeDecls {
+		lines = append(lines, c.String())
+	}
+	for _, c := range t.smtDecls {
+		lines = append(lines, c.String())
+	}
+	for _, c := range t.smtAsserts {
+		lines = append(lines, c.String())
+	}
 	return lines
 }
 

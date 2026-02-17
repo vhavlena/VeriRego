@@ -15,6 +15,14 @@ func runningInGitHubActions() bool {
 	return os.Getenv("GITHUB_ACTIONS") == "true"
 }
 
+func cmdStringsZ3(cmds []*SmtCommand) []string {
+	out := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		out = append(out, c.String())
+	}
+	return out
+}
+
 // helper to run an SMT-LIB2 string with z3 and expect SAT
 func expectSatZ3(t *testing.T, smt string) {
 	t.Helper()
@@ -92,9 +100,9 @@ func Test_getSmtConstrAssert_Object(t *testing.T) {
 			}
 
 			smtLines := make([]string, 0, len(bucket.TypeDecls)+len(declBucket.Decls)+len(constrBucket.Asserts)+2)
-			smtLines = append(smtLines, bucket.TypeDecls...)
-			smtLines = append(smtLines, declBucket.Decls...)
-			smtLines = append(smtLines, constrBucket.Asserts...)
+			smtLines = append(smtLines, cmdStringsZ3(bucket.TypeDecls)...)
+			smtLines = append(smtLines, cmdStringsZ3(declBucket.Decls)...)
+			smtLines = append(smtLines, cmdStringsZ3(constrBucket.Asserts)...)
 			smt := strings.Join(smtLines, "\n")
 			fmt.Printf("%s\n", smt)
 			expectSatZ3(t, smt)
@@ -128,10 +136,10 @@ func Test_getSmtObjectConstrStore_SimpleObject_Z3(t *testing.T) {
 	}
 
 	smtLines := make([]string, 0, len(typeBucket.TypeDecls)+len(declBucket.Decls)+len(storeBucket.Decls)+len(storeBucket.Asserts)+2)
-	smtLines = append(smtLines, typeBucket.TypeDecls...)
-	smtLines = append(smtLines, declBucket.Decls...)
-	smtLines = append(smtLines, storeBucket.Decls...)
-	smtLines = append(smtLines, storeBucket.Asserts...)
+	smtLines = append(smtLines, cmdStringsZ3(typeBucket.TypeDecls)...)
+	smtLines = append(smtLines, cmdStringsZ3(declBucket.Decls)...)
+	smtLines = append(smtLines, cmdStringsZ3(storeBucket.Decls)...)
+	smtLines = append(smtLines, cmdStringsZ3(storeBucket.Asserts)...)
 	smt := strings.Join(smtLines, "\n")
 
 	if !strings.Contains(smt, "(as const (Array String") {
@@ -236,10 +244,10 @@ func Test_getSmtObjectConstrStore_VariousObjects_Z3(t *testing.T) {
 			}
 
 			smtLines := make([]string, 0, len(typeBucket.TypeDecls)+len(declBucket.Decls)+len(storeBucket.Decls)+len(storeBucket.Asserts)+2)
-			smtLines = append(smtLines, typeBucket.TypeDecls...)
-			smtLines = append(smtLines, declBucket.Decls...)
-			smtLines = append(smtLines, storeBucket.Decls...)
-			smtLines = append(smtLines, storeBucket.Asserts...)
+			smtLines = append(smtLines, cmdStringsZ3(typeBucket.TypeDecls)...)
+			smtLines = append(smtLines, cmdStringsZ3(declBucket.Decls)...)
+			smtLines = append(smtLines, cmdStringsZ3(storeBucket.Decls)...)
+			smtLines = append(smtLines, cmdStringsZ3(storeBucket.Asserts)...)
 			smt := strings.Join(smtLines, "\n")
 
 			if !strings.Contains(smt, "(as const (Array String") {

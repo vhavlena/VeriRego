@@ -65,9 +65,9 @@ func NewTypeDefs(typeInfo *types.TypeAnalyzer) *TypeTranslator {
 //----------------------------------------------------------------
 
 type Bucket struct {
-	TypeDecls []string // SMT type declarations
-	Decls     []string // SMT variable declarations
-	Asserts   []string // SMT assertions
+	TypeDecls []*SmtCommand // SMT type declarations (top-level commands)
+	Decls     []*SmtCommand // SMT variable declarations (top-level commands)
+	Asserts   []*SmtCommand // SMT assertions (top-level commands)
 }
 
 // NewBucket creates an empty Bucket with pre-allocated capacity.
@@ -76,9 +76,9 @@ type Bucket struct {
 // - `*Bucket`: Bucket with empty `Decls`, `Asserts`, and `TypeDecls`.
 func NewBucket() *Bucket {
 	return &Bucket{
-		Decls:     make([]string, 0, 64),
-		Asserts:   make([]string, 0, 128),
-		TypeDecls: make([]string, 0, 32),
+		Decls:     make([]*SmtCommand, 0, 64),
+		Asserts:   make([]*SmtCommand, 0, 128),
+		TypeDecls: make([]*SmtCommand, 0, 32),
 	}
 }
 
@@ -90,6 +90,22 @@ func (b *Bucket) Append(other *Bucket) {
 	b.Decls = append(b.Decls, other.Decls...)
 	b.Asserts = append(b.Asserts, other.Asserts...)
 	b.TypeDecls = append(b.TypeDecls, other.TypeDecls...)
+}
+
+//----------------------------------------------------------------
+
+// PropBucket collects boolean constraints as SMT propositions (not top-level commands).
+// These are later wrapped into (assert ...) commands.
+type PropBucket struct {
+	Props []*SmtProposition
+}
+
+func NewPropBucket() *PropBucket {
+	return &PropBucket{Props: make([]*SmtProposition, 0, 128)}
+}
+
+func (pb *PropBucket) Append(other *PropBucket) {
+	pb.Props = append(pb.Props, other.Props...)
 }
 
 //----------------------------------------------------------------
@@ -219,7 +235,7 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
 	//   carries OTypeD0, and whose object/array fields also store OTypeD0,
 	//   then OTypeD(d-1) for higher depths.
 	bucket := NewBucket()
-	bucket.TypeDecls = append(bucket.TypeDecls, `
+	bucket.TypeDecls = append(bucket.TypeDecls, RawCommand(`
 (declare-datatypes ()
 	((OTypeD0
 		(OString (str String))
@@ -228,11 +244,12 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
 		ONull
 		OUndef
 	))
-)`)
+)
+`))
 
 	for d := 1; d <= maxDepth; d++ {
 		inner := fmt.Sprintf("OTypeD%d", d-1)
-		bucket.TypeDecls = append(bucket.TypeDecls, fmt.Sprintf(`
+		bucket.TypeDecls = append(bucket.TypeDecls, RawCommand(fmt.Sprintf(`
 (declare-datatypes ()
   ((OTypeD%d
     (Atom%d (atom%d OTypeD0))
@@ -240,7 +257,7 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
     (OArray%d (arr%d (Array Int %s)))
 	(Wrap%d (wrap%d %s))
   ))
-)`, d, d, d, d, d, inner, d, d, inner, d, d, inner))
+)`, d, d, d, d, d, inner, d, d, inner, d, d, inner)))
 	}
 
 	return bucket
@@ -257,7 +274,7 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
 // - `error`: Always nil in current implementation.
 func (td *TypeTranslator) getVarDeclaration(name string, tp *types.RegoTypeDef) (*Bucket, error) {
 	bucket := NewBucket()
-	bucket.Decls = append(bucket.Decls, fmt.Sprintf("(declare-fun %s () %s)", name, td.getSmtType(tp)))
+	bucket.Decls = append(bucket.Decls, DeclareVar(name, td.getSmtType(tp)))
 	return bucket, nil
 }
 
@@ -293,8 +310,8 @@ func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoType
 	if er != nil {
 		return nil, err.ErrSmtConstraints(er)
 	}
-	assert := strings.Join(andBucket.Asserts, " ")
-	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(assert (and %s))", assert))
+	andProp := AndPtrs(andBucket.Props)
+	bucket.Asserts = append(bucket.Asserts, Assert(andProp))
 	return bucket, nil
 }
 
@@ -308,7 +325,7 @@ func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoType
 // - `*Bucket`: Bucket with constraint fragments in `Asserts`.
 // - `error`: Non-nil if the type is unsupported or constraint generation fails.
 
-func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	switch {
 	case tp.IsAtomic():
 		return td.getSmtAtomConstr(smtValue, tp)
@@ -336,22 +353,22 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 // - `*Bucket`: Bucket with one `(or ...)` in `Asserts`.
 // - `error`: Non-nil if `tp` is not a union or member constraints fail.
 
-func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsUnion() {
 		return nil, err.ErrUnsupportedType
 	}
 
-	bucket := NewBucket()
+	bucket := NewPropBucket()
 
-	orConstr := make([]string, 0, 64)
+	orMembers := make([]*SmtProposition, 0, 64)
 	for _, member := range tp.Union {
 		memberBucket, err := td.getSmtConstr(smtValue, &member)
 		if err != nil {
 			return nil, err
 		}
-		orConstr = append(orConstr, memberBucket.Asserts...)
+		orMembers = append(orMembers, AndPtrs(memberBucket.Props))
 	}
-	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(or %s)", strings.Join(orConstr, " ")))
+	bucket.Props = append(bucket.Props, OrPtrs(orMembers))
 	return bucket, nil
 }
 
@@ -372,15 +389,15 @@ func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeD
 // Returns:
 // - `[]string`: Constraint fragments (combine with `(and ...)` for assertions).
 // - `error`: Non-nil if `tp` is not an object or a field type is missing.
-func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsObject() {
 		return nil, err.ErrUnsupportedType
 	}
 
-	bucket := NewBucket()
+	bucket := NewPropBucket()
 
 	depth := max(tp.TypeDepth(), 0)
-	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(is-OObj%d %s)", depth, smtValue))
+	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(is-OObj%d %s)", depth, smtValue)))
 	// Ensure deterministic enumeration of object fields by sorting keys.
 	keys := tp.ObjectFields.GetKeys()
 	sort.Strings(keys)
@@ -396,14 +413,14 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 			if err != nil {
 				return nil, err
 			}
-			bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(%s %s)", constr, sel))
+			bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, sel)))
 		}
 
 		valAnalysis, er := td.getSmtConstr(sel, val)
 		if er != nil {
 			return nil, err.ErrSmtFieldConstraints(key, er)
 		}
-		bucket.Asserts = append(bucket.Asserts, valAnalysis.Asserts...)
+		bucket.Append(valAnalysis)
 	}
 
 	// Helper to build a universal quantification over all string keys
@@ -433,7 +450,7 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 
 		disj = append(disj, defVal)
 		body := fmt.Sprintf("(or %s)", strings.Join(disj, " "))
-		bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(forall ((%s String)) %s)", kVar, body))
+		bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(forall ((%s String)) %s)", kVar, body)))
 	}
 	return bucket, nil
 }
@@ -481,15 +498,15 @@ func (td *TypeTranslator) getSmtLeafVarDefs(leafName string, leafType *types.Reg
 	bucket := NewBucket()
 	leafSort := td.getSmtType(leafType)
 
-	bucket.Decls = append(bucket.Decls, fmt.Sprintf("(declare-fun %s () %s)", leafName, leafSort))
+	bucket.Decls = append(bucket.Decls, DeclareVar(leafName, leafSort))
 
 	// Constrain the backing constant to be of the desired atomic constructor.
 	constrBucket, err2 := td.getSmtAtomConstr(leafName, leafType)
 	if err2 != nil {
 		return nil, err2
 	}
-	for _, c := range constrBucket.Asserts {
-		bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(assert %s)", c))
+	for _, c := range constrBucket.Props {
+		bucket.Asserts = append(bucket.Asserts, Assert(c))
 	}
 
 	return bucket, nil
@@ -624,7 +641,7 @@ func (td *TypeTranslator) GetSmtObjectConstrStore(smtValue string, tp *types.Reg
 
 	bucket := NewBucket()
 	bucket.Append(defsBucket)
-	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(assert (= %s %s))", smtValue, objExpr))
+	bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(fmt.Sprintf("(= %s %s)", smtValue, objExpr))))
 	return bucket, nil
 }
 
@@ -637,7 +654,7 @@ func (td *TypeTranslator) GetSmtObjectConstrStore(smtValue string, tp *types.Reg
 // Returns:
 // - `*Bucket`: Bucket containing one constraint fragment in `Asserts`.
 // - `error`: Non-nil if `tp` is not atomic or unsupported.
-func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsAtomic() {
 		return nil, err.ErrUnsupportedType
 	}
@@ -645,8 +662,8 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 	if err != nil {
 		return nil, err
 	}
-	bucket := NewBucket()
-	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(%s %s)", constr, smtValue))
+	bucket := NewPropBucket()
+	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, smtValue)))
 	return bucket, nil
 }
 
@@ -663,23 +680,23 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 // Returns:
 // - `*Bucket`: Bucket containing array and element constraints.
 // - `error`: Non-nil if `tp` is not an array or element constraints fail.
-func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) (*Bucket, error) {
+func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsArray() {
 		return nil, err.ErrUnsupportedType
 	}
 
-	bucket := NewBucket()
+	bucket := NewPropBucket()
 	depth := max(tp.TypeDepth(), 0)
-	bucket.Asserts = append(bucket.Asserts, fmt.Sprintf("(is-OArray%d %s)", depth, smtValue))
+	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(is-OArray%d %s)", depth, smtValue)))
 
 	valAnalysis, er := td.getSmtConstr("elem", tp.ArrayType)
 	if er != nil {
 		return nil, er
 	}
-	ands := fmt.Sprintf("(and %s)", strings.Join(valAnalysis.Asserts, " "))
+	ands := AndPtrs(valAnalysis.Props)
 	qvar := RandString(5)
-	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands)
-	bucket.Asserts = append(bucket.Asserts, forall)
+	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands.String())
+	bucket.Props = append(bucket.Props, RawProposition(forall))
 
 	return bucket, nil
 }

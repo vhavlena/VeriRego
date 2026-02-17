@@ -1,6 +1,14 @@
 package smt
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+// RawProposition creates a proposition from a raw SMT-LIB boolean term.
+func RawProposition(value string) *SmtProposition {
+	return &SmtProposition{value: value}
+}
 
 // Representation of types of Rego variables
 type SmtType struct {
@@ -51,7 +59,7 @@ func (sv *SmtValue) String() string {
 // WrapToDepth creates a smt value wrapped to a given depth
 // If the given depth is more than the current value depth, nothing happens
 // It is the user's responsibility to manage this
-// 
+//
 // Parameters:
 //
 // depth int: depth of the final SMT value
@@ -65,7 +73,7 @@ func (sv *SmtValue) String() string {
 // WrapToDepth(valD0, 3) is (Wrap3 (Wrap2 (Wrap1 valD0)))
 func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 	value := sv.value
-	for d := sv.depth+1; d <= depth; d++ {
+	for d := sv.depth + 1; d <= depth; d++ {
 		value = fmt.Sprintf("(Wrap%d %s)", d, value)
 	}
 	return NewSmtValue(value, depth)
@@ -74,7 +82,7 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 // UnwrapToDepth creates a smt value unwrapped to a given depth
 // If the given depth is more than the current value depth, nothing happens
 // It is the user's responsibility to manage this
-// 
+//
 // Parameters:
 //
 // depth int: depth of the final SMT value
@@ -88,7 +96,7 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 // UnwrapToDepth(valD3, 0) is (wrap1 (wrap2 (wrap3 valD3)))
 func (sv *SmtValue) UnwrapToDepth(depth int) *SmtValue {
 	value := sv.value
-	for d := sv.depth-1; d > depth; d-- {
+	for d := sv.depth - 1; d > depth; d-- {
 		value = fmt.Sprintf("(wrap%d %s)", d, value)
 	}
 	return NewSmtValue(value, depth)
@@ -148,11 +156,49 @@ func (sp *SmtProposition) String() string {
 	return sp.value
 }
 
+// AndPtrs builds an SMT-LIB (and ...) from proposition pointers.
+// - empty => true
+// - single => that proposition
+func AndPtrs(props []*SmtProposition) *SmtProposition {
+	if len(props) == 0 {
+		return &SmtProposition{value: "true"}
+	}
+	if len(props) == 1 {
+		return props[0]
+	}
+	value := "(and"
+	for _, p := range props {
+		value += " " + p.String()
+	}
+	value += ")"
+	return &SmtProposition{value: value}
+}
+
+// OrPtrs builds an SMT-LIB (or ...) from proposition pointers.
+// - empty => true
+// - single => that proposition
+func OrPtrs(props []*SmtProposition) *SmtProposition {
+	if len(props) == 0 {
+		return &SmtProposition{value: "true"}
+	}
+	if len(props) == 1 {
+		return props[0]
+	}
+	value := "(or"
+	for _, p := range props {
+		value += " " + p.String()
+	}
+	value += ")"
+	return &SmtProposition{value: value}
+}
+
 func And(props []SmtProposition) *SmtProposition {
 	var value string
 	switch len(props) {
-	case 0: value = "true" 
-	case 1: value = props[0].String()
+	case 0:
+		value = "true"
+	case 1:
+		value = props[0].String()
 	default:
 		value = "(and"
 		for i := range len(props) {
@@ -166,8 +212,10 @@ func And(props []SmtProposition) *SmtProposition {
 func Or(props []SmtProposition) *SmtProposition {
 	var value string
 	switch len(props) {
-	case 0: value = "true" 
-	case 1: value = props[0].String()
+	case 0:
+		value = "true"
+	case 1:
+		value = props[0].String()
 	default:
 		value = "(or"
 		for i := range len(props) {
@@ -187,8 +235,25 @@ func (sc *SmtCommand) String() string {
 	return sc.value
 }
 
+// RawCommand wraps a raw SMT-LIB top-level command.
+func RawCommand(value string) *SmtCommand {
+	return &SmtCommand{value: value}
+}
+
 func Assert(sp *SmtProposition) *SmtCommand {
 	value := fmt.Sprintf("(assert %s)", sp.String())
+	return &SmtCommand{value: value}
+}
+
+// DeclareVar declares a 0-arity symbol of a given sort.
+func DeclareVar(name string, sort string) *SmtCommand {
+	value := fmt.Sprintf("(declare-fun %s () %s)", name, sort)
+	return &SmtCommand{value: value}
+}
+
+// DeclareFun declares a function symbol with parameter sorts and return sort.
+func DeclareFun(name string, paramSorts []string, retSort string) *SmtCommand {
+	value := fmt.Sprintf("(declare-fun %s (%s) %s)", name, strings.Join(paramSorts, " "), retSort)
 	return &SmtCommand{value: value}
 }
 
@@ -197,8 +262,8 @@ func DefineFunc(name string, args map[string]SmtValue, typeDepth uint, body SmtV
 	if len(args) == 0 {
 		argStr += "()"
 	}
-	for k,v := range args {
-		argStr += fmt.Sprintf("(%s %s)", k, v.String());
+	for k, v := range args {
+		argStr += fmt.Sprintf("(%s %s)", k, v.String())
 	}
 	argStr += ")"
 
@@ -207,4 +272,3 @@ func DefineFunc(name string, args map[string]SmtValue, typeDepth uint, body SmtV
 	value := fmt.Sprintf("(define-func %s %s %s %s)", name, argStr, typ.String(), body.String())
 	return &SmtCommand{value: value}
 }
-
