@@ -1,0 +1,210 @@
+package smt
+
+import "fmt"
+
+// Representation of types of Rego variables
+type SmtType struct {
+	depth uint
+}
+
+func (st *SmtType) String() string {
+	return fmt.Sprintf("OTypeD%v", st.depth)
+}
+
+func NewSmtType(depth uint) *SmtType {
+	return &SmtType{depth: depth}
+}
+
+// Representation of values assignable to Rego variables
+type SmtValue struct {
+	value string
+	depth int
+}
+
+func NewSmtValue(value string, depth int) *SmtValue {
+	return &SmtValue{value: value, depth: depth}
+}
+
+func NewSmtValueFromString(str string) *SmtValue {
+	value := fmt.Sprintf("(OString \"%s\")", str)
+	return &SmtValue{value: value, depth: 0}
+}
+
+func NewSmtValueFromInt(i int) *SmtValue {
+	value := fmt.Sprintf("(ONumber \"%d\")", i)
+	return &SmtValue{value: value, depth: 0}
+}
+
+func NewSmtValueFromBoolean(b bool) *SmtValue {
+	value := fmt.Sprintf("(OBoolean %v)", b)
+	return &SmtValue{value: value, depth: 0}
+}
+
+func (sv *SmtValue) GetDepth() int {
+	return sv.depth
+}
+
+func (sv *SmtValue) String() string {
+	return sv.value
+}
+
+// WrapToDepth creates a smt value wrapped to a given depth
+// If the given depth is more than the current value depth, nothing happens
+// It is the user's responsibility to manage this
+// 
+// Parameters:
+//
+// depth int: depth of the final SMT value
+//
+// Returns:
+//
+// &SmtValue: the wrapped value
+//
+// Example:
+//
+// WrapToDepth(valD0, 3) is (Wrap3 (Wrap2 (Wrap1 valD0)))
+func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
+	value := sv.value
+	for d := sv.depth+1; d <= depth; d++ {
+		value = fmt.Sprintf("(Wrap%d %s)", d, value)
+	}
+	return NewSmtValue(value, depth)
+}
+
+// UnwrapToDepth creates a smt value unwrapped to a given depth
+// If the given depth is more than the current value depth, nothing happens
+// It is the user's responsibility to manage this
+// 
+// Parameters:
+//
+// depth int: depth of the final SMT value
+//
+// Returns:
+//
+// SmtValue: the unwrapped value
+//
+// Example:
+//
+// UnwrapToDepth(valD3, 0) is (wrap1 (wrap2 (wrap3 valD3)))
+func (sv *SmtValue) UnwrapToDepth(depth int) *SmtValue {
+	value := sv.value
+	for d := sv.depth-1; d > depth; d-- {
+		value = fmt.Sprintf("(wrap%d %s)", d, value)
+	}
+	return NewSmtValue(value, depth)
+}
+
+func (sv *SmtValue) SelectObj(at string) *SmtValue {
+	value := fmt.Sprintf("(select (obj%d %s) \"%s\")", sv.depth, sv.value, at)
+	return NewSmtValue(value, sv.depth-1)
+}
+
+func (sv *SmtValue) SelectArr(at int) *SmtValue {
+	value := fmt.Sprintf("(select (arr%d %s) %d)", sv.depth, sv.value, at)
+	return NewSmtValue(value, sv.depth-1)
+}
+
+func (sv *SmtValue) IsString() *SmtProposition {
+	value := fmt.Sprintf("(is-OString %s)", sv.UnwrapToDepth(0).String())
+	return &SmtProposition{value: value}
+}
+
+func (sv *SmtValue) IsNumber() *SmtProposition {
+	value := fmt.Sprintf("(is-ONumber %s)", sv.UnwrapToDepth(0).String())
+	return &SmtProposition{value: value}
+}
+
+func (sv *SmtValue) IsBoolean() *SmtProposition {
+	value := fmt.Sprintf("(is-OBoolean %s)", sv.UnwrapToDepth(0).String())
+	return &SmtProposition{value: value}
+}
+
+func (sv *SmtValue) IsNull() *SmtProposition {
+	value := fmt.Sprintf("(is-ONull %s)", sv.UnwrapToDepth(0).String())
+	return &SmtProposition{value: value}
+}
+
+func (sv *SmtValue) IsUndef() *SmtProposition {
+	value := fmt.Sprintf("(is-OUndef %s)", sv.UnwrapToDepth(0).String())
+	return &SmtProposition{value: value}
+}
+
+// Holds makes a test whether given value satisfies rule body
+//
+// Returns:
+//
+// string: The test SMT representation
+func (sv *SmtValue) Holds() *SmtProposition {
+	value := fmt.Sprintf("(or (not (is-OUndef %s)) (bool %s))", sv.UnwrapToDepth(0).String(), sv.UnwrapToDepth(0).String())
+	return &SmtProposition{value: value}
+}
+
+// SmtProposition represents a boolean value
+type SmtProposition struct {
+	value string
+}
+
+func (sp *SmtProposition) String() string {
+	return sp.value
+}
+
+func And(props []SmtProposition) *SmtProposition {
+	var value string
+	switch len(props) {
+	case 0: value = "true" 
+	case 1: value = props[0].String()
+	default:
+		value = "(and"
+		for i := range len(props) {
+			value += " " + props[i].String()
+		}
+		value += ")"
+	}
+	return &SmtProposition{value: value}
+}
+
+func Or(props []SmtProposition) *SmtProposition {
+	var value string
+	switch len(props) {
+	case 0: value = "true" 
+	case 1: value = props[0].String()
+	default:
+		value = "(or"
+		for i := range len(props) {
+			value += " " + props[i].String()
+		}
+		value += ")"
+	}
+	return &SmtProposition{value: value}
+}
+
+// SmtCommand represents a top-level SMT command, such as assert, define-func, etc.
+type SmtCommand struct {
+	value string
+}
+
+func (sc *SmtCommand) String() string {
+	return sc.value
+}
+
+func Assert(sp *SmtProposition) *SmtCommand {
+	value := fmt.Sprintf("(assert %s)", sp.String())
+	return &SmtCommand{value: value}
+}
+
+func DefineFunc(name string, args map[string]SmtValue, typeDepth uint, body SmtValue) *SmtCommand {
+	argStr := "("
+	if len(args) == 0 {
+		argStr += "()"
+	}
+	for k,v := range args {
+		argStr += fmt.Sprintf("(%s %s)", k, v.String());
+	}
+	argStr += ")"
+
+	typ := NewSmtType(typeDepth)
+
+	value := fmt.Sprintf("(define-func %s %s %s %s)", name, argStr, typ.String(), body.String())
+	return &SmtCommand{value: value}
+}
+
