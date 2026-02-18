@@ -416,8 +416,9 @@ func TestExprToSmt_AllCases(t *testing.T) {
 			t.Errorf("expected a function declaration in smtDecls")
 		}
 		decl := et.context.Bucket.Decls[len(et.context.Bucket.Decls)-1]
-		if decl == "" || decl[:13] != "(declare-fun " {
-			t.Errorf("expected function declaration, got %q", decl)
+		declStr := decl.String()
+		if declStr == "" || declStr[:13] != "(declare-fun " {
+			t.Errorf("expected function declaration, got %q", declStr)
 		}
 		if smt[:1] != "(" || smt[len(smt)-1:] != ")" {
 			t.Errorf("expected function application format, got %q", smt)
@@ -465,11 +466,11 @@ func TestExplicitArrayToSmt_CompareFullSmtLib(t *testing.T) {
 
 	var sb strings.Builder
 	for _, decl := range tr.smtDecls {
-		sb.WriteString(decl)
+		sb.WriteString(decl.String())
 		sb.WriteString("\n")
 	}
 	for _, asrt := range tr.smtAsserts {
-		sb.WriteString(asrt)
+		sb.WriteString(asrt.String())
 		sb.WriteString("\n")
 	}
 	smtlib := sb.String()
@@ -521,7 +522,7 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
-		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
+		joined := strings.Join(tr.SmtLines(), "\n")
 		expected := "(declare-fun " + varName + " () OTypeD1)\n(assert (and (is-OObj1 " + varName + ") (is-OString (select (obj1 " + varName + ") \"name\")) (is-ONumber (select (obj1 " + varName + ") \"value\"))))"
 		if joined != expected {
 			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
@@ -569,7 +570,7 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 		if varName == "" {
 			t.Fatalf("expected non-empty variable name")
 		}
-		joined := strings.Join(append(tr.smtDecls, tr.smtAsserts...), "\n")
+		joined := strings.Join(tr.SmtLines(), "\n")
 		expected := "(declare-fun const_obj () OTypeD2)\n(assert (and (is-OObj2 const_obj) (is-OBoolean (select (obj2 const_obj) \"active\")) (is-OObj1 (select (obj2 const_obj) \"user\")) (is-OObj1 (select (obj2 const_obj) \"user\")) (is-ONumber (select (obj1 (select (obj2 const_obj) \"user\")) \"age\")) (is-OString (select (obj1 (select (obj2 const_obj) \"user\")) \"name\"))))"
 		if joined != expected {
 			t.Errorf("SMT output mismatch.\nGot:   %q\nWant: %q", joined, expected)
@@ -633,11 +634,11 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 		}
 		var sb strings.Builder
 		for _, decl := range tr.smtDecls {
-			sb.WriteString(decl)
+			sb.WriteString(decl.String())
 			sb.WriteString("\n")
 		}
 		for _, asrt := range tr.smtAsserts {
-			sb.WriteString(asrt)
+			sb.WriteString(asrt.String())
 			sb.WriteString("\n")
 		}
 		smtlib := sb.String()

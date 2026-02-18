@@ -7,6 +7,14 @@ import (
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
+func cmdStrings(cmds []*SmtCommand) []string {
+	out := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		out = append(out, c.String())
+	}
+	return out
+}
+
 func TestTypeDefs_getSmtConstr_AtomicString(t *testing.T) {
 	t.Parallel()
 	td := &TypeTranslator{}
@@ -18,8 +26,8 @@ func TestTypeDefs_getSmtConstr_AtomicString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(b.Asserts) != 1 || b.Asserts[0] != "(is-OString x)" {
-		t.Errorf("unexpected constraint: %v", b.Asserts)
+	if len(b.Props) != 1 || b.Props[0].String() != "(is-OString x)" {
+		t.Errorf("unexpected constraint: %v", b.Props)
 	}
 }
 
@@ -34,8 +42,8 @@ func TestTypeDefs_getSmtConstr_AtomicInt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(b.Asserts) != 1 || b.Asserts[0] != "(is-ONumber y)" {
-		t.Errorf("unexpected constraint: %v", b.Asserts)
+	if len(b.Props) != 1 || b.Props[0].String() != "(is-ONumber y)" {
+		t.Errorf("unexpected constraint: %v", b.Props)
 	}
 }
 
@@ -77,12 +85,13 @@ func TestTypeDefs_getSmtConstr_Object(t *testing.T) {
 		"(is-ONumber (select (obj2 z) \"bar\"))":                        false,
 		"(is-OBoolean (select (obj1 (select (obj2 z) \"baz\")) \"x\"))": false,
 	}
-	for _, c := range b.Asserts {
-		if _, ok := want[c]; ok {
-			want[c] = true
+	for _, c := range b.Props {
+		cs := c.String()
+		if _, ok := want[cs]; ok {
+			want[cs] = true
 		}
-		if _, ok := atomicChecks[c]; ok {
-			atomicChecks[c] = true
+		if _, ok := atomicChecks[cs]; ok {
+			atomicChecks[cs] = true
 		}
 	}
 	for k, v := range want {
@@ -135,12 +144,13 @@ func TestTypeDefs_getSmtConstr_NestedObject(t *testing.T) {
 		"(is-OString (select (obj1 (select (obj2 n) \"outer\")) \"inner\"))": false,
 		"(is-ONumber (select (obj1 (select (obj2 n) \"outer\")) \"num\"))":   false,
 	}
-	for _, c := range b.Asserts {
-		if _, ok := want[c]; ok {
-			want[c] = true
+	for _, c := range b.Props {
+		cs := c.String()
+		if _, ok := want[cs]; ok {
+			want[cs] = true
 		}
-		if _, ok := atomicChecks[c]; ok {
-			atomicChecks[c] = true
+		if _, ok := atomicChecks[cs]; ok {
+			atomicChecks[cs] = true
 		}
 	}
 	for k, v := range want {
@@ -210,7 +220,7 @@ func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 	if b == nil || len(b.Asserts) != 1 {
 		t.Fatalf("expected exactly one assert, got: %#v", b)
 	}
-	assertStr := b.Asserts[0]
+	assertStr := b.Asserts[0].String()
 	checks := []string{
 		"(is-OObj2 n)",
 		"(is-OObj1 (select (obj2 n) \"outer\"))",
@@ -244,14 +254,14 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(b.Asserts) != 2 {
-		t.Errorf("expected 2 constraints, got %d", len(b.Asserts))
+	if len(b.Props) != 2 {
+		t.Errorf("expected 2 constraints, got %d", len(b.Props))
 	}
-	if b.Asserts[0] != "(is-OArray1 a)" {
-		t.Errorf("missing or incorrect OArray constraint: %v", b.Asserts[0])
+	if b.Props[0].String() != "(is-OArray1 a)" {
+		t.Errorf("missing or incorrect OArray constraint: %v", b.Props[0].String())
 	}
-	if !strings.Contains(b.Asserts[1], "(is-OString elem)") {
-		t.Errorf("missing or incorrect atomic string constraint in forall: %v", b.Asserts[1])
+	if !strings.Contains(b.Props[1].String(), "(is-OString elem)") {
+		t.Errorf("missing or incorrect atomic string constraint in forall: %v", b.Props[1].String())
 	}
 
 	// Test nested array: array of array of ints
@@ -269,17 +279,17 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for nested array: %v", err)
 	}
-	if len(nestedB.Asserts) != 2 {
-		t.Errorf("expected 2 constraints for nested array, got %d", len(nestedB.Asserts))
+	if len(nestedB.Props) != 2 {
+		t.Errorf("expected 2 constraints for nested array, got %d", len(nestedB.Props))
 	}
-	if nestedB.Asserts[0] != "(is-OArray2 b)" {
-		t.Errorf("missing or incorrect OArray constraint for nested array: %v", nestedB.Asserts[0])
+	if nestedB.Props[0].String() != "(is-OArray2 b)" {
+		t.Errorf("missing or incorrect OArray constraint for nested array: %v", nestedB.Props[0].String())
 	}
-	if !strings.Contains(nestedB.Asserts[1], "(is-OArray1 elem)") {
-		t.Errorf("missing or incorrect nested OArray constraint in forall: %v", nestedB.Asserts[1])
+	if !strings.Contains(nestedB.Props[1].String(), "(is-OArray1 elem)") {
+		t.Errorf("missing or incorrect nested OArray constraint in forall: %v", nestedB.Props[1].String())
 	}
-	if !strings.Contains(nestedB.Asserts[1], "(is-ONumber elem") {
-		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedB.Asserts[1])
+	if !strings.Contains(nestedB.Props[1].String(), "(is-ONumber elem") {
+		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedB.Props[1].String())
 	}
 }
 
@@ -299,17 +309,17 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for simple union: %v", err)
 	}
-	if len(b.Asserts) != 1 {
-		t.Errorf("expected 1 constraint for simple union, got %d", len(b.Asserts))
+	if len(b.Props) != 1 {
+		t.Errorf("expected 1 constraint for simple union, got %d", len(b.Props))
 	}
-	if !strings.Contains(b.Asserts[0], "(or ") {
-		t.Errorf("union constraint should contain 'or': %v", b.Asserts[0])
+	if !strings.Contains(b.Props[0].String(), "(or ") {
+		t.Errorf("union constraint should contain 'or': %v", b.Props[0].String())
 	}
-	if !strings.Contains(b.Asserts[0], "(is-OString u)") {
-		t.Errorf("missing string constraint in union: %v", b.Asserts[0])
+	if !strings.Contains(b.Props[0].String(), "(is-OString u)") {
+		t.Errorf("missing string constraint in union: %v", b.Props[0].String())
 	}
-	if !strings.Contains(b.Asserts[0], "(is-ONumber u)") {
-		t.Errorf("missing int constraint in union: %v", b.Asserts[0])
+	if !strings.Contains(b.Props[0].String(), "(is-ONumber u)") {
+		t.Errorf("missing int constraint in union: %v", b.Props[0].String())
 	}
 
 	// Test complex union: string | object | array
@@ -333,10 +343,10 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for complex union: %v", err)
 	}
-	if len(b.Asserts) != 1 {
-		t.Errorf("expected 1 constraint for complex union, got %d", len(b.Asserts))
+	if len(b.Props) != 1 {
+		t.Errorf("expected 1 constraint for complex union, got %d", len(b.Props))
 	}
-	complexConstraintStr := b.Asserts[0]
+	complexConstraintStr := b.Props[0].String()
 	if !strings.Contains(complexConstraintStr, "(or ") {
 		t.Errorf("complex union constraint should contain 'or': %v", complexConstraintStr)
 	}
@@ -368,10 +378,10 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for nested union: %v", err)
 	}
-	if len(b.Asserts) != 1 {
-		t.Errorf("expected 1 constraint for nested union, got %d", len(b.Asserts))
+	if len(b.Props) != 1 {
+		t.Errorf("expected 1 constraint for nested union, got %d", len(b.Props))
 	}
-	nestedConstraintStr := b.Asserts[0]
+	nestedConstraintStr := b.Props[0].String()
 	if !strings.Contains(nestedConstraintStr, "(or ") {
 		t.Errorf("nested union constraint should contain 'or': %v", nestedConstraintStr)
 	}
@@ -437,12 +447,12 @@ func TestGetSmtObjStoreExpr_SimpleObject(t *testing.T) {
 		t.Fatalf("expected store chain in expr, got: %s", expr)
 	}
 
-	decls := strings.Join(bucket.Decls, "\n")
+	decls := strings.Join(cmdStrings(bucket.Decls), "\n")
 	if !strings.Contains(decls, "(declare-fun") {
 		t.Fatalf("expected leaf declarations, got: %s", decls)
 	}
 	// Leaves are constrained via additional (assert ...) lines.
-	asserts := strings.Join(bucket.Asserts, "\n")
+	asserts := strings.Join(cmdStrings(bucket.Asserts), "\n")
 	if !strings.Contains(asserts, "(assert (is-") {
 		t.Fatalf("expected atomic leaf assertions, got: %s", asserts)
 	}
@@ -524,7 +534,7 @@ func TestGetSmtObjectConstrStore_AssertsEquality(t *testing.T) {
 	}
 	foundEq := false
 	for _, a := range bucket.Asserts {
-		if strings.Contains(a, "(assert (= obj") {
+		if strings.Contains(a.String(), "(assert (= obj") {
 			foundEq = true
 			break
 		}

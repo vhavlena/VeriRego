@@ -102,7 +102,7 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
 	}
 
-	assertion := fmt.Sprintf("(assert (= %s %s))", smtHead, bodySmt)
+	assertion := Assert(RawProposition(fmt.Sprintf("(= %s %s)", smtHead, bodySmt)))
 	t.smtAsserts = append(t.smtAsserts, assertion)
 	return nil
 }
