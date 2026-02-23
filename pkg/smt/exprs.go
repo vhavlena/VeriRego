@@ -49,31 +49,24 @@ func (et *ExprTranslator) ClearTransContext() {
 	et.context = NewTransContext()
 }
 
-func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (string,string,error) {
-	bodySmts := make([]string, 0, len(*ruleBody))
-	localVarDefs := make([]string, 0, len(*ruleBody))
+func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,map[string]SmtValue,error) {
+	bodySmts := make([]SmtProposition, 0, len(*ruleBody))
+	localVarDefs := make(map[string]SmtValue, 0)
 	for _, expr := range *ruleBody {
 		// single term
 		if term, ok := expr.Terms.(*ast.Term); ok {
-			val,err := et.termToSmt(term) // TODO: change functionality
+			smtVal,err := et.termToSmtValue(term)
 			if err != nil {
-				return "","",err
+				return nil, localVarDefs, err
 			}
-			tp,ok := et.TypeTrans.TypeInfo.Types[term.String()]
-			if !ok {
-				println(term.String(),"was not found")
-				return "","",verr.ErrTypeNotFound
-			}
-			depth := tp.TypeDepth()
-			smtVal := NewSmtValue(val,depth)
-			bodySmts = append(bodySmts, smtVal.Holds().String())
+			bodySmts = append(bodySmts, *smtVal.Holds())
 			continue
 		}
 
 		// call
 		terms, ok := expr.Terms.([]*ast.Term)
 		if !ok || len(terms) == 0 {
-			return "","", verr.ErrInvalidEmptyTerm
+			return nil, localVarDefs, verr.ErrInvalidEmptyTerm
 		}
 
 		opStr := removeQuotes(terms[0].String())
@@ -81,54 +74,43 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (string,string,error) {
 		// check if it is assigning
 		isAssigning := false
 		if opStr == ast.Equality.Name {
-			if ass,ok := terms[1].Value.(ast.Var); ok {
+			if name,ok := terms[1].Value.(ast.Var); ok {
 				// create variable
 				rhs := terms[2]
-				val,err := et.termToSmt(rhs)	// TODO: change
+				val,err := et.termToSmtValue(rhs)
 				if err != nil {
-					return "","",err
+					return nil, localVarDefs, err
 				}
 
-				localVarDef := fmt.Sprintf("(%s %s)", ass, val)
-				localVarDefs = append(localVarDefs, localVarDef)
+				localVarDefs[removeQuotes(name.String())] = *val
 				isAssigning = true
 			}
 		}
 		op,err := getOperation(opStr)
 		if err != nil {
-			return "","",err
+			return nil, localVarDefs, err
 		}
 		
 		arity := op.Decl.Arity()
 		params := len(terms)-1
 		if arity < params {		// the return is a part of the call
-			if ass,ok := terms[params].Value.(ast.Var); ok {	// creating variable
+			if name,ok := terms[params].Value.(ast.Var); ok {	// creating variable
 				// remove assigned variable from call
 				rhs := terms[0:len(terms)-1]
 				args := make([]string, len(rhs)-1)
 				for i := 1; i < len(rhs); i++ {
 					s, err := et.termToSmt(terms[i])
 					if err != nil {
-						return "","", err
+						return nil, localVarDefs, err
 					}
 					args[i-1] = s
 				}
-				val,err := et.regoFuncToSmt(opStr,args,rhs)
+				val,err := et.getOperationValue(opStr,args,rhs)
 				if err != nil {
-					return "","",err
+					return nil, localVarDefs, err
 				}
 
-				construct,err := getAtomConstructorForOperation(opStr)
-				if err != nil {
-					return "","",err
-				}
-				if construct != "" {
-					val = fmt.Sprintf("(%s %s)", construct, val)
-				}
-
-				localVarDef := fmt.Sprintf("(%s %s)", ass, val)
-				localVarDefs = append(localVarDefs, localVarDef)
-
+				localVarDefs[removeQuotes(name.String())] = *val
 				isAssigning = true
 			}
 		}
@@ -141,28 +123,36 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (string,string,error) {
 		for i := 1; i < len(terms); i++ {
 			argStr, err := et.termToSmt(terms[i])
 			if err != nil {
-				return "","", err
+				return nil, localVarDefs, err
 			}
 			args[i-1] = argStr
 		}
 
 		// Use regoFuncToSmt to get the SMT-LIB string for the operator
-		bodySmt, err := et.regoFuncToSmt(opStr, args, terms)
+		bodySmt, err := et.getOperationValue(opStr, args, terms)
 		if err != nil {
-			return "","", err
+			return nil, localVarDefs, err
 		}
-		bodySmts = append(bodySmts, bodySmt)
+		bodySmts = append(bodySmts, *bodySmt.Holds())
 	}
 
-	bodySmt := "true"
-	if len(bodySmts) > 0 {
-		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+	bodySmt := And(bodySmts)
+	return bodySmt, localVarDefs, nil
+}
+
+func (et *ExprTranslator) getOperationValue(op string, args []string, rhs []*ast.Term) (*SmtValue, error) {
+	val,err := et.regoFuncToSmt(op,args,rhs)
+	if err != nil {
+		return nil, err
 	}
-	localVarsDef := ""
-	if len(localVarDefs) > 0 {
-		localVarsDef = fmt.Sprintf("(%s)", strings.Join(localVarDefs, " "))
+	construct, err := getAtomConstructorForOperation(op)
+	if err != nil {
+		return nil, err
 	}
-	return bodySmt,localVarsDef,nil
+	if construct != "" {
+		val = fmt.Sprintf("(%s %s)", construct, val)
+	}
+	return NewSmtValue(val, 0), nil	// TODO: user-defined functions
 }
 
 func getOperation(op string) (*ast.Builtin,error) {
@@ -356,31 +346,33 @@ func (et *ExprTranslator) termToSmt(term *ast.Term) (string, error) {
 	}
 }
 
-func (et *ExprTranslator) termToSmtValue(term *ast.Term) (string, error) {
+func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	switch v := term.Value.(type) {
 	case ast.String:
-		// Convert Rego string to SMT-LIB string literal
-		return fmt.Sprintf("(OString %s)", v.String()), nil
+		return NewSmtValueFromString(string(v)), nil
 	case ast.Number:
-		// Convert Rego number to SMT-LIB numeral
-		return fmt.Sprintf("(ONumber %s)", v.String()), nil
-	case ast.Boolean:
-		if bool(v) {
-			return "(OBoolean true)", nil
+		if val,ok := v.Int(); ok {
+			return NewSmtValueFromInt(val), nil
 		}
-		return "(OBoolean false)", nil
+		return nil,verr.ErrUnsupportedAtomic
+	case ast.Boolean:
+		return NewSmtValueFromBoolean(bool(v)), nil
 	case *ast.Array:
-		// convert to a fresh variable with the array type
-		return et.explicitArrayToSmt(v)
+		return et.arrayToSmt(v)
 	case ast.Object:
-		return et.handleConstObject(v)
+		return et.objectToSmt(v)
 	case ast.Set:
 		// Not directly supported in SMT-LIB, return error
-		return "", verr.ErrSetConversionNotSupported
+		return nil, verr.ErrSetConversionNotSupported
 	case ast.Var:
-		return removeQuotes(v.String()),nil
+		return et.GetVarValue(v)
 	case ast.Ref:
-		return et.refToSmt(v)
+		name := removeQuotes(v[len(v)-1].String())
+		tp, ok := et.TypeTrans.TypeInfo.Types[name]
+		if !ok {
+			return nil, verr.ErrTypeNotFound
+		}
+		return NewSmtValue(name, tp.TypeDepth()), nil
 	case ast.Call:
 		// Handle string functions and other builtins
 		op := removeQuotes(v[0].String())
@@ -388,14 +380,93 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (string, error) {
 		for i := 1; i < len(v); i++ {
 			s, err := et.termToSmt(v[i])
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			args[i-1] = s
 		}
-		return et.regoFuncToSmt(op, args, v)
+		val, err := et.regoFuncToSmt(op, args, v)
+		if err != nil {
+			return nil, err
+		}
+		construct,err := getAtomConstructorForOperation(op)
+		if err != nil {
+			return nil,err
+		}
+		if construct != "" {
+			val = fmt.Sprintf("(%s %s)", construct, val)
+		}
+		return NewSmtValue(val, 0), nil	// TODO: built-in functions
 	default:
-		return "", fmt.Errorf("%w: %T", verr.ErrUnsupportedTermType, v)
+		return nil, fmt.Errorf("%w: %T", verr.ErrUnsupportedTermType, v)
 	}
+}
+
+func (et *ExprTranslator) GetVarValue(v ast.Var) (*SmtValue, error) {
+		name := removeQuotes(v.String())
+		tp, ok := et.TypeTrans.TypeInfo.Types[name]
+		if !ok {
+			return nil, verr.ErrTypeNotFound
+		}
+		return NewSmtValue(name, tp.TypeDepth()), nil
+}
+
+func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
+	tp, ok := et.TypeTrans.TypeInfo.Types[arr.String()]
+	if !ok {
+		return nil, verr.ErrTypeNotFound
+	}
+
+	depth := tp.TypeDepth()
+	arrSmt := createConstArray("Int", depth)
+
+	for index := range arr.Len() {
+		val := arr.Elem(index)
+		valSmt,err := et.termToSmtValue(val)
+		if err != nil {
+			return nil,err
+		}
+		valSmt = valSmt.WrapToDepth(depth-1)
+		arrSmt = fmt.Sprintf("(store %s %d %s)", arrSmt, index, valSmt.String())
+	}
+
+	return &SmtValue{
+		value: fmt.Sprintf("(OArray%d %s)",depth,arrSmt), 
+		depth: depth,
+	}, nil
+}
+
+func (et *ExprTranslator) objectToSmt(obj ast.Object) (*SmtValue, error) {
+	tp, ok := et.TypeTrans.TypeInfo.Types[obj.String()]
+	if !ok {
+		return nil, verr.ErrTypeNotFound
+	}
+
+	depth := tp.TypeDepth()
+	objSmt := createConstArray("String", depth)
+
+	for _, key := range obj.Keys() {
+		keyStr := removeQuotes(key.String())
+		val := obj.Get(key)
+		valSmt,err := et.termToSmtValue(val)
+		if err != nil {
+			return nil,err
+		}
+		valSmt = valSmt.WrapToDepth(depth-1)
+		objSmt = fmt.Sprintf("(store %s %s %s)", objSmt, keyStr, valSmt.String())
+	}
+
+	return &SmtValue{
+		value: fmt.Sprintf("(OObj%d %s)",depth,objSmt),
+		depth: depth,
+	}, nil
+}
+
+func createConstArray(keyType string, depth int) string {
+	undefChild := "OUndef"
+	for d := range depth-1 {
+		undefChild = fmt.Sprintf("(Atom%d %s)",d+1,undefChild)
+	}
+	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)",keyType ,depth-1, undefChild)
 }
 
 // regoFuncToSmt converts a Rego function/operator name and its arguments to an SMT-LIB function application string.
