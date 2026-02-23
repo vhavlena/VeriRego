@@ -39,7 +39,7 @@ func NewSmtValueFromString(str string) *SmtValue {
 }
 
 func NewSmtValueFromInt(i int) *SmtValue {
-	value := fmt.Sprintf("(ONumber \"%d\")", i)
+	value := fmt.Sprintf("(ONumber %d)", i)
 	return &SmtValue{value: value, depth: 0}
 }
 
@@ -157,6 +157,17 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 	depth := max(thenClause.depth,elseClause.depth)
 	ite := fmt.Sprintf("(ite %s %s %s)", condition.String(), thenClause.WrapToDepth(depth).String(), elseClause.WrapToDepth(depth).String())
 	return NewSmtValue(ite, depth)
+}
+
+func Let(localVars map[string]SmtValue, value *SmtValue) *SmtValue {
+	if len(localVars) == 0 {
+		return value
+	}
+	val := ""
+	for name, v := range localVars {
+		val += fmt.Sprintf(" (%s %s)", name, v.String())
+	}
+	return NewSmtValue(fmt.Sprintf("(let (%s) %s)", val[1:], value.String()), value.depth)
 }
 
 // SmtProposition represents a boolean value
