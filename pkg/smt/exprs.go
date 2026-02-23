@@ -6,6 +6,7 @@ import (
 
 	"github.com/open-policy-agent/opa/v1/ast"
 	verr "github.com/vhavlena/verirego/pkg/err"
+	"github.com/vhavlena/verirego/pkg/types"
 )
 
 // ExprTranslator handles the translation of Rego expressions to SMT-LIB format.
@@ -46,6 +47,213 @@ func (et *ExprTranslator) GetTransContext() *TransContext {
 // assertions, and variable mappings.
 func (et *ExprTranslator) ClearTransContext() {
 	et.context = NewTransContext()
+}
+
+func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (string,string,error) {
+	bodySmts := make([]string, 0, len(*ruleBody))
+	localVarDefs := make([]string, 0, len(*ruleBody))
+	for _, expr := range *ruleBody {
+		// single term
+		if term, ok := expr.Terms.(*ast.Term); ok {
+			val,err := et.termToSmt(term) // TODO: change functionality
+			if err != nil {
+				return "","",err
+			}
+			tp,ok := et.TypeTrans.TypeInfo.Types[term.String()]
+			if !ok {
+				println(term.String(),"was not found")
+				return "","",verr.ErrTypeNotFound
+			}
+			depth := tp.TypeDepth()
+			smtVal := NewSmtValue(val,depth)
+			bodySmts = append(bodySmts, smtVal.Holds().String())
+			continue
+		}
+
+		// call
+		terms, ok := expr.Terms.([]*ast.Term)
+		if !ok || len(terms) == 0 {
+			return "","", verr.ErrInvalidEmptyTerm
+		}
+
+		opStr := removeQuotes(terms[0].String())
+		
+		// check if it is assigning
+		isAssigning := false
+		if opStr == ast.Equality.Name {
+			if ass,ok := terms[1].Value.(ast.Var); ok {
+				// create variable
+				rhs := terms[2]
+				val,err := et.termToSmt(rhs)	// TODO: change
+				if err != nil {
+					return "","",err
+				}
+
+				localVarDef := fmt.Sprintf("(%s %s)", ass, val)
+				localVarDefs = append(localVarDefs, localVarDef)
+				isAssigning = true
+			}
+		}
+		op,err := getOperation(opStr)
+		if err != nil {
+			return "","",err
+		}
+		
+		arity := op.Decl.Arity()
+		params := len(terms)-1
+		if arity < params {		// the return is a part of the call
+			if ass,ok := terms[params].Value.(ast.Var); ok {	// creating variable
+				// remove assigned variable from call
+				rhs := terms[0:len(terms)-1]
+				args := make([]string, len(rhs)-1)
+				for i := 1; i < len(rhs); i++ {
+					s, err := et.termToSmt(terms[i])
+					if err != nil {
+						return "","", err
+					}
+					args[i-1] = s
+				}
+				val,err := et.regoFuncToSmt(opStr,args,rhs)
+				if err != nil {
+					return "","",err
+				}
+
+				construct,err := getAtomConstructorForOperation(opStr)
+				if err != nil {
+					return "","",err
+				}
+				if construct != "" {
+					val = fmt.Sprintf("(%s %s)", construct, val)
+				}
+
+				localVarDef := fmt.Sprintf("(%s %s)", ass, val)
+				localVarDefs = append(localVarDefs, localVarDef)
+
+				isAssigning = true
+			}
+		}
+		if isAssigning {	// if expression introduced a local variable, it does not hold any value
+			continue
+		}
+
+		// Convert all arguments
+		args := make([]string, len(terms)-1)
+		for i := 1; i < len(terms); i++ {
+			argStr, err := et.termToSmt(terms[i])
+			if err != nil {
+				return "","", err
+			}
+			args[i-1] = argStr
+		}
+
+		// Use regoFuncToSmt to get the SMT-LIB string for the operator
+		bodySmt, err := et.regoFuncToSmt(opStr, args, terms)
+		if err != nil {
+			return "","", err
+		}
+		bodySmts = append(bodySmts, bodySmt)
+	}
+
+	bodySmt := "true"
+	if len(bodySmts) > 0 {
+		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+	}
+	localVarsDef := ""
+	if len(localVarDefs) > 0 {
+		localVarsDef = fmt.Sprintf("(%s)", strings.Join(localVarDefs, " "))
+	}
+	return bodySmt,localVarsDef,nil
+}
+
+func getOperation(op string) (*ast.Builtin,error) {
+	switch op {
+	case ast.Plus.Name:
+		return ast.Plus,nil
+	case ast.Minus.Name:
+		return ast.Minus,nil
+	case ast.Multiply.Name:
+		return ast.Multiply,nil
+	case ast.Divide.Name:
+		return ast.Divide,nil
+	case ast.Equal.Name:
+		return ast.Equal,nil
+	case ast.Equality.Name:
+		return ast.Equality,nil
+	case ast.Assign.Name:
+		return ast.Assign,nil
+	case ast.GreaterThan.Name:
+		return ast.GreaterThan,nil
+	case ast.GreaterThanEq.Name:
+		return ast.GreaterThanEq,nil
+	case ast.LessThan.Name:
+		return ast.LessThan,nil
+	case ast.LessThanEq.Name:
+		return ast.LessThanEq,nil
+	case ast.Concat.Name:
+		return ast.Concat,nil
+	case ast.Contains.Name:
+		return ast.Contains,nil
+	case ast.StartsWith.Name:
+		return ast.StartsWith,nil
+	case ast.EndsWith.Name:
+		return ast.EndsWith,nil
+	case ast.IndexOf.Name:
+		return ast.IndexOf,nil
+	case ast.Substring.Name:
+		return ast.Substring,nil
+	default:
+		return nil,verr.ErrUnsupportedFunction
+	}
+}
+
+func /*(et *ExprTranslator)*/ getOperationReturnType(opName string) (types.AtomicType,error) {
+	funcMap := map[string]types.AtomicType{
+		ast.Plus.Name:          types.AtomicInt,        // +
+		ast.Minus.Name:         types.AtomicInt,        // -
+		ast.Multiply.Name:      types.AtomicInt,        // *
+		ast.Divide.Name:        types.AtomicInt,        // /
+		ast.Equal.Name:         types.AtomicBoolean,    // ==
+		ast.Equality.Name:      types.AtomicBoolean,    // =
+		ast.Assign.Name:        types.AtomicBoolean,    // :=
+		ast.GreaterThan.Name:   types.AtomicBoolean,    // >
+		ast.GreaterThanEq.Name:	types.AtomicBoolean,    // >=
+		ast.LessThan.Name:      types.AtomicBoolean,    // <
+		ast.LessThanEq.Name:    types.AtomicBoolean,    // <=
+		ast.Concat.Name:        types.AtomicString,     // concat
+		ast.Contains.Name:      types.AtomicBoolean,    // contains
+		ast.StartsWith.Name:    types.AtomicBoolean,    // startswith
+		ast.EndsWith.Name:      types.AtomicBoolean,    // endswith
+		ast.IndexOf.Name:       types.AtomicInt,        // indexof
+		ast.Substring.Name:     types.AtomicString,     // substring
+		// "length" does not exist
+	}
+
+	// TODO: user defined functions
+	if atomicType,found := funcMap[opName]; found {
+		return atomicType,nil
+	}
+	return types.AtomicUndef,verr.ErrUnsupportedFunction
+}
+
+func getAtomConstructorForOperation(op string) (string,error) {
+	opType,err := getOperationReturnType(op)
+	if err != nil {
+		return "",verr.ErrUnsupportedFunction
+	}
+	return getAtomConstructorFromType(opType),nil
+}
+
+func getAtomConstructorFromType(t types.AtomicType) string {
+	switch t {
+	case types.AtomicString:
+		return "OString"
+	case types.AtomicInt:
+		return "ONumber"
+	case types.AtomicBoolean:
+		return "OBoolean"
+	default:
+		return ""
+	}
 }
 
 // ExprToSmt converts a Rego AST expression to its SMT-LIB string representation.
@@ -129,6 +337,48 @@ func (et *ExprTranslator) termToSmt(term *ast.Term) (string, error) {
 	case ast.Var:
 		// Variable name
 		return et.TypeTrans.getVarValue(v.String())
+	case ast.Ref:
+		return et.refToSmt(v)
+	case ast.Call:
+		// Handle string functions and other builtins
+		op := removeQuotes(v[0].String())
+		args := make([]string, len(v)-1)
+		for i := 1; i < len(v); i++ {
+			s, err := et.termToSmt(v[i])
+			if err != nil {
+				return "", err
+			}
+			args[i-1] = s
+		}
+		return et.regoFuncToSmt(op, args, v)
+	default:
+		return "", fmt.Errorf("%w: %T", verr.ErrUnsupportedTermType, v)
+	}
+}
+
+func (et *ExprTranslator) termToSmtValue(term *ast.Term) (string, error) {
+	switch v := term.Value.(type) {
+	case ast.String:
+		// Convert Rego string to SMT-LIB string literal
+		return fmt.Sprintf("(OString %s)", v.String()), nil
+	case ast.Number:
+		// Convert Rego number to SMT-LIB numeral
+		return fmt.Sprintf("(ONumber %s)", v.String()), nil
+	case ast.Boolean:
+		if bool(v) {
+			return "(OBoolean true)", nil
+		}
+		return "(OBoolean false)", nil
+	case *ast.Array:
+		// convert to a fresh variable with the array type
+		return et.explicitArrayToSmt(v)
+	case ast.Object:
+		return et.handleConstObject(v)
+	case ast.Set:
+		// Not directly supported in SMT-LIB, return error
+		return "", verr.ErrSetConversionNotSupported
+	case ast.Var:
+		return removeQuotes(v.String()),nil
 	case ast.Ref:
 		return et.refToSmt(v)
 	case ast.Call:

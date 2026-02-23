@@ -147,9 +147,29 @@ func (sv *SmtValue) Holds() *SmtProposition {
 	return &SmtProposition{value: value}
 }
 
+func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) *SmtValue {
+	if condition.isTrue() {
+		return thenClause
+	}
+	if condition.isFalse() {
+		return elseClause
+	}
+	depth := max(thenClause.depth,elseClause.depth)
+	ite := fmt.Sprintf("(ite %s %s %s)", condition.String(), thenClause.WrapToDepth(depth).String(), elseClause.WrapToDepth(depth).String())
+	return NewSmtValue(ite, depth)
+}
+
 // SmtProposition represents a boolean value
 type SmtProposition struct {
 	value string
+}
+
+func (sp *SmtProposition) isTrue() bool {
+	return sp.value == "true"
+}
+
+func (sp *SmtProposition) isFalse() bool {
+	return sp.value == "false"
 }
 
 func (sp SmtProposition) String() string {

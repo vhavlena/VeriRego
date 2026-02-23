@@ -98,6 +98,7 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 			"x": types.NewAtomicType(types.AtomicInt),
 			"p": types.NewAtomicType(types.AtomicInt),
 			"q": types.NewAtomicType(types.AtomicInt),
+			"true": types.NewAtomicType(types.AtomicBoolean),
 		},
 		Refs: map[string]ast.Value{},
 	}

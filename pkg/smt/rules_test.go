@@ -53,6 +53,7 @@ func TestRuleToSmt_NoBody(t *testing.T) {
 	ta := &types.TypeAnalyzer{
 		Types: map[string]types.RegoTypeDef{
 			"p": types.NewAtomicType(types.AtomicInt),
+			"true": types.NewAtomicType(types.AtomicBoolean),
 		},
 		Refs: map[string]ast.Value{},
 	}
