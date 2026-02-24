@@ -1,6 +1,7 @@
 package smt
 
 import (
+	"errors"
 	"maps"
 
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -105,7 +106,15 @@ func (t *Translator) AddTransContext(context *TransContext) {
 	t.AppendBucket(context.Bucket)
 }
 
-func (t *Translator) GetDefaultValue(varName string) (*SmtValue,error) {
+func (t *Translator) SetDefaultValue(varName string, value *SmtValue) error {
+	if _,ok := t.defaultsMap[varName]; ok {
+		return errors.New("redefinition of default value of " + varName)
+	}
+	t.defaultsMap[varName] = *value
+	return nil
+}
+
+func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
 	if def,ok := t.defaultsMap[varName]; ok {
 		return &def,nil
 	}

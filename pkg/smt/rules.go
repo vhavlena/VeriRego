@@ -21,6 +21,7 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
 	}
+	// FIXME: add `contains` support
 	ruleValSmt, err := exprTrans.termToSmtValue(rule.Head.Value)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
@@ -79,15 +80,18 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error)
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
 // The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
 func (t *Translator) RuleToSmt(rule *ast.Rule) error {
-	println("rule:", rule.String())
-	name, smt, err := t.ruleToSmtString(rule)
+	name, value, err := t.ruleToSmtString(rule)
 	if err != nil {
 		return err
 	}
 
+	if rule.Default {
+		return t.SetDefaultValue(name.String(), value)
+	}
+
 	// TODO get args
 
-	assertion := Assert(name.Equals(smt))
+	assertion := Assert(name.Equals(value))
 	t.smtAsserts = append(t.smtAsserts, assertion)
 	return nil
 }
