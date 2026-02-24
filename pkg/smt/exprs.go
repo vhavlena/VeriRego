@@ -133,6 +133,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 				return nil, localVarDefs, err
 			}
 			localVarDefs = append(localVarDefs, *def)
+			definedVars[def.string] = true
 			continue
 		}
 		
@@ -214,14 +215,14 @@ func (et *ExprTranslator) getOperationValue(op string, args []string, rhs []*ast
 	if err != nil {
 		return nil, err
 	}
-	construct, err := getAtomConstructorForOperation(op)
+	construct, opType, err := getAtomConstructorForOperation(op)
 	if err != nil {
 		return nil, err
 	}
 	if construct != "" {
 		val = fmt.Sprintf("(%s %s)", construct, val)
 	}
-	return NewSmtValue(val, 0), nil	// TODO: user-defined functions
+	return &SmtValue{value: val, depth: 0, atomics: []types.AtomicType{opType,types.AtomicUndef}}, nil	// TODO: user-defined functions
 }
 
 func getOperation(op string) (*ast.Builtin,error) {
@@ -294,12 +295,12 @@ func /*(et *ExprTranslator)*/ getOperationReturnType(opName string) (types.Atomi
 	return types.AtomicUndef,verr.ErrUnsupportedFunction
 }
 
-func getAtomConstructorForOperation(op string) (string,error) {
+func getAtomConstructorForOperation(op string) (string,types.AtomicType,error) {
 	opType,err := getOperationReturnType(op)
 	if err != nil {
-		return "",verr.ErrUnsupportedFunction
+		return "", "", verr.ErrUnsupportedFunction
 	}
-	return getAtomConstructorFromType(opType),nil
+	return getAtomConstructorFromType(opType),opType,nil
 }
 
 func getAtomConstructorFromType(t types.AtomicType) string {
@@ -406,30 +407,14 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 			}
 			args[i-1] = s
 		}
-		val, err := et.regoFuncToSmt(op, args, v)
-		if err != nil {
-			return nil, err
-		}
-		construct,err := getAtomConstructorForOperation(op)
-		if err != nil {
-			return nil,err
-		}
-		if construct != "" {
-			val = fmt.Sprintf("(%s %s)", construct, val)
-		}
-		return NewSmtValue(val, 0), nil	// TODO: built-in functions
+		return et.getOperationValue(op, args, v)
 	default:
 		return nil, fmt.Errorf("%w: %T", verr.ErrUnsupportedTermType, v)
 	}
 }
 
 func (et *ExprTranslator) GetVarValue(v ast.Var) (*SmtValue, error) {
-		name := removeQuotes(v.String())
-		tp, ok := et.TypeTrans.TypeInfo.Types[name]
-		if !ok {
-			return nil, verr.ErrTypeNotFound
-		}
-		return NewSmtValue(name, tp.TypeDepth()), nil
+	return NewSmtValueFromVar(v, et)
 }
 
 func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {

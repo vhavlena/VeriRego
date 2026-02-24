@@ -3,6 +3,10 @@ package smt
 import (
 	"fmt"
 	"strings"
+
+	"github.com/open-policy-agent/opa/v1/ast"
+	"github.com/vhavlena/verirego/pkg/types"
+	verr "github.com/vhavlena/verirego/pkg/err"
 )
 
 // RawProposition creates a proposition from a raw SMT-LIB boolean term.
@@ -25,8 +29,9 @@ func NewSmtType(depth uint) *SmtType {
 
 // Representation of values assignable to Rego variables
 type SmtValue struct {
-	value string
-	depth int
+	value   string
+	depth   int
+	atomics []types.AtomicType
 }
 
 func NewSmtValue(value string, depth int) *SmtValue {
@@ -35,17 +40,44 @@ func NewSmtValue(value string, depth int) *SmtValue {
 
 func NewSmtValueFromString(str string) *SmtValue {
 	value := fmt.Sprintf("(OString \"%s\")", str)
-	return &SmtValue{value: value, depth: 0}
+	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicString} }
 }
 
 func NewSmtValueFromInt(i int) *SmtValue {
 	value := fmt.Sprintf("(ONumber %d)", i)
-	return &SmtValue{value: value, depth: 0}
+	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicInt} }
 }
 
 func NewSmtValueFromBoolean(b bool) *SmtValue {
 	value := fmt.Sprintf("(OBoolean %v)", b)
-	return &SmtValue{value: value, depth: 0}
+	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicBoolean} }
+}
+
+func getAtomicTypes(tp types.RegoTypeDef) []types.AtomicType {
+	types := make([]types.AtomicType, 0)
+	if tp.IsAtomic() {
+		types = append(types, tp.AtomicType)
+	}
+	if tp.IsUnion() {
+		for _,t := range tp.Union {
+			types = append(types, getAtomicTypes(t)...)
+		}
+	}
+	return types
+}
+
+func NewSmtValueFromVar(v ast.Var, exprTrans *ExprTranslator) (*SmtValue,error) {
+	name := removeQuotes(v.String())
+	tp, ok := exprTrans.TypeTrans.TypeInfo.Types[name]
+	if !ok {
+		return nil, verr.ErrTypeNotFound
+	}
+	types := getAtomicTypes(tp)
+	return &SmtValue{
+		value: name, 
+		depth: tp.TypeDepth(), 
+		atomics: types,
+	}, nil
 }
 
 func (sv *SmtValue) GetDepth() int {
@@ -143,14 +175,79 @@ func (sv *SmtValue) IsUndef() *SmtProposition {
 	return &SmtProposition{value: value}
 }
 
+func (sv *SmtValue) findAtomicValue() string {
+	s := sv.value
+	if s[0] != '(' {
+		return sv.value
+	}
+
+	idx := strings.Index(s, ")")
+	if idx == -1 {
+		return ""
+	}
+
+	// Take substring before first ')'
+	sub := s[:idx]
+
+	// Trim trailing spaces
+	sub = strings.TrimSpace(sub)
+
+	if sub == "" {
+		return ""
+	}
+
+	// Walk backwards to find last word
+	end := len(sub)
+	start := end
+
+	for start > 0 && sub[start-1] != ' ' {
+		start--
+	}
+
+	return sub[start:end]
+}
+
+func (sv *SmtValue) getBool() *SmtProposition {
+	if !sv.TypeIs(types.AtomicBoolean) {
+		return sv.IsBoolean()	// this should not happen
+	}
+	// unwrap "true" / "false" for efficiency
+	v := sv.findAtomicValue()
+	if v == "true" {
+		return RawProposition("true")
+	}
+	if v == "false" {
+		return RawProposition("false")
+	}
+
+
+	value := fmt.Sprintf("(bool %s)", sv.UnwrapToDepth(0))
+	return RawProposition(value)
+}
+
+func (sv *SmtValue) TypeIs(t types.AtomicType) bool {
+	for _, at := range sv.atomics {
+		if at == t {
+			return true
+		}
+	}
+	return false
+}
+
 // Holds makes a test whether given value satisfies rule body
 //
 // Returns:
 //
 // string: The test SMT representation
 func (sv *SmtValue) Holds() *SmtProposition {
-	value := fmt.Sprintf("(or (not (is-OUndef %s)) (bool %s))", sv.UnwrapToDepth(0).String(), sv.UnwrapToDepth(0).String())
-	return &SmtProposition{value: value}
+	propositions := make([]SmtProposition, 0)
+	if sv.TypeIs(types.AtomicUndef) {
+		propositions = append(propositions, *sv.IsUndef().Not())
+	}
+	if sv.TypeIs(types.AtomicBoolean) {
+		propositions = append(propositions, *sv.getBool())
+	}
+	return Or(propositions)
 }
 
 func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) *SmtValue {
@@ -191,6 +288,11 @@ func (sp *SmtProposition) isFalse() bool {
 
 func (sp SmtProposition) String() string {
 	return sp.value
+}
+
+func (sp SmtProposition) Not() *SmtProposition {
+	value := fmt.Sprintf("(not %s)", sp.value)
+	return &SmtProposition{value: value}
 }
 
 type propositionStringer interface {
