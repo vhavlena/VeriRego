@@ -120,10 +120,24 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 		}
 
 		opStr := removeQuotes(terms[0].String())
+		op,err := getOperation(opStr)
+		if err != nil {
+			return nil, localVarDefs, err
+		}
 		
-		// check if it is assigning
-		isAssigning := false
-		if opStr == ast.Equality.Name {
+		arity := op.Decl.Arity()
+		params := len(terms)-1
+		if arity < params {		// the return is a part of the call
+			def, err := et.handleAssigningFunction(opStr, terms)
+			if err != nil {
+				return nil, localVarDefs, err
+			}
+			localVarDefs = append(localVarDefs, *def)
+			continue
+		}
+		
+		// we handle ast.Equality separately, because it can be both assignment and comparison, based on the context
+		if op == ast.Equality {
 			if variable,ok := terms[1].Value.(ast.Var); ok {
 				// create variable
 				rhs := terms[2]
@@ -143,50 +157,14 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 					}
 					bodySmts = append(bodySmts, *varSmt.Equals(val))
 				}
-				isAssigning = true
+				continue
 			}
-		}
-		op,err := getOperation(opStr)
-		if err != nil {
-			return nil, localVarDefs, err
-		}
-		
-		arity := op.Decl.Arity()
-		params := len(terms)-1
-		if arity < params {		// the return is a part of the call
-			if name,ok := terms[params].Value.(ast.Var); ok {	// creating variable
-				// remove assigned variable from call
-				rhs := terms[0:len(terms)-1]
-				args := make([]string, len(rhs)-1)
-				for i := 1; i < len(rhs); i++ {
-					s, err := et.termToSmt(terms[i])
-					if err != nil {
-						return nil, localVarDefs, err
-					}
-					args[i-1] = s
-				}
-				val,err := et.getOperationValue(opStr,args,rhs)
-				if err != nil {
-					return nil, localVarDefs, err
-				}
-
-				localVarDefs = append(localVarDefs, varDef{name.String(), *val})
-				definedVars[name.String()] = true
-				isAssigning = true
-			}
-		}
-		if isAssigning {	// if expression introduced a local variable, it does not hold any value
-			continue
 		}
 
 		// Convert all arguments
-		args := make([]string, len(terms)-1)
-		for i := 1; i < len(terms); i++ {
-			argStr, err := et.termToSmt(terms[i])
-			if err != nil {
-				return nil, localVarDefs, err
-			}
-			args[i-1] = argStr
+		args, err := et.getOperationArgSmts(terms)
+		if err != nil {
+			return nil, localVarDefs, err
 		}
 
 		// Use regoFuncToSmt to get the SMT-LIB string for the operator
@@ -199,6 +177,36 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 
 	bodySmt := And(bodySmts)
 	return bodySmt, localVarDefs, nil
+}
+
+func (et *ExprTranslator) handleAssigningFunction(op string, terms []*ast.Term) (*varDef, error) {
+	if name,ok := terms[len(terms)-1].Value.(ast.Var); ok {	// creating variable
+		// remove assigned variable from call
+		rhs := terms[0:len(terms)-1]
+		args, err := et.getOperationArgSmts(rhs)
+		if err != nil {
+			return nil, err
+		}
+		val, err := et.getOperationValue(op,args,rhs)
+		if err != nil {
+			return nil, err
+		}
+
+		return &varDef{name.String(), *val}, nil
+	}
+	return nil, verr.ErrUnsupportedFunction	// this should be unreachable
+}
+
+func (et *ExprTranslator) getOperationArgSmts(terms []*ast.Term) ([]string, error) {
+	args := make([]string, len(terms)-1)
+	for i := 1; i < len(terms); i++ {
+		s, err := et.termToSmt(terms[i])
+		if err != nil {
+			return nil, err
+		}
+		args[i-1] = s
+	}
+	return args, nil
 }
 
 func (et *ExprTranslator) getOperationValue(op string, args []string, rhs []*ast.Term) (*SmtValue, error) {
