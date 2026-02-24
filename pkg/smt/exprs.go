@@ -49,9 +49,59 @@ func (et *ExprTranslator) ClearTransContext() {
 	et.context = NewTransContext()
 }
 
-func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,map[string]SmtValue,error) {
+// ExprToSmt converts a Rego AST expression to its SMT-LIB string representation.
+//
+// Parameters:
+//
+//	expr *ast.Expr: The Rego AST expression to convert.
+//
+// Returns:
+//
+//	string: The SMT-LIB string representation of the expression.
+//	error: An error if the expression cannot be converted.
+func (et *ExprTranslator) ExprToSmt(expr *ast.Expr) (string, error) {
+	// If the expression is a single term, just convert it
+	if term, ok := expr.Terms.(*ast.Term); ok {
+		smtStr, err := et.termToSmt(term)
+		if err != nil {
+			return "", err
+		}
+		return smtStr, nil
+	}
+
+	// If the expression is a call or operator (e.g., [op, arg1, arg2, ...])
+	terms, ok := expr.Terms.([]*ast.Term)
+	if !ok || len(terms) == 0 {
+		return "", verr.ErrInvalidEmptyTerm
+	}
+
+	opStr := removeQuotes(terms[0].String())
+
+	// Convert all arguments
+	args := make([]string, len(terms)-1)
+	for i := 1; i < len(terms); i++ {
+		argStr, err := et.termToSmt(terms[i])
+		if err != nil {
+			return "", err
+		}
+		args[i-1] = argStr
+	}
+
+	// Use regoFuncToSmt to get the SMT-LIB string for the operator
+	smtStr, err := et.regoFuncToSmt(opStr, args, terms)
+	if err != nil {
+		return "", err
+	}
+
+	return smtStr, nil
+}
+
+type varDef struct { string; SmtValue }
+
+func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDef,error) {
 	bodySmts := make([]SmtProposition, 0, len(*ruleBody))
-	localVarDefs := make(map[string]SmtValue, 0)
+	definedVars := make(map[string]bool, 0)
+	localVarDefs := make([]varDef, 0)
 	for _, expr := range *ruleBody {
 		// single term
 		if term, ok := expr.Terms.(*ast.Term); ok {
@@ -74,7 +124,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,map[str
 		// check if it is assigning
 		isAssigning := false
 		if opStr == ast.Equality.Name {
-			if name,ok := terms[1].Value.(ast.Var); ok {
+			if variable,ok := terms[1].Value.(ast.Var); ok {
 				// create variable
 				rhs := terms[2]
 				val,err := et.termToSmtValue(rhs)
@@ -82,7 +132,17 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,map[str
 					return nil, localVarDefs, err
 				}
 
-				localVarDefs[removeQuotes(name.String())] = *val
+				name := removeQuotes(variable.String())
+				if definedVars[name] != true {
+					localVarDefs = append(localVarDefs, varDef{name, *val})
+					definedVars[name] = true
+				} else {
+					varSmt, err := et.GetVarValue(variable)
+					if err != nil {
+						return nil, nil, err
+					}
+					bodySmts = append(bodySmts, *varSmt.Equals(val))
+				}
 				isAssigning = true
 			}
 		}
@@ -110,7 +170,8 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,map[str
 					return nil, localVarDefs, err
 				}
 
-				localVarDefs[removeQuotes(name.String())] = *val
+				localVarDefs = append(localVarDefs, varDef{name.String(), *val})
+				definedVars[name.String()] = true
 				isAssigning = true
 			}
 		}
@@ -244,53 +305,6 @@ func getAtomConstructorFromType(t types.AtomicType) string {
 	default:
 		return ""
 	}
-}
-
-// ExprToSmt converts a Rego AST expression to its SMT-LIB string representation.
-//
-// Parameters:
-//
-//	expr *ast.Expr: The Rego AST expression to convert.
-//
-// Returns:
-//
-//	string: The SMT-LIB string representation of the expression.
-//	error: An error if the expression cannot be converted.
-func (et *ExprTranslator) ExprToSmt(expr *ast.Expr) (string, error) {
-	// If the expression is a single term, just convert it
-	if term, ok := expr.Terms.(*ast.Term); ok {
-		smtStr, err := et.termToSmt(term)
-		if err != nil {
-			return "", err
-		}
-		return smtStr, nil
-	}
-
-	// If the expression is a call or operator (e.g., [op, arg1, arg2, ...])
-	terms, ok := expr.Terms.([]*ast.Term)
-	if !ok || len(terms) == 0 {
-		return "", verr.ErrInvalidEmptyTerm
-	}
-
-	opStr := removeQuotes(terms[0].String())
-
-	// Convert all arguments
-	args := make([]string, len(terms)-1)
-	for i := 1; i < len(terms); i++ {
-		argStr, err := et.termToSmt(terms[i])
-		if err != nil {
-			return "", err
-		}
-		args[i-1] = argStr
-	}
-
-	// Use regoFuncToSmt to get the SMT-LIB string for the operator
-	smtStr, err := et.regoFuncToSmt(opStr, args, terms)
-	if err != nil {
-		return "", err
-	}
-
-	return smtStr, nil
 }
 
 // termToSmt converts a Rego AST term to its SMT-LIB string representation.
@@ -445,14 +459,13 @@ func (et *ExprTranslator) objectToSmt(obj ast.Object) (*SmtValue, error) {
 	objSmt := createConstArray("String", depth)
 
 	for _, key := range obj.Keys() {
-		keyStr := removeQuotes(key.String())
 		val := obj.Get(key)
 		valSmt,err := et.termToSmtValue(val)
 		if err != nil {
 			return nil,err
 		}
 		valSmt = valSmt.WrapToDepth(depth-1)
-		objSmt = fmt.Sprintf("(store %s %s %s)", objSmt, keyStr, valSmt.String())
+		objSmt = fmt.Sprintf("(store %s %s %s)", objSmt, key.String(), valSmt.String())
 	}
 
 	return &SmtValue{

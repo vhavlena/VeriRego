@@ -112,6 +112,12 @@ func (sv *SmtValue) SelectArr(at int) *SmtValue {
 	return NewSmtValue(value, sv.depth-1)
 }
 
+func (sv *SmtValue) Equals(other *SmtValue) *SmtProposition {
+	d := max(sv.depth, other.depth)
+	value := fmt.Sprintf("(= %s %s)", sv.WrapToDepth(d).String(), other.WrapToDepth(d).String())
+	return &SmtProposition{value: value}
+}
+
 func (sv *SmtValue) IsString() *SmtProposition {
 	value := fmt.Sprintf("(is-OString %s)", sv.UnwrapToDepth(0).String())
 	return &SmtProposition{value: value}
@@ -159,13 +165,13 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 	return NewSmtValue(ite, depth)
 }
 
-func Let(localVars map[string]SmtValue, value *SmtValue) *SmtValue {
+func Let(localVars []varDef, value *SmtValue) *SmtValue {
 	if len(localVars) == 0 {
 		return value
 	}
 	val := ""
-	for name, v := range localVars {
-		val += fmt.Sprintf(" (%s %s)", name, v.String())
+	for _, v := range localVars {
+		val += fmt.Sprintf(" (%s %s)", v.string, v.SmtValue.String())
 	}
 	return NewSmtValue(fmt.Sprintf("(let (%s) %s)", val[1:], value.String()), value.depth)
 }
