@@ -1,6 +1,7 @@
 package smt
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -65,5 +66,39 @@ func TestRuleToSmt_NoBody(t *testing.T) {
 	lines := tr.SmtLines()
 	if len(lines) == 0 {
 		t.Fatalf("No SMT lines generated")
+	}
+}
+
+func TestRuleToSmt_LocalVars(t *testing.T) {
+	rego := `
+	package test
+	p := 1 if {
+		x = 1
+		x > 0
+	}`
+	mod, err := ast.ParseModule("test.rego", rego)
+	if err != nil {
+		t.Fatalf("failed to parse rego: %v", err)
+	}
+	ta := &types.TypeAnalyzer{
+		Types: map[string]types.RegoTypeDef{
+			"x": types.NewAtomicType(types.AtomicInt),
+			"p": types.NewAtomicType(types.AtomicInt),
+		},
+		Refs: map[string]ast.Value{},
+	}
+	tr := NewTranslator(ta, mod)
+	rule := mod.Rules[0]
+	err = tr.RuleToSmt(rule)
+	if err != nil {
+		t.Fatalf("RuleToSmt error: %v", err)
+	}
+	lines := tr.SmtLines()
+	if len(lines) == 0 {
+		t.Fatalf("No SMT lines generated")
+	}
+	got := lines[len(lines)-1]
+	if !strings.Contains(got, "(assert ") || !strings.Contains(got, "(let ")  {
+		t.Errorf("Expected SMT assertion with let expression, got: %q", got)
 	}
 }
