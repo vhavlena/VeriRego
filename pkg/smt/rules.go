@@ -2,64 +2,69 @@ package smt
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
 )
 
-// RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.
-//
-// Parameters:
-//
-//	rule *ast.Rule: The Rego rule to convert.
+// ruleHeadValueSmt returns smt values for a rule variable and its corresponding value
 //
 // Returns:
 //
-//	error: An error if the rule cannot be converted.
-//
-// The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
-// The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
-// ruleHeadToSmt converts the head of a Rego rule to its SMT-LIB representation (including the operator).
-//
-// Parameters:
-//
-//	rule *ast.Rule: The Rego rule whose head is to be converted.
-//	exprTrans *ExprTranslator: The expression translator to use for converting terms and references.
-//
-// Returns:
-//
-//	smtHead string: The SMT-LIB representation of the rule head (e.g., (= var val)).
-//	error: An error if the head cannot be converted.
-func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (string, error) {
+//  *SmtValue: variable
+//  *SmtValue: value
+//  error
+func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator) (*SmtValue,*SmtValue,error) {
 	if rule == nil || rule.Head == nil {
-		return "", fmt.Errorf("invalid rule: nil head")
+		return nil, nil, fmt.Errorf("invalid rule: nil head")
 	}
-	ruleVar := rule.Head.Name.String()
-	ruleVarSmt, err := t.TypeTrans.getVarValue(ruleVar)
+	ruleVar, err := exprTrans.GetVarValue(rule.Head.Name)
 	if err != nil {
-		return "", fmt.Errorf("failed to get SMT var for rule head %s: %w", ruleVar, err)
+		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
 	}
-	// TODO: simplification: violation[result] should be converted to violation contains result
-	// for now, we translate it to violation = result (assume only singletons)
-	if rule.Head.Value == nil {
-		if rule.Head.Key != nil && rule.Head.Reference != nil {
-			var err error
-			if ruleVar, err = exprTrans.termToSmt(rule.Head.Key); err != nil {
-				return "", fmt.Errorf("failed to convert rule head key: %w", err)
-			}
-			ruleValSmt, err := exprTrans.refToSmt(rule.Head.Reference)
-			if err != nil {
-				return "", fmt.Errorf("failed to convert rule head reference: %w", err)
-			}
-			return fmt.Sprintf("(= %s %s)", ruleVarSmt, ruleValSmt), nil
+	// FIXME: add `contains` support
+	ruleValSmt, err := exprTrans.termToSmtValue(rule.Head.Value)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
+	}
+	return ruleVar, ruleValSmt, nil
+}
+
+// ruleToSmtString returns smt values for a rule variable and for its assignment based on the rule
+//
+// Returns:
+//
+//  *SmtValue: variable
+//  *SmtValue: assignment - value, which is conditional to the rule body
+//  error
+func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error) {
+	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
+	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	bodySmt, localVarDefs, err := exprTrans.BodyToSmt(&rule.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+	t.AddTransContext(exprTrans.GetTransContext())
+
+	name := rule.Head.Name.String()
+	elseVal, err := t.GetDefaultValue(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	elseSmt := elseVal
+	if rule.Else != nil {
+		_,elseSmt, err = t.ruleToSmtString(rule.Else)
+		if err != nil {
+			return nil, nil, err
 		}
-		return "", fmt.Errorf("rule head value is nil for %s", ruleVar)
 	}
-	ruleValSmt, err := exprTrans.termToSmt(rule.Head.Value)
-	if err != nil {
-		return "", fmt.Errorf("failed to convert rule head value: %w", err)
-	}
-	return fmt.Sprintf("(= %s %s)", ruleVarSmt, ruleValSmt), nil
+
+	smt := Ite(bodySmt, smtVal, elseSmt)
+	smt = Let(localVarDefs, smt)
+	return smtHead, smt, nil
 }
 
 // RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.
@@ -75,34 +80,18 @@ func (t *Translator) ruleHeadToSmt(rule *ast.Rule, exprTrans *ExprTranslator) (s
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
 // The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
 func (t *Translator) RuleToSmt(rule *ast.Rule) error {
-	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
-	smtHead, err := t.ruleHeadToSmt(rule, exprTrans)
+	name, value, err := t.ruleToSmtString(rule)
 	if err != nil {
 		return err
 	}
 
-	// Convert all body expressions to SMT
-	bodySmts := make([]string, 0, len(rule.Body))
-	for _, expr := range rule.Body {
-		smtStr, err := exprTrans.ExprToSmt(expr)
-		if err != nil {
-			return fmt.Errorf("failed to convert rule body expr: %w", err)
-		}
-		bodySmts = append(bodySmts, smtStr)
-	}
-	t.AddTransContext(exprTrans.GetTransContext())
-
-	var bodySmt string
-	switch len(bodySmts) {
-	case 0:
-		bodySmt = "true"
-	case 1:
-		bodySmt = bodySmts[0]
-	default:
-		bodySmt = fmt.Sprintf("(and %s)", strings.Join(bodySmts, " "))
+	if rule.Default {
+		return t.SetDefaultValue(name.String(), value)
 	}
 
-	assertion := Assert(RawProposition(fmt.Sprintf("(= %s %s)", smtHead, bodySmt)))
+	// TODO get args
+
+	assertion := Assert(name.Equals(value))
 	t.smtAsserts = append(t.smtAsserts, assertion)
 	return nil
 }

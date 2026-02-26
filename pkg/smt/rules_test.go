@@ -53,6 +53,37 @@ func TestRuleToSmt_NoBody(t *testing.T) {
 	ta := &types.TypeAnalyzer{
 		Types: map[string]types.RegoTypeDef{
 			"p": types.NewAtomicType(types.AtomicInt),
+			"true": types.NewAtomicType(types.AtomicBoolean),
+		},
+		Refs: map[string]ast.Value{},
+	}
+	tr := NewTranslator(ta, mod)
+	rule := mod.Rules[0]
+	err = tr.RuleToSmt(rule)
+	if err != nil {
+		t.Fatalf("RuleToSmt error: %v", err)
+	}
+	lines := tr.SmtLines()
+	if len(lines) == 0 {
+		t.Fatalf("No SMT lines generated")
+	}
+}
+
+func TestRuleToSmt_LocalVars(t *testing.T) {
+	rego := `
+	package test
+	p := 1 if {
+		x = 1
+		x > 0
+	}`
+	mod, err := ast.ParseModule("test.rego", rego)
+	if err != nil {
+		t.Fatalf("failed to parse rego: %v", err)
+	}
+	ta := &types.TypeAnalyzer{
+		Types: map[string]types.RegoTypeDef{
+			"x": types.NewAtomicType(types.AtomicInt),
+			"p": types.NewAtomicType(types.AtomicInt),
 		},
 		Refs: map[string]ast.Value{},
 	}
@@ -67,10 +98,7 @@ func TestRuleToSmt_NoBody(t *testing.T) {
 		t.Fatalf("No SMT lines generated")
 	}
 	got := lines[len(lines)-1]
-	if got == "" || got[:7] != "(assert" {
-		t.Errorf("Expected SMT assertion, got: %q", got)
-	}
-	if want := "true"; want != "" && !strings.Contains(got, want) {
-		t.Errorf("Expected assertion to contain %q, got: %q", want, got)
+	if !strings.Contains(got, "(assert ") || !strings.Contains(got, "(let ")  {
+		t.Errorf("Expected SMT assertion with let expression, got: %q", got)
 	}
 }

@@ -1,9 +1,11 @@
 package smt
 
 import (
+	"errors"
 	"maps"
 
 	"github.com/open-policy-agent/opa/v1/ast"
+	verr "github.com/vhavlena/verirego/pkg/err"
 
 	"github.com/vhavlena/verirego/pkg/types"
 )
@@ -31,11 +33,12 @@ func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
 
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
-	TypeTrans    *TypeTranslator   // Type definitions and type-related operations
-	VarMap       map[string]string // Mapping of Rego term keys to SMT variable names
-	smtTypeDecls []*SmtCommand     // SMT type declarations
-	smtDecls     []*SmtCommand     // SMT variable declarations
-	smtAsserts   []*SmtCommand     // SMT assertions
+	TypeTrans    *TypeTranslator     // Type definitions and type-related operations
+	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
+	defaultsMap	 map[string]SmtValue // Mapping of variable names to default values
+	smtTypeDecls []*SmtCommand       // SMT type declarations
+	smtDecls     []*SmtCommand       // SMT variable declarations
+	smtAsserts   []*SmtCommand       // SMT assertions
 	mod          *ast.Module
 }
 
@@ -44,6 +47,7 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 	t := &Translator{
 		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
+		defaultsMap:  make(map[string]SmtValue),
 		smtTypeDecls: make([]*SmtCommand, 0, 32),
 		smtDecls:     make([]*SmtCommand, 0, 64),
 		smtAsserts:   make([]*SmtCommand, 0, 128),
@@ -100,6 +104,26 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 func (t *Translator) AddTransContext(context *TransContext) {
 	maps.Copy(t.VarMap, context.VarMap)
 	t.AppendBucket(context.Bucket)
+}
+
+func (t *Translator) SetDefaultValue(varName string, value *SmtValue) error {
+	if _,ok := t.defaultsMap[varName]; ok {
+		return errors.New("redefinition of default value of " + varName)
+	}
+	t.defaultsMap[varName] = *value
+	return nil
+}
+
+func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
+	if def,ok := t.defaultsMap[varName]; ok {
+		return &def,nil
+	}
+	if tp,ok := t.TypeTrans.TypeInfo.Types[varName]; ok {
+		depth := max(tp.TypeDepth(),0)
+		def := NewSmtValue("OUndef", 0) 
+		return def.WrapToDepth(depth),nil
+	}
+	return nil,verr.ErrTypeNotFound
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.
