@@ -16,6 +16,9 @@ import (
 type PolicyModel struct {
 	// Vars maps each declared global SMT variable name to its model value.
 	Vars map[string]modelPkg.Value
+	// SmtContent is the raw SMT-LIB2 string generated for the policy,
+	// intended for debugging and testing purposes.
+	SmtContent string
 }
 
 // RunPolicyToModel is a test helper that executes the complete pipeline on a
@@ -29,6 +32,9 @@ type PolicyModel struct {
 //  6. Assert the SMT-LIB in Z3 and check satisfiability.
 //  7. Extract and return a model for all declared global variables.
 //
+// The returned PolicyModel includes the raw SMT-LIB2 string (SmtContent) for
+// debugging and testing purposes, regardless of satisfiability.
+//
 // Parameters:
 //
 //	regoPolicy - Rego v1 policy source code (not a file path).
@@ -36,7 +42,7 @@ type PolicyModel struct {
 //
 // Returns:
 //
-//	*PolicyModel - Satisfying model with variable values (only when SAT).
+//	*PolicyModel - Satisfying model with variable values and SMT content (only when SAT).
 //	error        - Non-nil on any pipeline failure or when the formula is UNSAT.
 func RunPolicyToModel(regoPolicy string, jsonSchema []byte) (*PolicyModel, error) {
 	// 1. Parse the Rego policy (Rego v1).
@@ -88,6 +94,7 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte) (*PolicyModel, error
 	smtContent := strings.Join(translator.SmtLines(), "\n")
 
 	// 7. Assert the SMT-LIB in Z3 and check satisfiability.
+	// smtContent is also stored in the returned PolicyModel for debugging.
 	ctx := z3.NewContext(nil)
 	defer ctx.Close()
 	solver := ctx.NewSolver()
@@ -119,5 +126,5 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte) (*PolicyModel, error
 		vars[varName] = val
 	}
 
-	return &PolicyModel{Vars: vars}, nil
+	return &PolicyModel{Vars: vars, SmtContent: smtContent}, nil
 }
