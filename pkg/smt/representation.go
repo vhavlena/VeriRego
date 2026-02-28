@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
-	"github.com/vhavlena/verirego/pkg/types"
 	verr "github.com/vhavlena/verirego/pkg/err"
+	"github.com/vhavlena/verirego/pkg/types"
 )
 
 // RawProposition creates a proposition from a raw SMT-LIB boolean term.
@@ -40,17 +40,17 @@ func NewSmtValue(value string, depth int) *SmtValue {
 
 func NewSmtValueFromString(str string) *SmtValue {
 	value := fmt.Sprintf("(OString \"%s\")", str)
-	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicString} }
+	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicString}}
 }
 
 func NewSmtValueFromInt(i int) *SmtValue {
 	value := fmt.Sprintf("(ONumber %d)", i)
-	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicInt} }
+	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicInt}}
 }
 
 func NewSmtValueFromBoolean(b bool) *SmtValue {
 	value := fmt.Sprintf("(OBoolean %v)", b)
-	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicBoolean} }
+	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicBoolean}}
 }
 
 func getAtomicTypes(tp types.RegoTypeDef) []types.AtomicType {
@@ -59,14 +59,14 @@ func getAtomicTypes(tp types.RegoTypeDef) []types.AtomicType {
 		types = append(types, tp.AtomicType)
 	}
 	if tp.IsUnion() {
-		for _,t := range tp.Union {
+		for _, t := range tp.Union {
 			types = append(types, getAtomicTypes(t)...)
 		}
 	}
 	return types
 }
 
-func NewSmtValueFromVar(v ast.Var, exprTrans *ExprTranslator) (*SmtValue,error) {
+func NewSmtValueFromVar(v ast.Var, exprTrans *ExprTranslator) (*SmtValue, error) {
 	name := removeQuotes(v.String())
 	tp, ok := exprTrans.TypeTrans.TypeInfo.Types[name]
 	if !ok {
@@ -74,8 +74,8 @@ func NewSmtValueFromVar(v ast.Var, exprTrans *ExprTranslator) (*SmtValue,error) 
 	}
 	types := getAtomicTypes(tp)
 	return &SmtValue{
-		value: name, 
-		depth: tp.TypeDepth(), 
+		value:   name,
+		depth:   tp.TypeDepth(),
 		atomics: types,
 	}, nil
 }
@@ -209,7 +209,7 @@ func (sv *SmtValue) findAtomicValue() string {
 
 func (sv *SmtValue) getBool() *SmtProposition {
 	if !sv.TypeIs(types.AtomicBoolean) {
-		return sv.IsBoolean()	// this should not happen
+		return sv.IsBoolean() // this should not happen
 	}
 	// unwrap "true" / "false" for efficiency
 	v := sv.findAtomicValue()
@@ -219,7 +219,6 @@ func (sv *SmtValue) getBool() *SmtProposition {
 	if v == "false" {
 		return RawProposition("false")
 	}
-
 
 	value := fmt.Sprintf("(bool %s)", sv.UnwrapToDepth(0))
 	return RawProposition(value)
@@ -247,7 +246,7 @@ func (sv *SmtValue) Holds() *SmtProposition {
 	if sv.TypeIs(types.AtomicBoolean) {
 		propositions = append(propositions, *sv.getBool())
 	}
-	return Or(propositions)
+	return And(propositions)
 }
 
 func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) *SmtValue {
@@ -257,7 +256,7 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 	if condition.isFalse() {
 		return elseClause
 	}
-	depth := max(thenClause.depth,elseClause.depth)
+	depth := max(thenClause.depth, elseClause.depth)
 	ite := fmt.Sprintf("(ite %s %s %s)", condition.String(), thenClause.WrapToDepth(depth).String(), elseClause.WrapToDepth(depth).String())
 	return NewSmtValue(ite, depth)
 }
