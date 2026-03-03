@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/open-policy-agent/opa/v1/ast"
+	verr "github.com/vhavlena/verirego/pkg/err"
 )
 
 // ruleHeadValueSmt returns smt values for a rule variable and its corresponding value
@@ -67,6 +68,21 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error)
 	return smtHead, smt, nil
 }
 
+func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
+	args := make([]Arg, 0)
+
+	for _,arg := range rule.Head.Args {
+		name := removeQuotes(arg.String())
+		tp, ok := t.TypeTrans.TypeInfo.Types[name]
+		if !ok {
+			return nil, verr.ErrTypeNotFound
+		}
+		depth := tp.TypeDepth()
+		args = append(args, Arg{name, depth})
+	}
+	return args, nil
+}
+
 // RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.
 //
 // Parameters:
@@ -90,8 +106,18 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 	}
 
 	// TODO get args
+	args, err := t.getArgs(rule)
+	if err != nil {
+		return err
+	}
 
-	assertion := Assert(name.Equals(value))
-	t.smtAsserts = append(t.smtAsserts, assertion)
+	if len(args) == 0 {
+		assertion := Assert(name.Equals(value))
+		t.smtAsserts = append(t.smtAsserts, assertion)
+	} else {
+		fun := DefineFun(name.String(), args, value)
+		t.smtAsserts = append(t.smtAsserts, fun)
+	}
+
 	return nil
 }

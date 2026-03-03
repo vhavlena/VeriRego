@@ -378,18 +378,20 @@ func DeclareFun(name string, paramSorts []string, retSort string) *SmtCommand {
 	return &SmtCommand{value: value}
 }
 
-func DefineFunc(name string, args map[string]SmtValue, typeDepth uint, body SmtValue) *SmtCommand {
+type Arg struct { string; int }
+
+func DefineFun(name string, args []Arg, body *SmtValue) *SmtCommand {
 	argStr := "("
 	if len(args) == 0 {
 		argStr += "()"
 	}
-	for k, v := range args {
-		argStr += fmt.Sprintf("(%s %s)", k, v.String())
+	for _, a := range args {
+		argStr += fmt.Sprintf("(%s %s)", a.string, NewSmtType(uint(a.int)).String())
 	}
 	argStr += ")"
 
-	typ := NewSmtType(typeDepth)
+	typ := NewSmtType(uint(body.depth))
 
-	value := fmt.Sprintf("(define-func %s %s %s %s)", name, argStr, typ.String(), body.String())
+	value := fmt.Sprintf("(define-fun %s %s %s %s)", name, argStr, typ.String(), body.String())
 	return &SmtCommand{value: value}
 }
