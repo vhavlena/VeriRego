@@ -1058,6 +1058,141 @@ test_rule if { is_hello(x) }`,
 	}
 }
 
+// compileModule is a test helper that runs OPA's compiler on a parsed module and
+// returns the compiled result.  It fails the test if compilation fails.
+func compileModule(t *testing.T, mod *ast.Module) *ast.Module {
+	t.Helper()
+	compiler := ast.NewCompiler()
+	compiler.Compile(map[string]*ast.Module{mod.Package.Path.String(): mod})
+	if compiler.Failed() {
+		t.Fatalf("OPA compilation failed: %v", compiler.Errors)
+	}
+	return compiler.Modules[mod.Package.Path.String()]
+}
+
+func TestCompiledModuleFunctionTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+
+	tests := []struct {
+		name         string
+		src          string
+		funcName     string
+		expectedRet  RegoTypeDef
+		expectedPars []RegoTypeDef
+	}{
+		{
+			name: "compiled value-returning function returns int",
+			src: `package test
+add_one(n) := plus(n, 1)`,
+			funcName:     "add_one",
+			expectedRet:  NewAtomicType(AtomicInt),
+			expectedPars: []RegoTypeDef{NewAtomicType(AtomicInt)},
+		},
+		{
+			name: "compiled predicate function infers string param",
+			src: `package test
+is_hello(name) if { name = "hello" }`,
+			funcName:     "is_hello",
+			expectedRet:  NewAtomicType(AtomicBoolean),
+			expectedPars: []RegoTypeDef{NewAtomicType(AtomicString)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mod, err := ast.ParseModule("test.rego", tt.src)
+			if err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+			compiled := compileModule(t, mod)
+
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema, nil)
+			analyzer.AnalyzeModule(compiled)
+
+			ft, exists := analyzer.Types[tt.funcName]
+			if !exists {
+				t.Fatalf("function type %q not found", tt.funcName)
+			}
+			if !ft.IsFunction() {
+				t.Fatalf("expected KindFunction for %q, got %v", tt.funcName, ft.Kind)
+			}
+			if !ft.FunctionDef.ReturnType.IsEqual(&tt.expectedRet) {
+				t.Errorf("ReturnType: want %v, got %v", tt.expectedRet.PrettyPrint(), ft.FunctionDef.ReturnType.PrettyPrint())
+			}
+			if len(ft.FunctionDef.ParamTypes) != len(tt.expectedPars) {
+				t.Fatalf("param count: want %d, got %d", len(tt.expectedPars), len(ft.FunctionDef.ParamTypes))
+			}
+			for i, want := range tt.expectedPars {
+				got := ft.FunctionDef.ParamTypes[i]
+				if !got.IsEqual(&want) {
+					t.Errorf("ParamTypes[%d]: want %v, got %v", i, want.PrettyPrint(), got.PrettyPrint())
+				}
+			}
+		})
+	}
+}
+
+func TestCompiledModuleCallSiteTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+
+	tests := []struct {
+		name     string
+		src      string
+		ruleName string // top-level rule whose inferred type we check
+		expected RegoTypeDef
+	}{
+		{
+			name: "rule assigned from compiled value-returning function",
+			src: `package test
+add_one(n) := plus(n, 1)
+my_val := add_one(5)`,
+			ruleName: "my_val",
+			expected: NewAtomicType(AtomicInt),
+		},
+		{
+			name: "rule assigned from compiled string-returning function",
+			src: `package test
+make_greeting(prefix) := "Hello!"
+my_msg := make_greeting("World")`,
+			ruleName: "my_msg",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "rule assigned from compiled array-returning function",
+			src: `package test
+make_list(x) := [1, 2, 3]
+my_list := make_list("any")`,
+			ruleName: "my_list",
+			expected: NewArrayType(NewAtomicType(AtomicInt)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mod, err := ast.ParseModule("test.rego", tt.src)
+			if err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+			compiled := compileModule(t, mod)
+
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema, nil)
+			analyzer.AnalyzeModule(compiled)
+
+			actual, exists := analyzer.Types[tt.ruleName]
+			if !exists {
+				t.Fatalf("type for rule %q not found", tt.ruleName)
+			}
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("rule %q: want %v, got %v", tt.ruleName, tt.expected.PrettyPrint(), actual.PrettyPrint())
+			}
+		})
+	}
+}
+
 func TestParametricRulePrettyPrint(t *testing.T) {
 	t.Parallel()
 

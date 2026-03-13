@@ -2,6 +2,8 @@
 package types
 
 import (
+	"strings"
+
 	"github.com/open-policy-agent/opa/v1/ast"
 )
 
@@ -420,9 +422,44 @@ func (ta *TypeAnalyzer) analyzeParametricRule(rule *ast.Rule) {
 	ta.setType(rule.Head.Name, funcType)
 }
 
+// lookupFunction searches the type map for a user-defined function by name.
+//
+// Two lookups are attempted in order:
+//  1. Exact match on `name` (works for uncompiled modules where the operator is
+//     the bare function name, e.g. "add_one").
+//  2. Prefix-stripped match: if the analyzer has a package path and `name` starts
+//     with "<packagePath>." (e.g. "data.test.add_one"), the prefix is removed and
+//     the short name is looked up (handles fully-qualified references produced by
+//     OPA's compiler).
+//
+// Returns the FunctionTypeDef if a KindFunction entry is found, or nil otherwise.
+func (ta *TypeAnalyzer) lookupFunction(name string) *FunctionTypeDef {
+	if ft, exists := ta.Types[name]; exists && ft.IsFunction() && ft.FunctionDef != nil {
+		return ft.FunctionDef
+	}
+	if ta.packagePath != nil {
+		prefix := ta.packagePath.String() + "."
+		if strings.HasPrefix(name, prefix) {
+			shortName := name[len(prefix):]
+			if ft, exists := ta.Types[shortName]; exists && ft.IsFunction() && ft.FunctionDef != nil {
+				return ft.FunctionDef
+			}
+		}
+	}
+	return nil
+}
+
 // resolveFunctionType returns the expected return type and parameter types for a
 // function call. User-defined functions (stored as KindFunction entries in the type
 // map) are checked first; the call falls back to the predefined-function registry.
+//
+// Two arities are accepted for user-defined functions:
+//   - Exact match (len(ParamTypes) == arity): direct call, works for predicates and
+//     uncompiled value-returning functions.
+//   - Arity +1 (len(ParamTypes)+1 == arity): compiled value-returning function where
+//     OPA appends the output variable as the last argument. In this case the last
+//     parameter slot is given the function's return type so that the output variable
+//     is correctly typed by the caller.
 //
 // Parameters:
 //
@@ -434,11 +471,22 @@ func (ta *TypeAnalyzer) analyzeParametricRule(rule *ast.Rule) {
 //	RegoTypeDef: The expected return type.
 //	[]RegoTypeDef: A fresh slice with the expected type for each argument position.
 func (ta *TypeAnalyzer) resolveFunctionType(name string, arity int) (RegoTypeDef, []RegoTypeDef) {
-	if ft, exists := ta.Types[name]; exists && ft.IsFunction() && ft.FunctionDef != nil {
-		if len(ft.FunctionDef.ParamTypes) == arity {
-			paramsCopy := make([]RegoTypeDef, len(ft.FunctionDef.ParamTypes))
-			copy(paramsCopy, ft.FunctionDef.ParamTypes)
-			return ft.FunctionDef.ReturnType, paramsCopy
+	if fd := ta.lookupFunction(name); fd != nil {
+		nParams := len(fd.ParamTypes)
+		if nParams == arity {
+			// Exact arity: predicate or uncompiled value-returning call.
+			paramsCopy := make([]RegoTypeDef, nParams)
+			copy(paramsCopy, fd.ParamTypes)
+			return fd.ReturnType, paramsCopy
+		}
+		if nParams+1 == arity {
+			// Compiled value-returning call: OPA appended the output variable as
+			// the last argument. Propagate the return type to that slot so the
+			// output variable inherits the correct type.
+			paramsCopy := make([]RegoTypeDef, arity)
+			copy(paramsCopy[:nParams], fd.ParamTypes)
+			paramsCopy[nParams] = fd.ReturnType
+			return fd.ReturnType, paramsCopy
 		}
 	}
 	return funcParamsType(name, arity)
