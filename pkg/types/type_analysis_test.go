@@ -887,6 +887,237 @@ test if { sprintf("%s-%d", ["foo", 7], x) }`,
 	}
 }
 
+func TestParametricRuleTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+
+	tests := []struct {
+		name           string
+		module         string
+		funcName       string
+		expectedReturn RegoTypeDef
+		expectedParams []RegoTypeDef
+	}{
+		{
+			name: "predicate with string param constraint",
+			module: `package test
+is_hello(name) if { name = "hello" }`,
+			funcName:       "is_hello",
+			expectedReturn: NewAtomicType(AtomicBoolean),
+			expectedParams: []RegoTypeDef{NewAtomicType(AtomicString)},
+		},
+		{
+			name: "function with literal return value",
+			module: `package test
+make_greeting(name) := "Hello, World"`,
+			funcName:       "make_greeting",
+			expectedReturn: NewAtomicType(AtomicString),
+			expectedParams: []RegoTypeDef{NewUnknownType()},
+		},
+		{
+			name: "function returning int via builtin",
+			module: `package test
+add_one(n) := plus(n, 1)`,
+			funcName:       "add_one",
+			expectedReturn: NewAtomicType(AtomicInt),
+			expectedParams: []RegoTypeDef{NewAtomicType(AtomicInt)},
+		},
+		{
+			name: "predicate with two string param constraints",
+			module: `package test
+both_strings(a, b) if { a = "x"; b = "y" }`,
+			funcName:       "both_strings",
+			expectedReturn: NewAtomicType(AtomicBoolean),
+			expectedParams: []RegoTypeDef{NewAtomicType(AtomicString), NewAtomicType(AtomicString)},
+		},
+		{
+			name: "predicate with mixed param constraints",
+			module: `package test
+mixed(s, n) if { s = "hello"; n = 42 }`,
+			funcName:       "mixed",
+			expectedReturn: NewAtomicType(AtomicBoolean),
+			expectedParams: []RegoTypeDef{NewAtomicType(AtomicString), NewAtomicType(AtomicInt)},
+		},
+		{
+			name: "function returning array value",
+			module: `package test
+make_list(x) := [1, 2, 3]`,
+			funcName:       "make_list",
+			expectedReturn: NewArrayType(NewAtomicType(AtomicInt)),
+			expectedParams: []RegoTypeDef{NewUnknownType()},
+		},
+		{
+			name: "predicate with no param constraints (params remain unknown)",
+			module: `package test
+always_true(x, y) if { true }`,
+			funcName:       "always_true",
+			expectedReturn: NewAtomicType(AtomicBoolean),
+			expectedParams: []RegoTypeDef{NewUnknownType(), NewUnknownType()},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mod, err := ast.ParseModule("test.rego", tt.module)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema, nil)
+			analyzer.AnalyzeModule(mod)
+
+			ft, exists := analyzer.Types[tt.funcName]
+			if !exists {
+				t.Fatalf("Function type for %q not found in type map", tt.funcName)
+			}
+			if !ft.IsFunction() {
+				t.Fatalf("Expected KindFunction for %q, got kind=%v", tt.funcName, ft.Kind)
+			}
+			if ft.FunctionDef == nil {
+				t.Fatalf("FunctionDef is nil for %q", tt.funcName)
+			}
+			if ft.FunctionDef.Name != tt.funcName {
+				t.Errorf("FunctionDef.Name: expected %q, got %q", tt.funcName, ft.FunctionDef.Name)
+			}
+			if !ft.FunctionDef.ReturnType.IsEqual(&tt.expectedReturn) {
+				t.Errorf("ReturnType: expected %v, got %v", tt.expectedReturn.PrettyPrint(), ft.FunctionDef.ReturnType.PrettyPrint())
+			}
+			if len(ft.FunctionDef.ParamTypes) != len(tt.expectedParams) {
+				t.Fatalf("ParamTypes len: expected %d, got %d", len(tt.expectedParams), len(ft.FunctionDef.ParamTypes))
+			}
+			for i, expected := range tt.expectedParams {
+				actual := ft.FunctionDef.ParamTypes[i]
+				if !actual.IsEqual(&expected) {
+					t.Errorf("ParamTypes[%d]: expected %v, got %v", i, expected.PrettyPrint(), actual.PrettyPrint())
+				}
+			}
+		})
+	}
+}
+
+func TestUserDefinedFunctionCallTypeInference(t *testing.T) {
+	t.Parallel()
+	schema := NewInputSchema()
+
+	tests := []struct {
+		name     string
+		module   string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "call to user-defined function returning string",
+			module: `package test
+make_greeting(prefix) := "Hello, World"
+test_rule if { msg := make_greeting("hello") }`,
+			varName:  "msg",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "call to user-defined function returning int",
+			module: `package test
+add_one(n) := plus(n, 1)
+test_rule if { result := add_one(5) }`,
+			varName:  "result",
+			expected: NewAtomicType(AtomicInt),
+		},
+		{
+			name: "call to user-defined function returning array",
+			module: `package test
+make_list(x) := [1, 2, 3]
+test_rule if { arr := make_list("any") }`,
+			varName:  "arr",
+			expected: NewArrayType(NewAtomicType(AtomicInt)),
+		},
+		{
+			name: "variable typed via user-defined predicate param constraint propagation",
+			module: `package test
+is_hello(name) if { name = "hello" }
+test_rule if { is_hello(x) }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mod, err := ast.ParseModule("test.rego", tt.module)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema, nil)
+			analyzer.AnalyzeModule(mod)
+
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %q, got %v", tt.expected.PrettyPrint(), tt.varName, actual.PrettyPrint())
+			}
+		})
+	}
+}
+
+func TestParametricRulePrettyPrint(t *testing.T) {
+	t.Parallel()
+
+	ft := NewFunctionType("greet", []RegoTypeDef{NewAtomicType(AtomicString)}, NewAtomicType(AtomicString))
+	got := ft.PrettyPrint()
+	want := "func greet(string) -> string"
+	if got != want {
+		t.Errorf("PrettyPrint: expected %q, got %q", want, got)
+	}
+
+	ft2 := NewFunctionType("check", []RegoTypeDef{NewAtomicType(AtomicString), NewAtomicType(AtomicInt)}, NewAtomicType(AtomicBoolean))
+	got2 := ft2.PrettyPrint()
+	want2 := "func check(string, int) -> boolean"
+	if got2 != want2 {
+		t.Errorf("PrettyPrint: expected %q, got %q", want2, got2)
+	}
+}
+
+func TestFunctionTypeIsEqual(t *testing.T) {
+	t.Parallel()
+
+	f1 := NewFunctionType("f", []RegoTypeDef{NewAtomicType(AtomicString)}, NewAtomicType(AtomicBoolean))
+	f2 := NewFunctionType("f", []RegoTypeDef{NewAtomicType(AtomicString)}, NewAtomicType(AtomicBoolean))
+	f3 := NewFunctionType("f", []RegoTypeDef{NewAtomicType(AtomicInt)}, NewAtomicType(AtomicBoolean))
+	f4 := NewFunctionType("g", []RegoTypeDef{NewAtomicType(AtomicString)}, NewAtomicType(AtomicBoolean))
+
+	if !f1.IsEqual(&f2) {
+		t.Error("identical function types should be equal")
+	}
+	if f1.IsEqual(&f3) {
+		t.Error("function types with different param types should not be equal")
+	}
+	if f1.IsEqual(&f4) {
+		t.Error("function types with different names should not be equal")
+	}
+}
+
+func TestFunctionTypeIsMorePrecise(t *testing.T) {
+	t.Parallel()
+
+	// Param goes from unknown to string: more precise
+	less := NewFunctionType("f", []RegoTypeDef{NewUnknownType()}, NewAtomicType(AtomicBoolean))
+	more := NewFunctionType("f", []RegoTypeDef{NewAtomicType(AtomicString)}, NewAtomicType(AtomicBoolean))
+	if !more.IsMorePrecise(&less) {
+		t.Error("function with concrete param should be more precise than unknown-param variant")
+	}
+	if less.IsMorePrecise(&more) {
+		t.Error("function with unknown param should not be more precise than concrete-param variant")
+	}
+
+	// Function type is more precise than unknown
+	unknown := NewUnknownType()
+	if !more.IsMorePrecise(&unknown) {
+		t.Error("function type should be more precise than unknown")
+	}
+	if unknown.IsMorePrecise(&more) {
+		t.Error("unknown should not be more precise than function type")
+	}
+}
+
 func TestNestedFunctionCalls(t *testing.T) {
 	t.Parallel()
 	schema := NewInputSchema()

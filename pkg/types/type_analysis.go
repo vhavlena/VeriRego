@@ -199,8 +199,8 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 
 			return NewAtomicType(AtomicBoolean)
 		} else {
-			// Handle function calls
-			funcType, funcParams := funcParamsType(operator.String(), len(terms)-1)
+			// Handle function calls (user-defined functions are checked first)
+			funcType, funcParams := ta.resolveFunctionType(operator.String(), len(terms)-1)
 			for i := 1; i < len(terms); i++ {
 				ta.InferTermType(terms[i], &funcParams[i-1])
 			}
@@ -280,7 +280,7 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value, inherType *RegoTypeDef) Rego
 		}
 	case ast.Call:
 		operator := v[0]
-		funcType, funcParams := funcParamsType(operator.String(), len(v)-1)
+		funcType, funcParams := ta.resolveFunctionType(operator.String(), len(v)-1)
 		for i := 1; i < len(v); i++ {
 			ta.InferTermType(v[i], &funcParams[i-1])
 		}
@@ -359,9 +359,11 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 
 // AnalyzeRule analyzes the given Rego rule and records the inferred type for the rule head.
 //
-// AnalyzeRule constructs a union type to collect possible return types produced by the
-// rule's body (including any else branches). It delegates the body analysis to
-// AnalyzeRuleBody which appends discovered return types into the union. After analysis
+// For parametric rules (functions) — those whose head carries at least one argument —
+// analysis is delegated to analyzeParametricRule which produces a FunctionTypeDef.
+// For plain rules AnalyzeRule constructs a union type to collect possible return types
+// produced by the rule's body (including any else branches). It delegates the body analysis
+// to AnalyzeRuleBody which appends discovered return types into the union. After analysis
 // the union is canonicalized and stored in the analyzer's type map under the rule head's
 // name via ta.setType.
 //
@@ -373,10 +375,73 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 //   - rule *ast.Rule: the Rego rule to analyze. The function expects a valid rule with a
 //     head; behavior for malformed rules follows the underlying setType logic.
 func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
+	if len(rule.Head.Args) > 0 {
+		ta.analyzeParametricRule(rule)
+		return
+	}
 	tp := NewUnionType([]RegoTypeDef{})
 	ta.AnalyzeRuleBody(rule, &tp)
 	tp.CanonizeUnion()
 	ta.setType(rule.Head.Name, tp)
+}
+
+// analyzeParametricRule analyzes a Rego function / parametric rule and stores a
+// FunctionTypeDef under the rule's name in the type map.
+//
+// The rule body is analyzed exactly as for plain rules; any type information inferred
+// for the parameter variables (e.g. via equality constraints in the body or head value)
+// is then collected and combined with the inferred return type to produce a
+// KindFunction type definition.
+//
+// Parameters:
+//   - rule *ast.Rule: a parametric rule (rule.Head.Args must be non-empty).
+func (ta *TypeAnalyzer) analyzeParametricRule(rule *ast.Rule) {
+	// Analyze the body and head value, collecting return types into tp.
+	tp := NewUnionType([]RegoTypeDef{})
+	ta.AnalyzeRuleBody(rule, &tp)
+	tp.CanonizeUnion()
+
+	// Collect inferred types for each parameter variable.
+	paramTypes := make([]RegoTypeDef, len(rule.Head.Args))
+	for i, arg := range rule.Head.Args {
+		if v, ok := arg.Value.(ast.Var); ok {
+			if t, exists := ta.Types[string(v)]; exists {
+				paramTypes[i] = t
+			} else {
+				paramTypes[i] = NewUnknownType()
+			}
+		} else {
+			paramTypes[i] = NewUnknownType()
+		}
+	}
+
+	funcName := string(rule.Head.Name)
+	funcType := NewFunctionType(funcName, paramTypes, tp)
+	ta.setType(rule.Head.Name, funcType)
+}
+
+// resolveFunctionType returns the expected return type and parameter types for a
+// function call. User-defined functions (stored as KindFunction entries in the type
+// map) are checked first; the call falls back to the predefined-function registry.
+//
+// Parameters:
+//
+//	name string: The function name as it appears in the call expression.
+//	arity int: The number of arguments supplied at the call site.
+//
+// Returns:
+//
+//	RegoTypeDef: The expected return type.
+//	[]RegoTypeDef: A fresh slice with the expected type for each argument position.
+func (ta *TypeAnalyzer) resolveFunctionType(name string, arity int) (RegoTypeDef, []RegoTypeDef) {
+	if ft, exists := ta.Types[name]; exists && ft.IsFunction() && ft.FunctionDef != nil {
+		if len(ft.FunctionDef.ParamTypes) == arity {
+			paramsCopy := make([]RegoTypeDef, len(ft.FunctionDef.ParamTypes))
+			copy(paramsCopy, ft.FunctionDef.ParamTypes)
+			return ft.FunctionDef.ReturnType, paramsCopy
+		}
+	}
+	return funcParamsType(name, arity)
 }
 
 // AnalyzeRuleBody analyzes the body (and else branches) of a rule and appends discovered
