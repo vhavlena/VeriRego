@@ -117,3 +117,30 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 		}
 	}
 }
+
+// TestGetSmtVarsDeclare_SkipsFunctionTypes verifies that KindFunction entries in
+// the type map are excluded from the set of global SMT variables to declare.
+// User-defined functions contribute a KindFunction entry to the TypeAnalyzer —
+// including them would cause GenerateVarDecl to fail with ErrUnsupportedType.
+func TestGetSmtVarsDeclare_SkipsFunctionTypes(t *testing.T) {
+	t.Parallel()
+	rego := `package test
+add_one(x) := y if { y := x + 1 }
+p := z if { z := 1 }
+`
+	mod, err := ast.ParseModule("test.rego", rego)
+	if err != nil {
+		t.Fatalf("failed to parse rego: %v", err)
+	}
+
+	ta := types.NewTypeAnalyzerWithParams(mod.Package.Path, types.NewInputSchema(), nil)
+	ta.AnalyzeModule(mod)
+
+	tr := NewTranslator(ta, mod)
+	globalVars := tr.getSmtVarsDeclare()
+
+	// "add_one" must be absent – it is a KindFunction entry, not a variable.
+	if _, found := globalVars["add_one"]; found {
+		t.Error("KindFunction entry 'add_one' should not appear in globalVars for SMT declaration")
+	}
+}

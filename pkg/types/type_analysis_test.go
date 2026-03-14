@@ -1286,3 +1286,42 @@ test if { x = concat(concat(u, v),z) }`,
 		})
 	}
 }
+
+// TestResolveFunctionTypeArityMismatch verifies that calling a user-defined function
+// with the wrong number of arguments does not panic and silently falls back to
+// unknown return and parameter types. This is the documented behaviour of the
+// arity-mismatch branch in resolveFunctionType.
+//
+// resolveFunctionType accepts two arities for a function with N declared parameters:
+//   - exactly N  (predicate / uncompiled value-returning call), and
+//   - N+1        (OPA-compiled call where the output variable is appended).
+//
+// Any other arity is a mismatch and falls back to the predefined-function registry
+// (also unknown for user-defined names), returning unknown types for all slots.
+func TestResolveFunctionTypeArityMismatch(t *testing.T) {
+	t.Parallel()
+	// Build a type analyzer with a known 1-parameter function.
+	ta := &TypeAnalyzer{
+		Types: map[string]RegoTypeDef{
+			"my_func": NewFunctionType("my_func",
+				[]RegoTypeDef{NewAtomicType(AtomicString)},
+				NewAtomicType(AtomicInt)),
+		},
+		Refs: map[string]ast.Value{},
+	}
+
+	// Arity 3 matches neither exact (1) nor compiled (+1 = 2) — true mismatch.
+	retType, paramTypes := ta.resolveFunctionType("my_func", 3)
+
+	if !retType.IsUnknown() {
+		t.Errorf("expected unknown return type for arity mismatch, got %v", retType)
+	}
+	if len(paramTypes) != 3 {
+		t.Errorf("expected 3 param type slots, got %d", len(paramTypes))
+	}
+	for i, pt := range paramTypes {
+		if !pt.IsUnknown() {
+			t.Errorf("expected unknown param type[%d] for arity mismatch, got %v", i, pt)
+		}
+	}
+}
