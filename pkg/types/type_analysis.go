@@ -401,18 +401,6 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 // is then collected and combined with the inferred return type to produce a
 // KindFunction type definition.
 //
-// Limitation — parameter types for multi-rule functions with else branches:
-// Parameter types are collected from the type map immediately after AnalyzeRuleBody
-// returns for the current rule (including its else chain). For multi-rule functions
-// (several ast.Rule entries sharing the same name), each rule is analyzed in a
-// separate AnalyzeRule call within the AnalyzeModule iteration loop. Constraints
-// established in one rule's body are visible to subsequent rules only in later
-// iterations of that loop. As a result, parameter types produced in a single
-// iteration may be incomplete — they reflect only the subset of constraints seen
-// so far. The iterative loop in AnalyzeModule drives convergence across rules, but
-// within a single pass each rule sees only the type information accumulated up to
-// that point.
-//
 // Parameters:
 //   - rule *ast.Rule: a parametric rule (rule.Head.Args must be non-empty).
 func (ta *TypeAnalyzer) analyzeParametricRule(rule *ast.Rule) {
