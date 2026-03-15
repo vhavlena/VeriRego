@@ -2,6 +2,8 @@
 package types
 
 import (
+	"strings"
+
 	"github.com/open-policy-agent/opa/v1/ast"
 )
 
@@ -94,6 +96,12 @@ func (ta *TypeAnalyzer) GetType(val ast.Value) RegoTypeDef {
 //
 //	val ast.Value: The AST value to set the type for.
 //	typ RegoTypeDef: The type to assign to the value.
+//
+// Promotion across kinds is intentionally not supported: IsMorePrecise returns
+// false when the incoming and existing types have different, non-unknown kinds.
+// This is by design — valid Rego never uses the same symbol as both a plain rule
+// and a user-defined function, so cross-kind name collisions cannot occur in
+// practice. If they did, the later setType call would be silently ignored.
 func (ta *TypeAnalyzer) setType(val ast.Value, typ RegoTypeDef) {
 	key := ta.getValueKey(val)
 	if existingType, exists := ta.Types[key]; exists {
@@ -199,8 +207,8 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 
 			return NewAtomicType(AtomicBoolean)
 		} else {
-			// Handle function calls
-			funcType, funcParams := funcParamsType(operator.String(), len(terms)-1)
+			// Handle function calls (user-defined functions are checked first)
+			funcType, funcParams := ta.resolveFunctionType(operator.String(), len(terms)-1)
 			for i := 1; i < len(terms); i++ {
 				ta.InferTermType(terms[i], &funcParams[i-1])
 			}
@@ -280,7 +288,7 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value, inherType *RegoTypeDef) Rego
 		}
 	case ast.Call:
 		operator := v[0]
-		funcType, funcParams := funcParamsType(operator.String(), len(v)-1)
+		funcType, funcParams := ta.resolveFunctionType(operator.String(), len(v)-1)
 		for i := 1; i < len(v); i++ {
 			ta.InferTermType(v[i], &funcParams[i-1])
 		}
@@ -359,9 +367,11 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 
 // AnalyzeRule analyzes the given Rego rule and records the inferred type for the rule head.
 //
-// AnalyzeRule constructs a union type to collect possible return types produced by the
-// rule's body (including any else branches). It delegates the body analysis to
-// AnalyzeRuleBody which appends discovered return types into the union. After analysis
+// For parametric rules (functions) — those whose head carries at least one argument —
+// analysis is delegated to analyzeParametricRule which produces a FunctionTypeDef.
+// For plain rules AnalyzeRule constructs a union type to collect possible return types
+// produced by the rule's body (including any else branches). It delegates the body analysis
+// to AnalyzeRuleBody which appends discovered return types into the union. After analysis
 // the union is canonicalized and stored in the analyzer's type map under the rule head's
 // name via ta.setType.
 //
@@ -373,10 +383,119 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 //   - rule *ast.Rule: the Rego rule to analyze. The function expects a valid rule with a
 //     head; behavior for malformed rules follows the underlying setType logic.
 func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
+	if len(rule.Head.Args) > 0 {
+		ta.analyzeParametricRule(rule)
+		return
+	}
 	tp := NewUnionType([]RegoTypeDef{})
 	ta.AnalyzeRuleBody(rule, &tp)
 	tp.CanonizeUnion()
 	ta.setType(rule.Head.Name, tp)
+}
+
+// analyzeParametricRule analyzes a Rego function / parametric rule and stores a
+// FunctionTypeDef under the rule's name in the type map.
+//
+// The rule body is analyzed exactly as for plain rules; any type information inferred
+// for the parameter variables (e.g. via equality constraints in the body or head value)
+// is then collected and combined with the inferred return type to produce a
+// KindFunction type definition.
+//
+// Parameters:
+//   - rule *ast.Rule: a parametric rule (rule.Head.Args must be non-empty).
+func (ta *TypeAnalyzer) analyzeParametricRule(rule *ast.Rule) {
+	// Analyze the body and head value, collecting return types into tp.
+	tp := NewUnionType([]RegoTypeDef{})
+	ta.AnalyzeRuleBody(rule, &tp)
+	tp.CanonizeUnion()
+
+	// Collect inferred types for each parameter variable.
+	paramTypes := make([]RegoTypeDef, len(rule.Head.Args))
+	for i, arg := range rule.Head.Args {
+		if v, ok := arg.Value.(ast.Var); ok {
+			if t, exists := ta.Types[string(v)]; exists {
+				paramTypes[i] = t
+			} else {
+				paramTypes[i] = NewUnknownType()
+			}
+		} else {
+			paramTypes[i] = NewUnknownType()
+		}
+	}
+
+	funcName := string(rule.Head.Name)
+	funcType := NewFunctionType(funcName, paramTypes, tp)
+	ta.setType(rule.Head.Name, funcType)
+}
+
+// lookupFunction searches the type map for a user-defined function by name.
+//
+// Two lookups are attempted in order:
+//  1. Exact match on `name` (works for uncompiled modules where the operator is
+//     the bare function name, e.g. "add_one").
+//  2. Prefix-stripped match: if the analyzer has a package path and `name` starts
+//     with "<packagePath>." (e.g. "data.test.add_one"), the prefix is removed and
+//     the short name is looked up (handles fully-qualified references produced by
+//     OPA's compiler).
+//
+// Returns the FunctionTypeDef if a KindFunction entry is found, or nil otherwise.
+func (ta *TypeAnalyzer) lookupFunction(name string) *FunctionTypeDef {
+	if ft, exists := ta.Types[name]; exists && ft.IsFunction() && ft.FunctionDef != nil {
+		return ft.FunctionDef
+	}
+	if ta.packagePath != nil {
+		prefix := ta.packagePath.String() + "."
+		if strings.HasPrefix(name, prefix) {
+			shortName := name[len(prefix):]
+			if ft, exists := ta.Types[shortName]; exists && ft.IsFunction() && ft.FunctionDef != nil {
+				return ft.FunctionDef
+			}
+		}
+	}
+	return nil
+}
+
+// resolveFunctionType returns the expected return type and parameter types for a
+// function call. User-defined functions (stored as KindFunction entries in the type
+// map) are checked first; the call falls back to the predefined-function registry.
+//
+// Two arities are accepted for user-defined functions:
+//   - Exact match (len(ParamTypes) == arity): direct call, works for predicates and
+//     uncompiled value-returning functions.
+//   - Arity +1 (len(ParamTypes)+1 == arity): compiled value-returning function where
+//     OPA appends the output variable as the last argument. In this case the last
+//     parameter slot is given the function's return type so that the output variable
+//     is correctly typed by the caller.
+//
+// Parameters:
+//
+//	name string: The function name as it appears in the call expression.
+//	arity int: The number of arguments supplied at the call site.
+//
+// Returns:
+//
+//	RegoTypeDef: The expected return type.
+//	[]RegoTypeDef: A fresh slice with the expected type for each argument position.
+func (ta *TypeAnalyzer) resolveFunctionType(name string, arity int) (RegoTypeDef, []RegoTypeDef) {
+	if fd := ta.lookupFunction(name); fd != nil {
+		nParams := len(fd.ParamTypes)
+		if nParams == arity {
+			// Exact arity: predicate or uncompiled value-returning call.
+			paramsCopy := make([]RegoTypeDef, nParams)
+			copy(paramsCopy, fd.ParamTypes)
+			return fd.ReturnType, paramsCopy
+		}
+		if nParams+1 == arity {
+			// Compiled value-returning call: OPA appended the output variable as
+			// the last argument. Propagate the return type to that slot so the
+			// output variable inherits the correct type.
+			paramsCopy := make([]RegoTypeDef, arity)
+			copy(paramsCopy[:nParams], fd.ParamTypes)
+			paramsCopy[nParams] = fd.ReturnType
+			return fd.ReturnType, paramsCopy
+		}
+	}
+	return funcParamsType(name, arity)
 }
 
 // AnalyzeRuleBody analyzes the body (and else branches) of a rule and appends discovered

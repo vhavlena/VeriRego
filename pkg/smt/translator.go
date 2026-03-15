@@ -166,6 +166,12 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 	if t.TypeTrans.TypeInfo != nil {
 		for name := range t.TypeTrans.TypeInfo.Types {
 			if _, isParam := inputParamSet[name]; !isParam {
+				tp := t.TypeTrans.TypeInfo.Types[name]
+				// Skip function definitions: they describe call signatures, not
+				// runtime variables that need SMT declarations.
+				if tp.IsFunction() {
+					continue
+				}
 				_, okVar := t.TypeTrans.TypeInfo.Refs[name].(ast.Var)
 				if okVar {
 					globalVars[name] = struct{}{}

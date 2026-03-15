@@ -9,11 +9,12 @@ import (
 type TypeKind string
 
 const (
-	KindAtomic  TypeKind = "atomic"
-	KindArray   TypeKind = "array"
-	KindObject  TypeKind = "object"
-	KindUnknown TypeKind = "unknown"
-	KindUnion   TypeKind = "union"
+	KindAtomic   TypeKind = "atomic"
+	KindArray    TypeKind = "array"
+	KindObject   TypeKind = "object"
+	KindUnknown  TypeKind = "unknown"
+	KindUnion    TypeKind = "union"
+	KindFunction TypeKind = "function"
 )
 
 // AtomicType represents atomic types in Rego
@@ -29,13 +30,26 @@ const (
 	AtomicUndef    AtomicType = "undefined"
 )
 
+// FunctionTypeDef stores typing information for a Rego function / parametric rule.
+//
+// Fields:
+//   - Name: the function's name as it appears in the Rego source
+//   - ParamTypes: inferred types for each positional parameter
+//   - ReturnType: the inferred return type of the function
+type FunctionTypeDef struct {
+	Name       string
+	ParamTypes []RegoTypeDef
+	ReturnType RegoTypeDef
+}
+
 // RegoTypeDef represents a full type definition in Rego
 type RegoTypeDef struct {
-	Kind         TypeKind       // The kind of type (atomic, array, object)
-	AtomicType   AtomicType     // The specific atomic type if Kind is atomic
-	ArrayType    *RegoTypeDef   // The type of array elements if Kind is array
-	ObjectFields ObjectFieldSet // The field types if Kind is object
-	Union        []RegoTypeDef  // If KindUnion, this holds union member types
+	Kind         TypeKind         // The kind of type (atomic, array, object, function, …)
+	AtomicType   AtomicType       // The specific atomic type if Kind is atomic
+	ArrayType    *RegoTypeDef     // The type of array elements if Kind is array
+	ObjectFields ObjectFieldSet   // The field types if Kind is object
+	Union        []RegoTypeDef    // If KindUnion, this holds union member types
+	FunctionDef  *FunctionTypeDef // Non-nil iff Kind == KindFunction
 }
 
 //----------------------------------------------------------------
@@ -194,9 +208,36 @@ func NewUnknownType() RegoTypeDef {
 	}
 }
 
+// NewFunctionType creates a new RegoTypeDef for a function / parametric rule.
+//
+// Parameters:
+//
+//	name string: The function name.
+//	paramTypes []RegoTypeDef: The inferred type for each positional parameter.
+//	returnType RegoTypeDef: The inferred return type.
+//
+// Returns:
+//
+//	RegoTypeDef: A new function type definition.
+func NewFunctionType(name string, paramTypes []RegoTypeDef, returnType RegoTypeDef) RegoTypeDef {
+	return RegoTypeDef{
+		Kind: KindFunction,
+		FunctionDef: &FunctionTypeDef{
+			Name:       name,
+			ParamTypes: paramTypes,
+			ReturnType: returnType,
+		},
+	}
+}
+
 // IsAtomic returns true if the type is atomic
 func (t *RegoTypeDef) IsAtomic() bool {
 	return t.Kind == KindAtomic
+}
+
+// IsFunction returns true if the type is a function / parametric rule type
+func (t *RegoTypeDef) IsFunction() bool {
+	return t.Kind == KindFunction
 }
 
 // IsArray returns true if the type is an array
@@ -237,7 +278,7 @@ func (t *RegoTypeDef) HasNoAdditionalPropertiesDeep() bool {
 	}
 
 	switch t.Kind {
-	case KindAtomic, KindUnknown:
+	case KindAtomic, KindUnknown, KindFunction:
 		return true
 	case KindArray:
 		if t.ArrayType == nil {
@@ -350,6 +391,25 @@ func (t *RegoTypeDef) IsEqual(other *RegoTypeDef) bool {
 		return t.subsetUnion(other.Union) && other.subsetUnion(t.Union)
 	case KindUnknown:
 		return true
+	case KindFunction:
+		if t.FunctionDef == nil && other.FunctionDef == nil {
+			return true
+		}
+		if t.FunctionDef == nil || other.FunctionDef == nil {
+			return false
+		}
+		if t.FunctionDef.Name != other.FunctionDef.Name {
+			return false
+		}
+		if len(t.FunctionDef.ParamTypes) != len(other.FunctionDef.ParamTypes) {
+			return false
+		}
+		for i := range t.FunctionDef.ParamTypes {
+			if !t.FunctionDef.ParamTypes[i].IsEqual(&other.FunctionDef.ParamTypes[i]) {
+				return false
+			}
+		}
+		return t.FunctionDef.ReturnType.IsEqual(&other.FunctionDef.ReturnType)
 	}
 	return false
 }
@@ -448,6 +508,30 @@ func (t *RegoTypeDef) IsMorePrecise(other *RegoTypeDef) bool {
 		return false
 	case KindUnion:
 		panic("unreachable")
+	case KindFunction:
+		if t.FunctionDef == nil || other.FunctionDef == nil {
+			return false
+		}
+		if t.FunctionDef.Name != other.FunctionDef.Name {
+			return false
+		}
+		if len(t.FunctionDef.ParamTypes) != len(other.FunctionDef.ParamTypes) {
+			return false
+		}
+		// No parameter may be less precise; track if any is strictly more precise.
+		paramMorePrecise := false
+		for i := range t.FunctionDef.ParamTypes {
+			tp := t.FunctionDef.ParamTypes[i]
+			op := other.FunctionDef.ParamTypes[i]
+			if tp.IsMorePrecise(&op) {
+				paramMorePrecise = true
+			} else if !tp.IsEqual(&op) {
+				return false // this param is less precise – not an improvement
+			}
+		}
+		retMorePrecise := t.FunctionDef.ReturnType.IsMorePrecise(&other.FunctionDef.ReturnType)
+		retEqual := t.FunctionDef.ReturnType.IsEqual(&other.FunctionDef.ReturnType)
+		return retMorePrecise || (retEqual && paramMorePrecise)
 	}
 	return false
 }
@@ -640,6 +724,19 @@ func (t *RegoTypeDef) prettyPrintWithIndentShort(indent int, short bool) string 
 		return result
 	case KindUnknown:
 		return "unknown"
+	case KindFunction:
+		if t.FunctionDef == nil {
+			return "func(?)"
+		}
+		result := "func " + t.FunctionDef.Name + "("
+		for i, p := range t.FunctionDef.ParamTypes {
+			if i > 0 {
+				result += ", "
+			}
+			result += p.prettyPrintWithIndentShort(indent, short)
+		}
+		result += ") -> " + t.FunctionDef.ReturnType.prettyPrintWithIndentShort(indent, short)
+		return result
 	}
 	return "invalid"
 }
