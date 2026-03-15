@@ -98,7 +98,6 @@ func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
 // The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
 func (t *Translator) RuleToSmt(rule *ast.Rule) error {
-	println("rule",rule.String())
 	name, value, err := t.ruleToSmtString(rule)
 	if err != nil {
 		return err
@@ -120,7 +119,7 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 	} else {
 		t.RegisterFunction(name.String(), args, value.GetDepth())
 		fun := DefineFun(name.String(), args, value)
-		t.smtAsserts = append(t.smtAsserts, fun)
+		t.smtDecls = append(t.smtDecls, fun)
 	}
 
 	return nil

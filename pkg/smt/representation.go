@@ -349,20 +349,26 @@ func (sv *SmtValue) AsBool() (*SmtValue,error) {
 }
 
 func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue,error) {
-	if t.depth == -1 && sv.depth != -1 {
+	if t.depth == -1 {
+		if !sv.TypeIs(t.atomic) {
+			return nil, verr.ErrUnsupportedType	// FIXME: Incorrect type
+		}
+		if sv.depth == -1 {
+			return sv, nil
+		}
 		sv = sv.UnwrapToDepth(0)
+		switch t.atomic {
+		case types.AtomicBoolean:
+			return sv.AsBool()
+		case types.AtomicString:
+			return sv.AsString()
+		case types.AtomicInt:
+			return sv.AsInt()
+		}
+		panic("Unreachable")
 	}
-	switch t.atomic {
-	case types.AtomicBoolean:
-		return sv.AsBool()
-	case types.AtomicString:
-		return sv.AsString()
-	case types.AtomicInt:
-		return sv.AsInt()
-	}
-	panic("Unreachable")
 
-	return sv.UnwrapToDepth(t.depth), nil
+	return sv.WrapToDepth(t.depth), nil
 }
 
 func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) *SmtValue {

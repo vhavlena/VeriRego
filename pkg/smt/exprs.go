@@ -123,12 +123,18 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 		}
 
 		opStr := removeQuotes(terms[0].String())
-		op_, ok := et.funcMap[opStr]
+		var op Function
+		op, ok = et.funcMap[opStr]
 		if !ok {
-			panic("no func")
+			opParts := strings.Split(opStr, ".") // TODO: take package into account in case of importing other packages
+			opStr = opParts[len(opParts)-1]
+			op, ok = et.funcMap[opStr]
+			if !ok {
+				return nil, localVarDefs, verr.ErrTypeNotFound // FIXME: error: function not found
+			}
 		}
 
-		arity := len(op_.args)
+		arity := len(op.args)
 		params := make([]SmtValue, len(terms)-1)
 		for i := 1; i < len(terms); i++ {
 			val, err := et.termToSmtValue(terms[i])
@@ -139,7 +145,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 		}
 
 		if arity+1 == len(params) {		// the return is a part of the call
-			val, err := op_.SmtCall(params[:len(params)-1])
+			val, err := op.SmtCall(params[:len(params)-1])
 			if err != nil {
 				return nil, localVarDefs, err
 			}
@@ -152,24 +158,6 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 			definedVars[def.string] = true
 			continue
 		}
-
-		// op,err := getOperation(opStr)
-		// if err != nil {
-		// 	return nil, localVarDefs, err
-		// }
-		//
-		// arity := op.Decl.Arity()
-		// params := len(terms)-1
-		// if arity < params {		// the return is a part of the call
-		// 	def, err := et.handleAssigningFunction(opStr, terms)
-		// 	if err != nil {
-		// 		return nil, localVarDefs, err
-		// 	}
-		// 	localVarDefs = append(localVarDefs, *def)
-		// 	definedVars[def.string] = true
-		// 	continue
-		// }
-		//
 
 		// we handle ast.Equality separately, because it can be both assignment and comparison, based on the context
 		if opStr == ast.Equality.Name {
@@ -188,30 +176,6 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 				continue
 			}
 		}
-		// // we handle ast.Equality separately, because it can be both assignment and comparison, based on the context
-		// if opStr == ast.Equality.Name {
-		// 	if variable,ok := terms[1].Value.(ast.Var); ok {
-		// 		// create variable
-		// 		rhs := terms[2]
-		// 		val,err := et.termToSmtValue(rhs)
-		// 		if err != nil {
-		// 			return nil, localVarDefs, err
-		// 		}
-		//
-		// 		name := removeQuotes(variable.String())
-		// 		if definedVars[name] != true {
-		// 			localVarDefs = append(localVarDefs, varDef{name, *val})
-		// 			definedVars[name] = true
-		// 		} else {
-		// 			varSmt, err := et.GetVarValue(variable)
-		// 			if err != nil {
-		// 				return nil, nil, err
-		// 			}
-		// 			bodySmts = append(bodySmts, *varSmt.Equals(val))
-		// 		}
-		// 		continue
-		// 	}
-		// }
 
 		// Convert all arguments
 		args, err := et.getOperationArgSmts(terms)
