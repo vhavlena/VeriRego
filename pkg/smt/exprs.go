@@ -12,6 +12,7 @@ import (
 // ExprTranslator handles the translation of Rego expressions to SMT-LIB format.
 type ExprTranslator struct {
 	TypeTrans *TypeTranslator // Type definitions and type-related operations
+	funcMap   map[string]Function
 	context   *TransContext   // Context to collect generated SMT declarations, assertions, and variable mappings
 }
 
@@ -19,13 +20,15 @@ type ExprTranslator struct {
 func NewExprTranslator(typeTrans *TypeTranslator) *ExprTranslator {
 	return &ExprTranslator{
 		TypeTrans: typeTrans,
+		funcMap:   GetBuiltinFuncMap(),
 		context:   NewTransContext(),
 	}
 }
 
-func NewExprTranslatorWithVarMap(typeTrans *TypeTranslator, varMap map[string]string) *ExprTranslator {
+func NewExprTranslatorWithVarMap(typeTrans *TypeTranslator, varMap map[string]string, funcMap map[string]Function) *ExprTranslator {
 	return &ExprTranslator{
 		TypeTrans: typeTrans,
+		funcMap:   funcMap,
 		context:   NewTransContextWithVarMap(varMap),
 	}
 }
@@ -120,47 +123,95 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 		}
 
 		opStr := removeQuotes(terms[0].String())
-		op,err := getOperation(opStr)
-		if err != nil {
-			return nil, localVarDefs, err
+		op_, ok := et.funcMap[opStr]
+		if !ok {
+			panic("no func")
 		}
-		
-		arity := op.Decl.Arity()
-		params := len(terms)-1
-		if arity < params {		// the return is a part of the call
-			def, err := et.handleAssigningFunction(opStr, terms)
+
+		arity := len(op_.args)
+		params := make([]SmtValue, len(terms)-1)
+		for i := 1; i < len(terms); i++ {
+			val, err := et.termToSmtValue(terms[i])
 			if err != nil {
 				return nil, localVarDefs, err
 			}
-			localVarDefs = append(localVarDefs, *def)
+			params[i-1] = *val
+		}
+
+		if arity+1 == len(params) {		// the return is a part of the call
+			val, err := op_.SmtCall(params[:len(params)-1])
+			if err != nil {
+				return nil, localVarDefs, err
+			}
+			tp, ok := et.TypeTrans.TypeInfo.Types[removeQuotes(terms[1].String())]
+			if !ok {
+				return nil, localVarDefs, verr.ErrTypeNotFound
+			}
+			def := varDef { params[len(params)-1].String(), *val.WrapToDepth(tp.TypeDepth()) }
+			localVarDefs = append(localVarDefs, def)
 			definedVars[def.string] = true
 			continue
 		}
-		
-		// we handle ast.Equality separately, because it can be both assignment and comparison, based on the context
-		if op == ast.Equality {
-			if variable,ok := terms[1].Value.(ast.Var); ok {
-				// create variable
-				rhs := terms[2]
-				val,err := et.termToSmtValue(rhs)
-				if err != nil {
-					return nil, localVarDefs, err
-				}
 
+		// op,err := getOperation(opStr)
+		// if err != nil {
+		// 	return nil, localVarDefs, err
+		// }
+		//
+		// arity := op.Decl.Arity()
+		// params := len(terms)-1
+		// if arity < params {		// the return is a part of the call
+		// 	def, err := et.handleAssigningFunction(opStr, terms)
+		// 	if err != nil {
+		// 		return nil, localVarDefs, err
+		// 	}
+		// 	localVarDefs = append(localVarDefs, *def)
+		// 	definedVars[def.string] = true
+		// 	continue
+		// }
+		//
+
+		// we handle ast.Equality separately, because it can be both assignment and comparison, based on the context
+		if opStr == ast.Equality.Name {
+			if variable,ok := terms[1].Value.(ast.Var); ok {
 				name := removeQuotes(variable.String())
 				if definedVars[name] != true {
-					localVarDefs = append(localVarDefs, varDef{name, *val})
+					localVarDefs = append(localVarDefs, varDef{name, params[1]})
 					definedVars[name] = true
 				} else {
 					varSmt, err := et.GetVarValue(variable)
 					if err != nil {
 						return nil, nil, err
 					}
-					bodySmts = append(bodySmts, *varSmt.Equals(val))
+					bodySmts = append(bodySmts, *varSmt.Equals(&params[1]))
 				}
 				continue
 			}
 		}
+		// // we handle ast.Equality separately, because it can be both assignment and comparison, based on the context
+		// if opStr == ast.Equality.Name {
+		// 	if variable,ok := terms[1].Value.(ast.Var); ok {
+		// 		// create variable
+		// 		rhs := terms[2]
+		// 		val,err := et.termToSmtValue(rhs)
+		// 		if err != nil {
+		// 			return nil, localVarDefs, err
+		// 		}
+		//
+		// 		name := removeQuotes(variable.String())
+		// 		if definedVars[name] != true {
+		// 			localVarDefs = append(localVarDefs, varDef{name, *val})
+		// 			definedVars[name] = true
+		// 		} else {
+		// 			varSmt, err := et.GetVarValue(variable)
+		// 			if err != nil {
+		// 				return nil, nil, err
+		// 			}
+		// 			bodySmts = append(bodySmts, *varSmt.Equals(val))
+		// 		}
+		// 		continue
+		// 	}
+		// }
 
 		// Convert all arguments
 		args, err := et.getOperationArgSmts(terms)
@@ -193,7 +244,11 @@ func (et *ExprTranslator) handleAssigningFunction(op string, terms []*ast.Term) 
 			return nil, err
 		}
 
-		return &varDef{name.String(), *val}, nil
+		tp, ok := et.TypeTrans.TypeInfo.Types[name.String()]
+		if !ok {
+			return nil, verr.ErrTypeNotFound
+		}
+		return &varDef{name.String(), *val.WrapToDepth(tp.TypeDepth())}, nil
 	}
 	return nil, verr.ErrUnsupportedFunction	// this should be unreachable
 }
@@ -390,6 +445,11 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	case ast.Var:
 		return et.GetVarValue(v)
 	case ast.Ref:
+		r, err := et.refToSmt(v)
+		if err != nil {
+			return nil, verr.ErrTypeNotFound
+		}
+		println(r)
 		name := removeQuotes(v[len(v)-1].String())
 		tp, ok := et.TypeTrans.TypeInfo.Types[name]
 		if !ok {

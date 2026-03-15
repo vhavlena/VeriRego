@@ -2,6 +2,7 @@ package smt
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -29,9 +30,10 @@ func NewSmtType(depth uint) *SmtType {
 
 // Representation of values assignable to Rego variables
 type SmtValue struct {
-	value   string
-	depth   int
-	atomics []types.AtomicType
+	value     string
+	depth     int
+	atomics   []types.AtomicType
+	isConst   bool	// true if value is int / string / boolean ...
 }
 
 func NewSmtValue(value string, depth int) *SmtValue {
@@ -39,18 +41,18 @@ func NewSmtValue(value string, depth int) *SmtValue {
 }
 
 func NewSmtValueFromString(str string) *SmtValue {
-	value := fmt.Sprintf("(OString \"%s\")", str)
-	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicString}}
+	value := fmt.Sprintf("\"%s\"", str)
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicString}, isConst: true }
 }
 
 func NewSmtValueFromInt(i int) *SmtValue {
-	value := fmt.Sprintf("(ONumber %d)", i)
-	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicInt}}
+	value := fmt.Sprintf("%d", i)
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicInt}, isConst: true }
 }
 
 func NewSmtValueFromBoolean(b bool) *SmtValue {
-	value := fmt.Sprintf("(OBoolean %v)", b)
-	return &SmtValue{value: value, depth: 0, atomics: []types.AtomicType{types.AtomicBoolean}}
+	value := fmt.Sprintf("%v", b)
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicBoolean}, isConst: true }
 }
 
 func getAtomicTypes(tp types.RegoTypeDef) []types.AtomicType {
@@ -105,10 +107,33 @@ func (sv *SmtValue) String() string {
 // WrapToDepth(valD0, 3) is (Wrap3 (Wrap2 (Wrap1 valD0)))
 func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 	value := sv.value
+	// handle constant types
+	if sv.depth == -1 {
+		if len(sv.atomics) != 1 {
+			return nil	// TODO: maybe return err, but it would make it inconvenient
+		}
+		wrapper := ""
+		switch sv.atomics[0] {
+		case types.AtomicBoolean:
+			wrapper = "OBool"
+		case types.AtomicInt:
+			wrapper = "ONumber"
+		case types.AtomicString:
+			wrapper = "OString"
+		case types.AtomicNull:	// maybe not necessary
+			wrapper = "ONull"
+		case types.AtomicUndef:	// maybe not necessary
+			wrapper = "OUndef"
+		default:
+			return nil
+		}
+		value = fmt.Sprintf("(%s %s)", wrapper, sv.value)
+		sv.depth += 1
+	}
 	for d := sv.depth + 1; d <= depth; d++ {
 		value = fmt.Sprintf("(Wrap%d %s)", d, value)
 	}
-	return NewSmtValue(value, depth)
+	return &SmtValue{value: value, depth: depth, atomics: sv.atomics}
 }
 
 // UnwrapToDepth creates a smt value unwrapped to a given depth
@@ -131,7 +156,7 @@ func (sv *SmtValue) UnwrapToDepth(depth int) *SmtValue {
 	for d := sv.depth - 1; d > depth; d-- {
 		value = fmt.Sprintf("(wrap%d %s)", d, value)
 	}
-	return NewSmtValue(value, depth)
+	return &SmtValue{value: value, depth: depth, atomics: sv.atomics}
 }
 
 func (sv *SmtValue) SelectObj(at string) *SmtValue {
@@ -151,26 +176,41 @@ func (sv *SmtValue) Equals(other *SmtValue) *SmtProposition {
 }
 
 func (sv *SmtValue) IsString() *SmtProposition {
+	if sv.isConst && sv.TypeIs(types.AtomicString) {
+		return RawProposition("true")
+	}
 	value := fmt.Sprintf("(is-OString %s)", sv.UnwrapToDepth(0).String())
 	return &SmtProposition{value: value}
 }
 
 func (sv *SmtValue) IsNumber() *SmtProposition {
+	if sv.isConst && sv.TypeIs(types.AtomicInt) {
+		return RawProposition("true")
+	}
 	value := fmt.Sprintf("(is-ONumber %s)", sv.UnwrapToDepth(0).String())
 	return &SmtProposition{value: value}
 }
 
 func (sv *SmtValue) IsBoolean() *SmtProposition {
+	if sv.isConst && sv.TypeIs(types.AtomicBoolean) {
+		return RawProposition("true")
+	}
 	value := fmt.Sprintf("(is-OBoolean %s)", sv.UnwrapToDepth(0).String())
 	return &SmtProposition{value: value}
 }
 
 func (sv *SmtValue) IsNull() *SmtProposition {
+	if sv.isConst && sv.TypeIs(types.AtomicNull) {
+		return RawProposition("true")
+	}
 	value := fmt.Sprintf("(is-ONull %s)", sv.UnwrapToDepth(0).String())
 	return &SmtProposition{value: value}
 }
 
 func (sv *SmtValue) IsUndef() *SmtProposition {
+	if sv.isConst && sv.TypeIs(types.AtomicUndef) {
+		return RawProposition("true")
+	}
 	value := fmt.Sprintf("(is-OUndef %s)", sv.UnwrapToDepth(0).String())
 	return &SmtProposition{value: value}
 }
@@ -208,20 +248,11 @@ func (sv *SmtValue) findAtomicValue() string {
 }
 
 func (sv *SmtValue) getBool() *SmtProposition {
-	if !sv.TypeIs(types.AtomicBoolean) {
-		return sv.IsBoolean() // this should not happen
-	}
-	// unwrap "true" / "false" for efficiency
-	v := sv.findAtomicValue()
-	if v == "true" {
-		return RawProposition("true")
-	}
-	if v == "false" {
+	v, err := sv.AsBool()
+	if err != nil {
 		return RawProposition("false")
 	}
-
-	value := fmt.Sprintf("(bool %s)", sv.UnwrapToDepth(0))
-	return RawProposition(value)
+	return RawProposition(v.value)	// v is unwrapped
 }
 
 func (sv *SmtValue) TypeIs(t types.AtomicType) bool {
@@ -249,6 +280,91 @@ func (sv *SmtValue) Holds() *SmtProposition {
 	return And(propositions)
 }
 
+func findConstString(sv *SmtValue) (string,error) {
+	s := sv.value
+	start := strings.Index(s, "\"")
+	if start == -1 {
+		return "", verr.ErrUnsupportedAtomic
+	}
+	s = s[start:]
+	end := strings.Index(s, "\"")
+	if end == -1 {
+		return "", verr.ErrUnsupportedAtomic
+	}
+	return s[start:end+1], nil
+}
+
+func (sv *SmtValue) AsString() (*SmtValue,error) {
+	if !sv.TypeIs(types.AtomicString) {
+		return nil, verr.ErrUnsupportedType	// FIXME: better error type
+	}
+
+	if sv.isConst {
+		v, err := findConstString(sv)
+		if err != nil {
+			return nil, err
+		}
+		return NewSmtValueFromString(v), nil
+	}
+
+	value := fmt.Sprintf("(str %s)", sv.UnwrapToDepth(0))
+	return NewSmtValueFromString(value), nil
+}
+
+func (sv *SmtValue) AsInt() (*SmtValue,error) {
+	if !sv.TypeIs(types.AtomicInt) {
+		return nil, verr.ErrUnsupportedType	// FIXME: better error type
+	}
+
+	if sv.isConst {
+		v := sv.findAtomicValue()
+		i, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, err
+		}
+		return NewSmtValueFromInt(i), nil
+	}
+
+	value := fmt.Sprintf("(num %s)", sv.UnwrapToDepth(0))
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicInt}, isConst: true }, nil
+}
+
+func (sv *SmtValue) AsBool() (*SmtValue,error) {
+	if !sv.TypeIs(types.AtomicBoolean) {
+		return nil, verr.ErrUnsupportedType	// FIXME: better error type
+	}
+
+	if sv.isConst {
+		v := sv.findAtomicValue()
+		if v == "true" {
+			return NewSmtValueFromBoolean(true), nil
+		}
+		if v == "false" {
+			return NewSmtValueFromBoolean(false), nil
+		}
+	}
+
+	value := fmt.Sprintf("(bool %s)", sv.UnwrapToDepth(0))
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicBoolean}, isConst: true }, nil
+}
+
+func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue,error) {
+	if t.depth == -1 && sv.depth != -1 {
+		sv = sv.UnwrapToDepth(0)
+	}
+	switch t.atomic {
+	case types.AtomicBoolean:
+		return sv.AsBool()
+	case types.AtomicString:
+		return sv.AsString()
+	case types.AtomicInt:
+		return sv.AsInt()
+	}
+	panic("Unreachable")
+
+	return sv.UnwrapToDepth(t.depth), nil
+}
+
 func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) *SmtValue {
 	if condition.isTrue() {
 		return thenClause
@@ -256,12 +372,17 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 	if condition.isFalse() {
 		return elseClause
 	}
-	depth := max(thenClause.depth, elseClause.depth)
+	depth := max(thenClause.depth, elseClause.depth, 0)
 	ite := fmt.Sprintf("(ite %s %s %s)", condition.String(), thenClause.WrapToDepth(depth).String(), elseClause.WrapToDepth(depth).String())
 	return NewSmtValue(ite, depth)
 }
 
-func Let(localVars []varDef, value *SmtValue) *SmtValue {
+func Let(localVar varDef, value *SmtValue) *SmtValue {
+	val := fmt.Sprintf("(let ((%s %s)) %s)", localVar.string, localVar.SmtValue.String(), value.String())
+	return NewSmtValue(val, value.depth)
+}
+
+func Lets(localVars []varDef, value *SmtValue) *SmtValue {
 	if len(localVars) == 0 {
 		return value
 	}

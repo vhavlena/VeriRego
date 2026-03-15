@@ -36,6 +36,7 @@ type Translator struct {
 	TypeTrans    *TypeTranslator     // Type definitions and type-related operations
 	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
 	defaultsMap	 map[string]SmtValue // Mapping of variable names to default values
+	funcMap      map[string]Function // Mapping of function names to their representation
 	smtTypeDecls []*SmtCommand       // SMT type declarations
 	smtDecls     []*SmtCommand       // SMT variable declarations
 	smtAsserts   []*SmtCommand       // SMT assertions
@@ -48,6 +49,7 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
 		defaultsMap:  make(map[string]SmtValue),
+		funcMap:      GetBuiltinFuncMap(),
 		smtTypeDecls: make([]*SmtCommand, 0, 32),
 		smtDecls:     make([]*SmtCommand, 0, 64),
 		smtAsserts:   make([]*SmtCommand, 0, 128),
@@ -124,6 +126,16 @@ func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
 		return def.WrapToDepth(depth),nil
 	}
 	return nil,verr.ErrTypeNotFound
+}
+
+func (t *Translator) RegisterFunction(name string, args []Arg, resultDepth int) error {
+	f := NewFunction(name, args, resultDepth)
+	_, defined := t.funcMap[name]
+	if defined {
+		return verr.ErrTypeNotFound // FIXME: change to: redefinition of function
+	}
+	t.funcMap[name] = f
+	return nil
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.

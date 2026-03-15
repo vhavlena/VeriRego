@@ -38,7 +38,7 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 //  *SmtValue: assignment - value, which is conditional to the rule body
 //  error
 func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error) {
-	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
+	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap, t.funcMap)
 	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
 	if err != nil {
 		return nil, nil, err
@@ -64,7 +64,9 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error)
 	}
 
 	smt := Ite(bodySmt, smtVal, elseSmt)
-	smt = Let(localVarDefs, smt)
+	for i := len(localVarDefs)-1; i >= 0; i-- {
+		smt = Let(localVarDefs[i], smt)
+	}
 	return smtHead, smt, nil
 }
 
@@ -96,6 +98,7 @@ func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 // The rule variable (rule.Head.Name) is equal to the rule value (rule.Head.Value) if and only if all body expressions hold.
 // The assertion is of the form: (assert (<=> (= ruleVar ruleValue) (and bodyExpr1 ... bodyExprN)))
 func (t *Translator) RuleToSmt(rule *ast.Rule) error {
+	println("rule",rule.String())
 	name, value, err := t.ruleToSmtString(rule)
 	if err != nil {
 		return err
@@ -115,6 +118,7 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		assertion := Assert(name.Equals(value))
 		t.smtAsserts = append(t.smtAsserts, assertion)
 	} else {
+		t.RegisterFunction(name.String(), args, value.GetDepth())
 		fun := DefineFun(name.String(), args, value)
 		t.smtAsserts = append(t.smtAsserts, fun)
 	}

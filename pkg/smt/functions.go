@@ -12,34 +12,40 @@ type ArgType struct {
 	atomic types.AtomicType
 }
 
-func NewArgType(t ast_types.Type) ArgType {
-	switch t.(type) {
+func transformType(t ast_types.Type) types.AtomicType {
+	switch x := t.(type) {
 	case ast_types.Boolean:
-		return ArgType{
-			depth: -1,
-			atomic: types.AtomicBoolean,
-		}
+		return types.AtomicBoolean
 	case ast_types.Number:
-		return ArgType{
-			depth: -1,
-			atomic: types.AtomicInt,
-		}
+		return types.AtomicInt
 	case ast_types.Null:
-		return ArgType{
-			depth: -1,
-			atomic: types.AtomicNull,
-		}
+		return types.AtomicNull
 	case ast_types.String:
-		return ArgType{
-			depth: -1,
-			atomic: types.AtomicString,
-		}
+		return types.AtomicString
 	case ast_types.Any:
-		return ArgType{
-			depth: -1,
+		var atomic types.AtomicType
+		for _, t := range x {
+			at := transformType(t)
+			if at != "" {
+				if atomic != "" {
+					return ""
+				} else {
+					atomic = at
+				}
+			}
 		}
+		return atomic
+	default:
+		return ""
 	}
-	panic("Unreachable")
+}
+
+func NewArgType(t ast_types.Type) ArgType {
+	at := transformType(t)
+	return ArgType{
+		depth: -1,	// FIXME might not be always -1
+		atomic: at,
+	}
 }
 
 type Function struct {
@@ -48,15 +54,97 @@ type Function struct {
 	result  ArgType
 }
 
-func NewFunctionFromBuiltin(b *ast.Builtin) Function {
+func (f *Function) SmtCall(params []SmtValue) (*SmtValue,error) {
+	if len(f.args) != len(params) {
+		return nil, verr.ErrTypeNotFound // TODO: change error
+	}
+
+	callVal := "("
+	println("op:", f.smtName)
+	callVal += f.smtName
+	for i := range f.args {
+		smt, err := params[i].AsArgType(f.args[i])
+		if err != nil {
+			println("cannot put", params[i].String(), "as arg")
+			return nil, verr.ErrTypeNotFound // TODO: change error
+		}
+		callVal += " "
+		callVal += smt.String()
+		println("trans", params[i].String(), "into", smt.String())
+	}
+	callVal += ")"
+
+	atomics := []types.AtomicType{}
+	if f.result.atomic != "" {
+		atomics = append(atomics, f.result.atomic)
+	}
+	return &SmtValue{
+		value: callVal,
+		depth: f.result.depth,
+		atomics: atomics,
+		isConst: false,
+	}, nil
+}
+
+func NewFunctionFromBuiltin(b *ast.Builtin, smtOp string) (string,Function) {
 	bArgs := b.Decl.Args()
-	args := make([]ArgType, len(bArgs))
+	args := make([]ArgType, 0)
 	for _, arg := range bArgs {
 		args = append(args, NewArgType(arg))
 	}
 	result := NewArgType(b.Decl.Result())
-	return Function{
+	// var smtName string
+	// if smtOp != nil {
+	// 	smtName = *smtOp
+	// } else {
+	// 	smtOp = &b.Infix
+	// }
+	return b.Name, Function{
 		args: args,
 		result: result,
+		smtName: smtOp,
 	}
 }
+
+func addBuiltin(funcMap map[string]Function, b ast.Builtin, smtOp string) {
+	n, f := NewFunctionFromBuiltin(&b, smtOp)
+	funcMap[n] = f
+}
+
+func GetBuiltinFuncMap() map[string]Function {
+	funcMap := make(map[string]Function, 3)
+	addBuiltin(funcMap, *ast.Plus,          "+")
+	addBuiltin(funcMap, *ast.Minus,         "-")
+	addBuiltin(funcMap, *ast.Multiply,      "*")
+	addBuiltin(funcMap, *ast.Divide,        "/")
+	addBuiltin(funcMap, *ast.Equal,         "=")
+	addBuiltin(funcMap, *ast.Equality,      "=")
+	// addBuiltin(funcMap, *ast.Assign, "=")
+	addBuiltin(funcMap, *ast.GreaterThan,   ">")
+	addBuiltin(funcMap, *ast.GreaterThanEq, ">=")
+	addBuiltin(funcMap, *ast.LessThan,      "<")
+	addBuiltin(funcMap, *ast.LessThanEq,    "<=")
+	addBuiltin(funcMap, *ast.Concat,        "str.++")
+	addBuiltin(funcMap, *ast.Contains,      "str.contains")
+	addBuiltin(funcMap, *ast.StartsWith,    "str.prefixof")
+	addBuiltin(funcMap, *ast.EndsWith,      "str.suffixof")
+	addBuiltin(funcMap, *ast.IndexOf,       "str.indexof")
+	addBuiltin(funcMap, *ast.Substring,     "str.substr")
+	return funcMap
+}
+
+func argToType(arg Arg) ArgType {
+	return ArgType {
+		depth: arg.int,
+	}
+}
+
+func NewFunction(name string, _args []Arg, resultDepth int) Function {
+	args := make([]ArgType, len(_args))
+	for i := range _args {
+		args[i] = argToType(_args[i])
+	}
+	res := ArgType{ depth: resultDepth }
+	return Function{ smtName: name, args: args, result: res }
+}
+
