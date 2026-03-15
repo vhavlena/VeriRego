@@ -60,17 +60,14 @@ func (f *Function) SmtCall(params []SmtValue) (*SmtValue,error) {
 	}
 
 	callVal := "("
-	println("op:", f.smtName)
 	callVal += f.smtName
 	for i := range f.args {
 		smt, err := params[i].AsArgType(f.args[i])
 		if err != nil {
-			println("cannot put", params[i].String(), "as arg")
 			return nil, verr.ErrTypeNotFound // TODO: change error
 		}
 		callVal += " "
 		callVal += smt.String()
-		println("trans", params[i].String(), "into", smt.String())
 	}
 	callVal += ")"
 
@@ -139,12 +136,19 @@ func argToType(arg Arg) ArgType {
 	}
 }
 
-func NewFunction(name string, _args []Arg, resultDepth int) Function {
-	args := make([]ArgType, len(_args))
-	for i := range _args {
-		args[i] = argToType(_args[i])
+func typeToArg(t types.RegoTypeDef) ArgType {
+	return ArgType{
+		depth: t.TypeDepth(),
+		atomic: t.AtomicType,
 	}
-	res := ArgType{ depth: resultDepth }
+}
+
+func NewFunction(name string, tp types.RegoTypeDef) Function {
+	args := make([]ArgType, len(tp.FunctionDef.ParamTypes))
+	for i,p := range tp.FunctionDef.ParamTypes {
+		args[i] = typeToArg(p)
+	}
+	res := typeToArg(tp.FunctionDef.ReturnType)
 	return Function{ smtName: name, args: args, result: res }
 }
 

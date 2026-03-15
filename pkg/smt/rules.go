@@ -117,7 +117,6 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		assertion := Assert(name.Equals(value))
 		t.smtAsserts = append(t.smtAsserts, assertion)
 	} else {
-		t.RegisterFunction(name.String(), args, value.GetDepth())
 		fun := DefineFun(name.String(), args, value)
 		t.smtDecls = append(t.smtDecls, fun)
 	}

@@ -55,6 +55,7 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		smtAsserts:   make([]*SmtCommand, 0, 128),
 		mod:          mod,
 	}
+	t.generateFunctions()
 	return t
 }
 
@@ -88,6 +89,22 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 	t.smtTypeDecls = append(t.smtTypeDecls, bucket.TypeDecls...)
 	t.smtDecls = append(t.smtDecls, bucket.Decls...)
 	t.smtAsserts = append(t.smtAsserts, bucket.Asserts...)
+}
+
+// generateFunctions populates the inner funcMap with function with resolved type definitions
+func (t *Translator) generateFunctions() {
+	for op,ft := range t.TypeTrans.TypeInfo.Types {
+		if !ft.IsFunction() {
+			continue
+		}
+		_, ok := t.funcMap[op]
+		if ok {
+			// TODO: generate warning: redefinition of function
+			// e.g. defining `plus` would redefine builtin `+` operator
+			// this is in accordance with Rego functionality
+		}
+		t.funcMap[op] = NewFunction(op, ft)
+	}
 }
 
 // AddTransContext merges the provided translation context into the
@@ -126,16 +143,6 @@ func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
 		return def.WrapToDepth(depth),nil
 	}
 	return nil,verr.ErrTypeNotFound
-}
-
-func (t *Translator) RegisterFunction(name string, args []Arg, resultDepth int) error {
-	f := NewFunction(name, args, resultDepth)
-	_, defined := t.funcMap[name]
-	if defined {
-		return verr.ErrTypeNotFound // FIXME: change to: redefinition of function
-	}
-	t.funcMap[name] = f
-	return nil
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.

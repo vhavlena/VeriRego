@@ -409,11 +409,6 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	case ast.Var:
 		return et.GetVarValue(v)
 	case ast.Ref:
-		r, err := et.refToSmt(v)
-		if err != nil {
-			return nil, verr.ErrTypeNotFound
-		}
-		println(r)
 		name := removeQuotes(v[len(v)-1].String())
 		tp, ok := et.TypeTrans.TypeInfo.Types[name]
 		if !ok {
