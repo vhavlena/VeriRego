@@ -127,6 +127,7 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 		default:
 			return nil
 		}
+		// sv will now have depth of 0, which is easily wrappable
 		value = fmt.Sprintf("(%s %s)", wrapper, sv.value)
 		sv.depth += 1
 	}

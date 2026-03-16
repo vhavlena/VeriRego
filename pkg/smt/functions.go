@@ -7,11 +7,15 @@ import (
 	verr "github.com/vhavlena/verirego/pkg/err"
 )
 
+// ArgType is a structure holding information about function arguments
+// It has depth specified separately, since for builtin functions, it should be -1
+// For user-defined functions, it is primarily 0 (may be a subject to change)
 type ArgType struct {
 	depth  int
 	atomic types.AtomicType
 }
 
+// transformType maps Rego ast Type into intermediate AtomicType
 func transformType(t ast_types.Type) types.AtomicType {
 	switch x := t.(type) {
 	case ast_types.Boolean:
@@ -49,11 +53,12 @@ func NewArgType(t ast_types.Type) ArgType {
 }
 
 type Function struct {
-	smtName string
+	smtName string    // smt operation representing this function
 	args    []ArgType
 	result  ArgType
 }
 
+// SmtCall generates a SMT representation of call of given function
 func (f *Function) SmtCall(params []SmtValue) (*SmtValue,error) {
 	if len(f.args) != len(params) {
 		return nil, verr.ErrTypeNotFound // TODO: change error
@@ -90,12 +95,6 @@ func NewFunctionFromBuiltin(b *ast.Builtin, smtOp string) (string,Function) {
 		args = append(args, NewArgType(arg))
 	}
 	result := NewArgType(b.Decl.Result())
-	// var smtName string
-	// if smtOp != nil {
-	// 	smtName = *smtOp
-	// } else {
-	// 	smtOp = &b.Infix
-	// }
 	return b.Name, Function{
 		args: args,
 		result: result,
@@ -116,7 +115,6 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.Divide,        "/")
 	addBuiltin(funcMap, *ast.Equal,         "=")
 	addBuiltin(funcMap, *ast.Equality,      "=")
-	// addBuiltin(funcMap, *ast.Assign, "=")
 	addBuiltin(funcMap, *ast.GreaterThan,   ">")
 	addBuiltin(funcMap, *ast.GreaterThanEq, ">=")
 	addBuiltin(funcMap, *ast.LessThan,      "<")
@@ -128,12 +126,6 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.IndexOf,       "str.indexof")
 	addBuiltin(funcMap, *ast.Substring,     "str.substr")
 	return funcMap
-}
-
-func argToType(arg Arg) ArgType {
-	return ArgType {
-		depth: arg.int,
-	}
 }
 
 func typeToArg(t types.RegoTypeDef) ArgType {

@@ -149,11 +149,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 			if err != nil {
 				return nil, localVarDefs, err
 			}
-			tp, ok := et.TypeTrans.TypeInfo.Types[removeQuotes(terms[1].String())]
-			if !ok {
-				return nil, localVarDefs, verr.ErrTypeNotFound
-			}
-			def := varDef { params[len(params)-1].String(), *val.WrapToDepth(tp.TypeDepth()) }
+			def := varDef { params[len(params)-1].String(), *val.WrapToDepth(op.result.depth) }
 			localVarDefs = append(localVarDefs, def)
 			definedVars[def.string] = true
 			continue
