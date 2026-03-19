@@ -20,7 +20,7 @@ p := 1 if {
 	1 > 2
 }
 `
-	result, err := RunPolicyToModel(rego, nil)
+	result, err := RunPolicyToModel(rego, nil, nil)
 	if err != nil {
 		t.Fatalf("RunPolicyToModel error: %v", err)
 	}
@@ -42,7 +42,7 @@ p := 1 if {
 // Since Rego is declarative, both forward and backward function definitions are tested (and also their equality).
 func TestRunPolicyToModel_Function(t *testing.T) {
 	validate := func(rego string) {
-		result, err := RunPolicyToModel(rego, nil)
+		result, err := RunPolicyToModel(rego, nil, nil)
 		if err != nil {
 			t.Fatalf("RunPolicyToModel error: %v", err)
 		}
@@ -66,7 +66,7 @@ foo(x) = x + 1
 
 p := foo(1)
 `
-	validate(rego);
+	validate(rego)
 
 	// function should not have to be forward declared
 	rego = `
@@ -76,7 +76,7 @@ p := foo(1)
 
 foo(x) = x + 1
 `
-	validate(rego);
+	validate(rego)
 }
 
 // TestRunPolicyToModel_ComplexFunction tests function with local variables and else branches
@@ -93,7 +93,7 @@ foo(x,y) := x if {
 	z < x
 } else := y
 `
-	result, err := RunPolicyToModel(rego, nil)
+	result, err := RunPolicyToModel(rego, nil, nil)
 	if err != nil {
 		t.Fatalf("RunPolicyToModel error: %v", err)
 	}
@@ -113,7 +113,7 @@ foo(x,y) := x if {
 
 // TestRunPolicyToModel_ParseError verifies that parse errors are returned.
 func TestRunPolicyToModel_ParseError(t *testing.T) {
-	_, err := RunPolicyToModel("this is not rego", nil)
+	_, err := RunPolicyToModel("this is not rego", nil, nil)
 	if err == nil {
 		t.Fatal("expected parse error, got nil")
 	}

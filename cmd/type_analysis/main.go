@@ -48,7 +48,7 @@ func newInputSchemaFromFlags(yamlFile, jsonSchemaFile string) types.InputSchemaA
 }
 
 // analyzeModule compiles the Rego policy, optionally inlines helpers, and runs the type analyzer.
-func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile string, params types.Parameters, inline bool) {
+func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, dataJsonSchemaFile string, inline bool) {
 	// Compile the module
 	compiler := ast.NewCompiler()
 	compiler.Compile(map[string]*ast.Module{
@@ -71,9 +71,11 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile string, params type
 	fmt.Printf("Compiled Module: %+v\n", compiledModule)
 	fmt.Printf("\nRego Policy Analysis:\n")
 
-	// Prepare input schema (example-based or JSON Schema)
+	// Prepare input and data schemas (example-based or JSON Schema)
 	inputSchema := newInputSchemaFromFlags(yamlFile, jsonSchemaFile)
-	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema, params)
+	dataSchema := newInputSchemaFromFlags(dataYamlFile, dataJsonSchemaFile)
+	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema)
+	typeAnalyzer.DataSchema = dataSchema
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
 	typeMap := typeAnalyzer.GetAllTypes()
@@ -116,8 +118,9 @@ func main() {
 	// Define command line flags
 	regoFile := flag.String("rego", "", "Path to the Rego policy file (required)")
 	yamlFile := flag.String("yaml", "", "Path to the YAML input file (optional)")
-	jsonSchemaFile := flag.String("json-schema", "", "Path to the JSON Schema file (optional)")
-	specFile := flag.String("spec", "", "Path to the parameter specification file (optional)")
+	jsonSchemaFile := flag.String("json-schema", "", "Path to the JSON Schema file for input (optional)")
+	dataYamlFile := flag.String("data-yaml", "", "Path to the YAML data file (optional)")
+	dataJsonSchemaFile := flag.String("data-json-schema", "", "Path to the JSON Schema file for data (optional)")
 	regoVersionFlag := flag.String("rego-version", "1", "Rego language version for parsing the policy (0 or 1)")
 	inline := flag.Bool("inline", false, "Apply inlining to the module before type inference")
 
@@ -132,19 +135,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	var params types.Parameters
-	if *specFile != "" {
-		specData, err := os.ReadFile(*specFile)
-		if err != nil {
-			fmt.Printf("Warning: Failed to read spec file: %v\n", err)
-		} else {
-			params, err = types.FromSpecFile(specData)
-			if err != nil {
-				fmt.Printf("Warning: Failed to process spec file: %v\n", err)
-			}
-		}
-	}
-
 	regoVersion, err := parseRegoVersionFlag(*regoVersionFlag)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -157,5 +147,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	analyzeModule(module, *yamlFile, *jsonSchemaFile, params, *inline)
+	analyzeModule(module, *yamlFile, *jsonSchemaFile, *dataYamlFile, *dataJsonSchemaFile, *inline)
 }

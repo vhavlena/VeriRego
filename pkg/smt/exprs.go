@@ -562,16 +562,29 @@ func (et *ExprTranslator) refToSmt(ref ast.Ref) (string, error) {
 		var baseVar string
 		var path []string
 
-		// Check for input.parameters.<name>
-		if len(ref) >= 3 {
-			second := ref[1].Value.String()
-			if second == "\"parameters\"" {
-				baseVar = getParamVar(ref)
-				path = refToPath(ref[3:])
-			} else {
-				path = refToPath(ref[4:])
-				baseVar = getSchemaVar(ref)
-			}
+		if len(ref) >= 2 {
+			path = refToPath(ref[2:])
+			baseVar = getSchemaVar(ref)
+		}
+		tp, ok := et.TypeTrans.TypeInfo.Types[baseVar]
+		if !ok {
+			return "", verr.ErrTypeNotFound
+		}
+		smt, actType, err := getSmtRef(baseVar, path, &tp)
+		if err != nil {
+			return "", fmt.Errorf("error converting reference to SMT: %w", err)
+		}
+		return et.TypeTrans.getSmtValue(smt, actType)
+	}
+
+	// data prefix (when DataSchema is provided)
+	if head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
+		var baseVar string
+		var path []string
+
+		if len(ref) >= 2 {
+			path = refToPath(ref[2:])
+			baseVar = getDataSchemaVar(ref)
 		}
 		tp, ok := et.TypeTrans.TypeInfo.Types[baseVar]
 		if !ok {

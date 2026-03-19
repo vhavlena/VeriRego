@@ -764,29 +764,30 @@ func removeQuotes(s string) string {
 	return s
 }
 
-// getSchemaVar constructs a schema variable name for `input.review.object.<name>`.
+// getSchemaVar constructs a schema variable name for `input.<name>`.
 //
 // Parameters:
-// - `ref ast.Ref`: Reference expected to have 4 terms.
+// - `ref ast.Ref`: Reference expected to have at least 2 terms.
 //
 // Returns:
 // - `string`: Dot-separated schema variable name.
 func getSchemaVar(ref ast.Ref) string {
-	// input.review.object.<name>
-	return fmt.Sprintf("%s.%s.%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()), removeQuotes(ref[2].String()), removeQuotes(ref[3].String()))
+	// input.<name>
+	return fmt.Sprintf("%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()))
 }
 
-// getParamVar constructs a parameter variable name for `input.parameters.<name>`.
+// getDataSchemaVar constructs a schema variable name for `data.<name>`.
 //
 // Parameters:
-// - `ref ast.Ref`: Reference expected to have 3 terms.
+// - `ref ast.Ref`: Reference expected to have at least 2 terms.
 //
 // Returns:
-// - `string`: Dot-separated parameter variable name.
-func getParamVar(ref ast.Ref) string {
-	// input.parameters.<name>
-	return fmt.Sprintf("%s.%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()), removeQuotes(ref[2].String()))
+// - `string`: Dot-separated data schema variable name.
+func getDataSchemaVar(ref ast.Ref) string {
+	// data.<name>
+	return fmt.Sprintf("%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()))
 }
+
 
 // getFreshVariable returns a fresh SMT symbol name that does not clash with known names.
 //
