@@ -562,18 +562,9 @@ func (et *ExprTranslator) refToSmt(ref ast.Ref) (string, error) {
 		var baseVar string
 		var path []string
 
-		// Check for input.parameters.<name>
 		if len(ref) >= 2 {
-			second := ref[1].Value.String()
-			if second == "\"parameters\"" {
-				if len(ref) >= 3 {
-					baseVar = getParamVar(ref)
-					path = refToPath(ref[3:])
-				}
-			} else {
-				path = refToPath(ref[2:])
-				baseVar = getSchemaVar(ref)
-			}
+			path = refToPath(ref[2:])
+			baseVar = getSchemaVar(ref)
 		}
 		tp, ok := et.TypeTrans.TypeInfo.Types[baseVar]
 		if !ok {

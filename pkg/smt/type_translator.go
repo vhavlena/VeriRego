@@ -788,17 +788,6 @@ func getDataSchemaVar(ref ast.Ref) string {
 	return fmt.Sprintf("%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()))
 }
 
-// getParamVar constructs a parameter variable name for `input.parameters.<name>`.
-//
-// Parameters:
-// - `ref ast.Ref`: Reference expected to have 3 terms.
-//
-// Returns:
-// - `string`: Dot-separated parameter variable name.
-func getParamVar(ref ast.Ref) string {
-	// input.parameters.<name>
-	return fmt.Sprintf("%s.%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()), removeQuotes(ref[2].String()))
-}
 
 // getFreshVariable returns a fresh SMT symbol name that does not clash with known names.
 //

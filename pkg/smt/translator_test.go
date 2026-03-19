@@ -133,7 +133,7 @@ p := z if { z := 1 }
 		t.Fatalf("failed to parse rego: %v", err)
 	}
 
-	ta := types.NewTypeAnalyzerWithParams(mod.Package.Path, types.NewInputSchema(), nil)
+	ta := types.NewTypeAnalyzerWithParams(mod.Package.Path, types.NewInputSchema())
 	ta.AnalyzeModule(mod)
 
 	tr := NewTranslator(ta, mod)

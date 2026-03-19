@@ -12,9 +12,7 @@ func newDummyExprTranslator() *ExprTranslator {
 	// Setup a dummy type analyzer with some schema variables
 	ta := &types.TypeAnalyzer{
 		Types: map[string]types.RegoTypeDef{
-			"input.parameters.foo": types.NewAtomicType(types.AtomicString),
-			"input.parameters.bar": types.NewAtomicType(types.AtomicInt),
-			"input.data.x":         types.NewObjectType(map[string]types.RegoTypeDef{"y": types.NewAtomicType(types.AtomicBoolean)}),
+			"input.data.x": types.NewObjectType(map[string]types.RegoTypeDef{"y": types.NewAtomicType(types.AtomicBoolean)}),
 		},
 		Refs: map[string]ast.Value{},
 	}
@@ -35,9 +33,7 @@ func newDummyTranslator() *Translator {
 	// Setup a dummy type analyzer with some schema variables
 	ta := &types.TypeAnalyzer{
 		Types: map[string]types.RegoTypeDef{
-			"input.parameters.foo": types.NewAtomicType(types.AtomicString),
-			"input.parameters.bar": types.NewAtomicType(types.AtomicInt),
-			"input.data.x":         types.NewObjectType(map[string]types.RegoTypeDef{"y": types.NewAtomicType(types.AtomicBoolean)}),
+			"input.data.x": types.NewObjectType(map[string]types.RegoTypeDef{"y": types.NewAtomicType(types.AtomicBoolean)}),
 		},
 		Refs: map[string]ast.Value{},
 	}
@@ -54,37 +50,6 @@ func TestRefToSmt_InputSimple(t *testing.T) {
 	}
 }
 
-func TestRefToSmt_InputParameters(t *testing.T) {
-	t.Parallel()
-	et := newDummyExprTranslator()
-	ref := ast.MustParseRef("input.parameters.foo")
-	smt, err := et.refToSmt(ref)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should be a select chain or just the variable, depending on the type
-	if smt == "" || !strings.Contains(smt, "input.parameters.foo") {
-		t.Errorf("expected SMT string to contain 'input.parameters.foo', got %q", smt)
-	}
-}
-
-func TestRefToSmt_InputSchemaPath(t *testing.T) {
-	t.Parallel()
-	et := newDummyExprTranslator()
-	ref := ast.MustParseRef("input.parameters.foo.bar.baz")
-	et.TypeTrans.TypeInfo.Types["input.parameters.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
-		"bar": types.NewObjectType(map[string]types.RegoTypeDef{
-			"baz": types.NewAtomicType(types.AtomicString),
-		}),
-	})
-	smt, err := et.refToSmt(ref)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !(strings.Contains(smt, "select") && strings.Contains(smt, "bar") && strings.Contains(smt, "baz")) {
-		t.Errorf("expected select chain with 'bar' and 'baz', got %q", smt)
-	}
-}
 
 func TestRefToSmt_EmptyRef(t *testing.T) {
 	t.Parallel()

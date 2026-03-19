@@ -64,7 +64,7 @@ test if { x := {"key": "value"} }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -102,7 +102,7 @@ test if { x=true }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -175,7 +175,7 @@ test if { x := input.metadata }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -228,7 +228,7 @@ test if { x := input.metadata[_] }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -280,7 +280,7 @@ test if { x = [1, 2, 3] }`,
 				t.Fatalf("Failed to parse module: %v", err)
 			}
 
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 
@@ -550,53 +550,6 @@ test if { [1, "two", true] }`,
 	}
 }
 
-// TestParameterSpecInference tests type inference for input.parameters references using a parameter spec
-func TestParameterSpecInference(t *testing.T) {
-	t.Parallel()
-	schema := NewInputSchema()
-	params := Parameters{
-		"foo": Parameter{dt: NewAtomicType(AtomicString), name: "foo", required: true},
-		"bar": Parameter{dt: NewAtomicType(AtomicInt), name: "bar", required: false},
-	}
-
-	tests := []struct {
-		name     string
-		rule     string
-		varName  string
-		expected RegoTypeDef
-	}{
-		{
-			name: "input.parameters string param",
-			rule: `package test
-test if { x := input.parameters.foo }`,
-			varName:  "x",
-			expected: NewAtomicType(AtomicString),
-		},
-		{
-			name: "input.parameters int param",
-			rule: `package test
-test if { x := input.parameters.bar }`,
-			varName:  "x",
-			expected: NewAtomicType(AtomicInt),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			module, err := ast.ParseModule("test.rego", tt.rule)
-			if err != nil {
-				t.Fatalf("Failed to parse module: %v", err)
-			}
-			analyzer := AnalyzeTypes(module.Rules[0], schema, params)
-			varTerm := ast.VarTerm(tt.varName)
-			actual := analyzer.GetType(varTerm.Value)
-			if !actual.IsEqual(&tt.expected) {
-				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
-			}
-		})
-	}
-}
 
 func TestRuleHeadTypeInference(t *testing.T) {
 	t.Parallel()
@@ -662,7 +615,7 @@ my_rule := var if { var := {"a": 1, "b": 2} } else := x if { x := 5 } else := y 
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.ruleName)
 			actual := analyzer.GetType(varTerm.Value)
 			if !actual.IsEqual(&tt.expected) {
@@ -683,7 +636,7 @@ my_rule := {"foo": 1, "bar": "baz"} if { true }`
 		t.Fatalf("Failed to parse module: %v", err)
 	}
 
-	analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+	analyzer := AnalyzeTypes(module.Rules[0], schema)
 
 	// The rule head type should be an object with fields foo (int) and bar (string)
 	expected := NewObjectType(map[string]RegoTypeDef{
@@ -718,7 +671,7 @@ my_obj := {"foo": 1, "bar": {"baz": "qux"}} if { true }`
 		t.Fatalf("Failed to parse module: %v", err)
 	}
 
-	analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+	analyzer := AnalyzeTypes(module.Rules[0], schema)
 
 	expectedObj := NewObjectType(map[string]RegoTypeDef{
 		"foo": NewAtomicType(AtomicInt),
@@ -829,7 +782,7 @@ test if { x := input.spec.containers[_] }`,
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 			if !actual.IsEqual(&tt.expected) {
@@ -877,7 +830,7 @@ test if { sprintf("%s-%d", ["foo", 7], x) }`,
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 			if !actual.IsEqual(&tt.expected) {
@@ -963,7 +916,7 @@ always_true(x, y) if { true }`,
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
-			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema, nil)
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
 			analyzer.AnalyzeModule(mod)
 
 			ft, exists := analyzer.Types[tt.funcName]
@@ -1046,7 +999,7 @@ test_rule if { is_hello(x) }`,
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
-			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema, nil)
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
 			analyzer.AnalyzeModule(mod)
 
 			varTerm := ast.VarTerm(tt.varName)
@@ -1108,7 +1061,7 @@ is_hello(name) if { name = "hello" }`,
 			}
 			compiled := compileModule(t, mod)
 
-			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema, nil)
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
 			analyzer.AnalyzeModule(compiled)
 
 			ft, exists := analyzer.Types[tt.funcName]
@@ -1179,7 +1132,7 @@ my_list := make_list("any")`,
 			}
 			compiled := compileModule(t, mod)
 
-			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema, nil)
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
 			analyzer.AnalyzeModule(compiled)
 
 			actual, exists := analyzer.Types[tt.ruleName]
@@ -1277,7 +1230,7 @@ test if { x = concat(concat(u, v),z) }`,
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
-			analyzer := AnalyzeTypes(module.Rules[0], schema, nil)
+			analyzer := AnalyzeTypes(module.Rules[0], schema)
 			varTerm := ast.VarTerm(tt.varName)
 			actual := analyzer.GetType(varTerm.Value)
 			if !actual.IsEqual(&tt.expected) {
@@ -1339,7 +1292,7 @@ test if { x := data.config.enabled }`,
 			if err != nil {
 				t.Fatalf("Failed to parse module: %v", err)
 			}
-			analyzer := NewTypeAnalyzerWithParams(module.Package.Path, nil, nil)
+			analyzer := NewTypeAnalyzerWithParams(module.Package.Path, nil)
 			analyzer.DataSchema = dataSchema
 			analyzer.AnalyzeModule(module)
 			varTerm := ast.VarTerm(tt.varName)

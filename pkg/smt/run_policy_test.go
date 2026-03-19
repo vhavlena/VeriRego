@@ -93,8 +93,7 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	}
 
 	// 5. Run type inference.
-	var params types.Parameters
-	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema, params)
+	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema)
 	typeAnalyzer.DataSchema = dataSchema
 	typeAnalyzer.AnalyzeModule(compiledModule)
 

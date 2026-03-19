@@ -14,7 +14,6 @@ type TypeAnalyzer struct {
 	Refs        map[string]ast.Value   // Map string keys back to original values
 	Schema      InputSchemaAPI         // Schema for input.* references
 	DataSchema  InputSchemaAPI         // Schema for data.* references
-	Parameters  Parameters
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -34,23 +33,22 @@ func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 	}
 }
 
-// NewTypeAnalyzerWithParams creates a new type analyzer with parameters.
+// NewTypeAnalyzerWithParams creates a new type analyzer.
 //
 // Parameters:
 //
-//	schema *InputSchema: The input schema to use for type inference.
-//	params Parameters: The parameters for the type analyzer.
+//	packagePath ast.Ref: The package path for the module being analyzed.
+//	schema InputSchemaAPI: The input schema to use for type inference.
 //
 // Returns:
 //
-//	*TypeAnalyzer: A new instance of TypeAnalyzer with parameters.
-func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI, params Parameters) *TypeAnalyzer {
+//	*TypeAnalyzer: A new instance of TypeAnalyzer.
+func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
 		packagePath: packagePath,
 		Types:       make(map[string]RegoTypeDef),
 		Refs:        make(map[string]ast.Value),
 		Schema:      schema,
-		Parameters:  params,
 	}
 }
 
@@ -319,22 +317,7 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	head := ref[0].Value.String()
 	// input prefix
 	if head == "input" {
-		// Check for input.parameters.<name>
-		if len(ref) >= 3 {
-			second := ref[1].Value.String()
-			if second == "\"parameters\"" {
-				// Only support input.parameters.<name> (not nested)
-				if str, ok := ref[2].Value.(ast.String); ok {
-					// fmt.Printf("Parameter name: %s\n", str)
-					name := string(str)
-					if param, exists := ta.Parameters[name]; exists {
-						return param.dt
-					}
-				}
-			}
-		}
-		// Fallback to schema for other input references
-		if len(ref) > 1 {
+		if len(ref) > 1 && ta.Schema != nil {
 			path := FromRef(ref[1:])
 			if typ, exists := ta.Schema.GetType(path); exists && typ != nil {
 				return *typ
@@ -646,8 +629,8 @@ func isEquality(name string) bool {
 // Returns:
 //
 //	*TypeAnalyzer: The type analyzer with inferred types.
-func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI, params Parameters) *TypeAnalyzer {
-	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema, params)
+func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI) *TypeAnalyzer {
+	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema)
 	analyzer.AnalyzeRule(rule)
 	return analyzer
 }
