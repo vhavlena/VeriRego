@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/open-policy-agent/opa/v1/ast"
+	verr "github.com/vhavlena/verirego/pkg/err"
 )
 
 // ruleHeadValueSmt returns smt values for a rule variable and its corresponding value
@@ -37,7 +38,7 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 //  *SmtValue: assignment - value, which is conditional to the rule body
 //  error
 func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error) {
-	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap)
+	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap, t.funcMap)
 	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
 	if err != nil {
 		return nil, nil, err
@@ -63,8 +64,25 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error)
 	}
 
 	smt := Ite(bodySmt, smtVal, elseSmt)
-	smt = Let(localVarDefs, smt)
+	for i := len(localVarDefs)-1; i >= 0; i-- {
+		smt = Let(localVarDefs[i], smt)
+	}
 	return smtHead, smt, nil
+}
+
+func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
+	args := make([]Arg, 0)
+
+	for _,arg := range rule.Head.Args {
+		name := removeQuotes(arg.String())
+		tp, ok := t.TypeTrans.TypeInfo.Types[name]
+		if !ok {
+			return nil, verr.ErrTypeNotFound
+		}
+		depth := tp.TypeDepth()
+		args = append(args, Arg{name, depth})
+	}
+	return args, nil
 }
 
 // RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.
@@ -90,8 +108,18 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 	}
 
 	// TODO get args
+	args, err := t.getArgs(rule)
+	if err != nil {
+		return err
+	}
 
-	assertion := Assert(name.Equals(value))
-	t.smtAsserts = append(t.smtAsserts, assertion)
+	if len(args) == 0 {
+		assertion := Assert(name.Equals(value))
+		t.smtAsserts = append(t.smtAsserts, assertion)
+	} else {
+		fun := DefineFun(name.String(), args, value)
+		t.smtDecls = append(t.smtDecls, fun)
+	}
+
 	return nil
 }

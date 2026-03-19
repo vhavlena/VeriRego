@@ -36,6 +36,7 @@ type Translator struct {
 	TypeTrans    *TypeTranslator     // Type definitions and type-related operations
 	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
 	defaultsMap	 map[string]SmtValue // Mapping of variable names to default values
+	funcMap      map[string]Function // Mapping of function names to their representation
 	smtTypeDecls []*SmtCommand       // SMT type declarations
 	smtDecls     []*SmtCommand       // SMT variable declarations
 	smtAsserts   []*SmtCommand       // SMT assertions
@@ -48,11 +49,13 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
 		defaultsMap:  make(map[string]SmtValue),
+		funcMap:      GetBuiltinFuncMap(),
 		smtTypeDecls: make([]*SmtCommand, 0, 32),
 		smtDecls:     make([]*SmtCommand, 0, 64),
 		smtAsserts:   make([]*SmtCommand, 0, 128),
 		mod:          mod,
 	}
+	t.generateFunctions()
 	return t
 }
 
@@ -86,6 +89,22 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 	t.smtTypeDecls = append(t.smtTypeDecls, bucket.TypeDecls...)
 	t.smtDecls = append(t.smtDecls, bucket.Decls...)
 	t.smtAsserts = append(t.smtAsserts, bucket.Asserts...)
+}
+
+// generateFunctions populates the inner funcMap with function with resolved type definitions
+func (t *Translator) generateFunctions() {
+	for op,ft := range t.TypeTrans.TypeInfo.Types {
+		if !ft.IsFunction() {
+			continue
+		}
+		_, ok := t.funcMap[op]
+		if ok {
+			// TODO: generate warning: redefinition of function
+			// e.g. defining `plus` would redefine builtin `+` operator
+			// this is in accordance with Rego functionality
+		}
+		t.funcMap[op] = NewFunction(op, ft)
+	}
 }
 
 // AddTransContext merges the provided translation context into the
