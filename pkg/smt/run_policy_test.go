@@ -69,7 +69,7 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte) (*PolicyModel, error
 	compiledModule = inliner.InlineModule(compiledModule)
 
 	// 4. Build input schema from the JSON Schema document.
-	// GenerateSmtContent always declares input.review.object, which requires a
+	// GenerateSmtContent always declares input, which requires a
 	// typed schema to generate constraints. Fall back to an empty object schema
 	// when no JSON Schema is provided so the pipeline succeeds.
 	inputSchema := types.InputSchemaAPI(types.NewInputJsonSchema())

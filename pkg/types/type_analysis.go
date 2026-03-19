@@ -333,8 +333,8 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 			}
 		}
 		// Fallback to schema for other input references
-		if len(ref) > 3 {
-			path := FromRef(ref[3:])
+		if len(ref) > 1 {
+			path := FromRef(ref[1:])
 			if typ, exists := ta.Schema.GetType(path); exists && typ != nil {
 				return *typ
 			}
@@ -540,7 +540,7 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 	var prevTypeMap map[string]RegoTypeDef
 	// include schema among types
 	if ta.Schema != nil {
-		ta.setType(ast.MustParseRef("input.review.object"), ta.Schema.GetTypes())
+		ta.setType(ast.MustParseRef("input"), ta.Schema.GetTypes())
 	}
 	for {
 		for _, rule := range mod.Rules {

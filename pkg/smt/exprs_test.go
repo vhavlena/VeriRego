@@ -120,25 +120,25 @@ func TestRefToSmt_NonInputRef(t *testing.T) {
 func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 	t.Parallel()
 	et := newDummyExprTranslator()
-	// Setup nested type: input.data.review.foo.bar.baz
-	et.TypeTrans.TypeInfo.Types["input.data.review.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
+	// Setup nested type at input.foo (schema root is now at input)
+	et.TypeTrans.TypeInfo.Types["input.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
 		"bar": types.NewObjectType(map[string]types.RegoTypeDef{
 			"baz": types.NewAtomicType(types.AtomicString),
 		}),
 	})
 
-	// Test direct field
-	ref1 := ast.MustParseRef("input.data.review.foo")
+	// Test direct field: input.foo
+	ref1 := ast.MustParseRef("input.foo")
 	smt1, err1 := et.refToSmt(ref1)
 	if err1 != nil {
 		t.Fatalf("unexpected error: %v", err1)
 	}
-	if !strings.Contains(smt1, "input.data.review.foo") {
-		t.Errorf("expected select chain with 'foo', got %q", smt1)
+	if !strings.Contains(smt1, "input.foo") {
+		t.Errorf("expected reference to 'input.foo', got %q", smt1)
 	}
 
-	// Test deeper nested field
-	ref2 := ast.MustParseRef("input.data.review.foo.bar")
+	// Test nested field: input.foo.bar
+	ref2 := ast.MustParseRef("input.foo.bar")
 	smt2, err2 := et.refToSmt(ref2)
 	if err2 != nil {
 		t.Fatalf("unexpected error: %v", err2)
@@ -147,8 +147,8 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 		t.Errorf("expected select chain with 'foo' and 'bar', got %q", smt2)
 	}
 
-	// Test full path
-	ref3 := ast.MustParseRef("input.data.review.foo.bar.baz")
+	// Test full path: input.foo.bar.baz
+	ref3 := ast.MustParseRef("input.foo.bar.baz")
 	smt3, err3 := et.refToSmt(ref3)
 	if err3 != nil {
 		t.Fatalf("unexpected error: %v", err3)
@@ -157,8 +157,8 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 		t.Errorf("expected select chain with 'foo', 'bar', 'baz', got %q", smt3)
 	}
 
-	// Test missing type for nested path
-	ref4 := ast.MustParseRef("input.data.review.unknownfield")
+	// Test missing type for unknown field
+	ref4 := ast.MustParseRef("input.unknown")
 	_, err4 := et.refToSmt(ref4)
 	if err4 == nil {
 		t.Errorf("expected error for missing type in nested path, got nil")

@@ -142,14 +142,14 @@ func TestInputSchemaBasedInference(t *testing.T) {
 		{
 			name: "input object reference",
 			rule: `package test
-test if { x := input.review.object.kind }`,
+test if { x := input.kind }`,
 			varName:  "x",
 			expected: NewAtomicType(AtomicString),
 		},
 		{
 			name: "input array reference",
 			rule: `package test
-test if { x := input.review.object.spec.containers }`,
+test if { x := input.spec.containers }`,
 			varName: "x",
 			expected: NewArrayType(NewObjectType(map[string]RegoTypeDef{
 				"name":  NewAtomicType(AtomicString),
@@ -159,7 +159,7 @@ test if { x := input.review.object.spec.containers }`,
 		{
 			name: "nested object reference",
 			rule: `package test
-test if { x := input.review.object.metadata }`,
+test if { x := input.metadata }`,
 			varName: "x",
 			expected: NewObjectType(map[string]RegoTypeDef{
 				"name": NewAtomicType(AtomicString),
@@ -214,7 +214,7 @@ func TestInputSchemaBasedInferenceComplex(t *testing.T) {
 		{
 			name: "input object reference",
 			rule: `package test
-test if { x := input.review.object.metadata[_] }`,
+test if { x := input.metadata[_] }`,
 			varName:  "x",
 			expected: NewUnionType([]RegoTypeDef{NewAtomicType(AtomicNull), NewAtomicType(AtomicString)}),
 		},
@@ -801,7 +801,7 @@ test if { arr := [[1,2],[3,4]]; x := arr[_] }`,
 		{
 			name: "indexing input array",
 			rule: `package test
-test if { x := input.review.object.spec.containers[_] }`,
+test if { x := input.spec.containers[_] }`,
 			varName: "x",
 			expected: NewObjectType(map[string]RegoTypeDef{
 				"name":  NewAtomicType(AtomicString),

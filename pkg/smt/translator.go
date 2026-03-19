@@ -198,7 +198,7 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 			}
 		}
 	}
-	globalVars["input.review.object"] = struct{}{} // Always include schema
+	globalVars["input"] = struct{}{} // Always include schema
 	return globalVars
 }
 
