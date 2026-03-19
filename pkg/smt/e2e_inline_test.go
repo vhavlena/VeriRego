@@ -20,7 +20,7 @@ p := 1 if {
 	1 > 2
 }
 `
-	result, err := RunPolicyToModel(rego, nil)
+	result, err := RunPolicyToModel(rego, nil, nil)
 	if err != nil {
 		t.Fatalf("RunPolicyToModel error: %v", err)
 	}
@@ -113,7 +113,7 @@ foo(x,y) := x if {
 
 // TestRunPolicyToModel_ParseError verifies that parse errors are returned.
 func TestRunPolicyToModel_ParseError(t *testing.T) {
-	_, err := RunPolicyToModel("this is not rego", nil)
+	_, err := RunPolicyToModel("this is not rego", nil, nil)
 	if err == nil {
 		t.Fatal("expected parse error, got nil")
 	}

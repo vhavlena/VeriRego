@@ -776,6 +776,18 @@ func getSchemaVar(ref ast.Ref) string {
 	return fmt.Sprintf("%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()))
 }
 
+// getDataSchemaVar constructs a schema variable name for `data.<name>`.
+//
+// Parameters:
+// - `ref ast.Ref`: Reference expected to have at least 2 terms.
+//
+// Returns:
+// - `string`: Dot-separated data schema variable name.
+func getDataSchemaVar(ref ast.Ref) string {
+	// data.<name>
+	return fmt.Sprintf("%s.%s", removeQuotes(ref[0].String()), removeQuotes(ref[1].String()))
+}
+
 // getParamVar constructs a parameter variable name for `input.parameters.<name>`.
 //
 // Parameters:

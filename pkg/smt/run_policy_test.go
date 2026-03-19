@@ -37,14 +37,15 @@ type PolicyModel struct {
 //
 // Parameters:
 //
-//	regoPolicy - Rego v1 policy source code (not a file path).
-//	jsonSchema  - Raw JSON Schema bytes for input type inference; pass nil for no schema.
+//	regoPolicy     - Rego v1 policy source code (not a file path).
+//	jsonSchema     - Raw JSON Schema bytes for input type inference; pass nil for no schema.
+//	dataJsonSchema - Raw JSON Schema bytes for data type inference; pass nil for no schema.
 //
 // Returns:
 //
 //	*PolicyModel - Satisfying model with variable values and SMT content (only when SAT).
 //	error        - Non-nil on any pipeline failure or when the formula is UNSAT.
-func RunPolicyToModel(regoPolicy string, jsonSchema []byte) (*PolicyModel, error) {
+func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byte) (*PolicyModel, error) {
 	// 1. Parse the Rego policy (Rego v1).
 	mod, err := ast.ParseModuleWithOpts("policy.rego", regoPolicy, ast.ParserOptions{
 		RegoVersion: ast.RegoV1,
@@ -81,9 +82,20 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte) (*PolicyModel, error
 		inputSchema = js
 	}
 
+	// 4b. Build data schema from the JSON Schema document (optional).
+	var dataSchema types.InputSchemaAPI
+	if len(dataJsonSchema) > 0 {
+		js := types.NewInputJsonSchema()
+		if err := js.ProcessInput(dataJsonSchema); err != nil {
+			return nil, fmt.Errorf("data json schema: %w", err)
+		}
+		dataSchema = js
+	}
+
 	// 5. Run type inference.
 	var params types.Parameters
 	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema, params)
+	typeAnalyzer.DataSchema = dataSchema
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
 	// 6. Generate SMT-LIB content.

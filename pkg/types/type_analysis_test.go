@@ -1287,6 +1287,70 @@ test if { x = concat(concat(u, v),z) }`,
 	}
 }
 
+// TestDataSchemaTypeInference verifies that data.* references are resolved using the
+// data schema when one is provided.
+func TestDataSchemaTypeInference(t *testing.T) {
+	t.Parallel()
+
+	yamlInput := []byte(`
+token: "secret"
+count: 42
+config:
+  enabled: true
+`)
+	dataSchema := NewInputSchema()
+	if err := dataSchema.ProcessYAMLInput(yamlInput); err != nil {
+		t.Fatalf("Failed to process data YAML: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		rule     string
+		varName  string
+		expected RegoTypeDef
+	}{
+		{
+			name: "data string field",
+			rule: `package test
+test if { x := data.token }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicString),
+		},
+		{
+			name: "data int field",
+			rule: `package test
+test if { x := data.count }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicInt),
+		},
+		{
+			name: "data nested field",
+			rule: `package test
+test if { x := data.config.enabled }`,
+			varName:  "x",
+			expected: NewAtomicType(AtomicBoolean),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module, err := ast.ParseModule("test.rego", tt.rule)
+			if err != nil {
+				t.Fatalf("Failed to parse module: %v", err)
+			}
+			analyzer := NewTypeAnalyzerWithParams(module.Package.Path, nil, nil)
+			analyzer.DataSchema = dataSchema
+			analyzer.AnalyzeModule(module)
+			varTerm := ast.VarTerm(tt.varName)
+			actual := analyzer.GetType(varTerm.Value)
+			if !actual.IsEqual(&tt.expected) {
+				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
+			}
+		})
+	}
+}
+
 // TestResolveFunctionTypeArityMismatch verifies that calling a user-defined function
 // with the wrong number of arguments does not panic and silently falls back to
 // unknown return and parameter types. This is the documented behaviour of the

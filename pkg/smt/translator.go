@@ -198,7 +198,10 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 			}
 		}
 	}
-	globalVars["input"] = struct{}{} // Always include schema
+	globalVars["input"] = struct{}{} // Always include input schema
+	if t.TypeTrans.TypeInfo.DataSchema != nil {
+		globalVars["data"] = struct{}{} // Include data schema when provided
+	}
 	return globalVars
 }
 

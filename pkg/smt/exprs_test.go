@@ -165,6 +165,52 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 	}
 }
 
+func TestRefToSmt_DataSchemaField(t *testing.T) {
+	t.Parallel()
+	// Build an ExprTranslator whose TypeAnalyzer has a DataSchema set.
+	dataSchema := types.NewInputSchema()
+	if err := dataSchema.ProcessYAMLInput([]byte("token: \"secret\"\ncount: 42\n")); err != nil {
+		t.Fatalf("failed to process data YAML: %v", err)
+	}
+	ta := &types.TypeAnalyzer{
+		Types:      map[string]types.RegoTypeDef{},
+		Refs:       map[string]ast.Value{},
+		DataSchema: dataSchema,
+	}
+	// Seed data.token and data.count as the type analyzer would after AnalyzeModule.
+	ta.Types["data.token"] = types.NewAtomicType(types.AtomicString)
+	ta.Types["data.count"] = types.NewAtomicType(types.AtomicInt)
+	typeTrans := NewTypeDefs(ta)
+	et := NewExprTranslator(typeTrans)
+
+	// data.token → should resolve to the string SMT form
+	ref1 := ast.MustParseRef("data.token")
+	smt1, err1 := et.refToSmt(ref1)
+	if err1 != nil {
+		t.Fatalf("unexpected error for data.token: %v", err1)
+	}
+	if !strings.Contains(smt1, "data.token") {
+		t.Errorf("expected SMT to contain 'data.token', got %q", smt1)
+	}
+
+	// data.count → int type
+	ref2 := ast.MustParseRef("data.count")
+	smt2, err2 := et.refToSmt(ref2)
+	if err2 != nil {
+		t.Fatalf("unexpected error for data.count: %v", err2)
+	}
+	if !strings.Contains(smt2, "data.count") {
+		t.Errorf("expected SMT to contain 'data.count', got %q", smt2)
+	}
+
+	// data.unknown → no type registered, should error
+	ref3 := ast.MustParseRef("data.unknown")
+	_, err3 := et.refToSmt(ref3)
+	if err3 == nil {
+		t.Errorf("expected error for unknown data field, got nil")
+	}
+}
+
 func TestTermToSmt_BasicTypes(t *testing.T) {
 	tests := []struct {
 		name    string
