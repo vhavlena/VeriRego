@@ -38,12 +38,17 @@ func makeUpdateParamsAtomic(a AtomicType) func([]RegoTypeDef) {
 	}
 }
 
-// getPredefFunctions returns the registry of predefined/builtin functions and
+// GetPredefFunctions returns the registry of predefined/builtin functions and
 // their typing behavior.
 //
 // Returns:
 //
 //	map[string]PredefFunction: A mapping from function name to its typing rules.
+func GetPredefFunctions() map[string]PredefFunction {
+	return getPredefFunctions()
+}
+
+// getPredefFunctions is the internal implementation backing GetPredefFunctions.
 func getPredefFunctions() map[string]PredefFunction {
 	return map[string]PredefFunction{
 		// String operations: all params are strings, return string
@@ -148,17 +153,17 @@ func getPredefFunctions() map[string]PredefFunction {
 		"contains": {
 			ReturnType:   NewAtomicType(AtomicBoolean),
 			CheckArity:   func(n int) bool { return n == arityBinary },
-			UpdateParams: func(_ []RegoTypeDef) {},
+			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
 		"startswith": {
 			ReturnType:   NewAtomicType(AtomicBoolean),
 			CheckArity:   func(n int) bool { return n == arityBinary },
-			UpdateParams: func(_ []RegoTypeDef) {},
+			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
 		"endswith": {
 			ReturnType:   NewAtomicType(AtomicBoolean),
 			CheckArity:   func(n int) bool { return n == arityBinary },
-			UpdateParams: func(_ []RegoTypeDef) {},
+			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
 
 		// Special-case: sprintf modeled as predicate returning boolean; first and last params must be strings
