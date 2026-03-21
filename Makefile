@@ -2,8 +2,8 @@
 BUILD_DIR=build
 
 # List of binaries and their corresponding cmd directories
-BINARIES = type_analysis smt
-CMD_DIRS = type_analysis smt
+BINARIES = type_analysis smt schema_inference
+CMD_DIRS = type_analysis smt schema_inference
 
 .PHONY: all build test clean install
 
