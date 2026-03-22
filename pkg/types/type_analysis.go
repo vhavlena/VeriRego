@@ -604,19 +604,8 @@ func funcParamsType(name string, params int) (RegoTypeDef, []RegoTypeDef) {
 }
 
 // isEquality checks if a function name corresponds to an equality operation.
-//
-// Parameters:
-//
-//	name string: The function name to check.
-//
-// Returns:
-//
-//	bool: True if the function is an equality operation, false otherwise.
 func isEquality(name string) bool {
-	equalityOps := map[string]bool{
-		"eq": true, "assign": true,
-	}
-	return equalityOps[name]
+	return IsEqualityOp(name)
 }
 
 // AnalyzeTypes is the main entry point for type analysis.
