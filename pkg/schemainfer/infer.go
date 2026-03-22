@@ -14,31 +14,47 @@ import (
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
-// TypeHint represents a coarsely inferred type for a schema path.
-type TypeHint int
-
-const (
-	HintUnknown TypeHint = iota
-	HintString
-	HintInteger
-	HintBoolean
-	HintObject
-	HintArray
-	HintNull
-)
-
 // SchemaNode is one node in the inferred schema tree.
-// A leaf node with no Properties/Items carries only a TypeHint.
-// An intermediate node with Properties is implicitly an object.
-// A node with Items is implicitly an array.
+//
+// Leaf nodes carry a Hint (the inferred RegoTypeDef for this position).
+// Intermediate nodes with Properties are implicitly objects; with Items,
+// implicitly arrays; with AdditionalProperties, dynamic-key objects.
+// When Hint.Kind is KindUnknown and structural fields are populated,
+// effectiveType() derives the kind from the structure.
 type SchemaNode struct {
-	Hint       TypeHint
-	Properties map[string]*SchemaNode // non-nil iff object fields were observed
-	Items      *SchemaNode            // non-nil iff array iteration was observed
+	Hint                 types.RegoTypeDef
+	Properties           map[string]*SchemaNode // non-nil iff object fields were observed
+	Items                *SchemaNode            // non-nil iff array iteration was observed
+	AdditionalProperties *SchemaNode            // non-nil iff dynamic key access was observed
 }
 
 func newNode() *SchemaNode {
-	return &SchemaNode{Hint: HintUnknown}
+	return &SchemaNode{Hint: types.NewUnknownType()}
+}
+
+// mergeType returns incoming if existing is unknown, otherwise existing.
+// This implements "first concrete type wins" semantics for incremental inference.
+func mergeType(existing, incoming types.RegoTypeDef) types.RegoTypeDef {
+	if existing.IsUnknown() {
+		return incoming
+	}
+	return existing
+}
+
+// effectiveType resolves the best type for a node, taking structural evidence
+// (presence of Properties, AdditionalProperties, or Items) into account when
+// the explicit Hint is unknown.
+func effectiveType(node *SchemaNode) types.RegoTypeDef {
+	if !node.Hint.IsUnknown() {
+		return node.Hint
+	}
+	if len(node.Properties) > 0 || node.AdditionalProperties != nil {
+		return types.RegoTypeDef{Kind: types.KindObject}
+	}
+	if node.Items != nil {
+		return types.RegoTypeDef{Kind: types.KindArray}
+	}
+	return types.NewUnknownType()
 }
 
 // SchemaInferrer walks a compiled Rego module and builds schema trees for
@@ -60,13 +76,21 @@ type SchemaInferrer struct {
 	//   input.user.age > 18  →  eq(__local0__, input.user.age); gt(__local0__, 18)
 	// Tracking these lets us propagate type hints back to the original ref.
 	varBindings map[string]*ast.Term
+
+	// varElemHints maps a variable name to the RegoTypeDef of the collection elements
+	// it represents, set when handling `some x in coll` membership patterns.
+	// This allows us to recognise when a variable used as an object key (e.g.
+	// data.role_permissions[role]) came from iterating a string-typed collection,
+	// and therefore treat the parent as a dynamic-key object rather than an array.
+	varElemHints map[string]types.RegoTypeDef
 }
 
 // New creates a fresh SchemaInferrer.
 func New() *SchemaInferrer {
 	return &SchemaInferrer{
-		Input: newNode(),
-		Data:  newNode(),
+		Input:        newNode(),
+		Data:         newNode(),
+		varElemHints: make(map[string]types.RegoTypeDef),
 	}
 }
 
@@ -85,6 +109,7 @@ func (si *SchemaInferrer) InferFromModule(mod *ast.Module, packagePath ast.Ref) 
 func (si *SchemaInferrer) walkRule(rule *ast.Rule) {
 	// Each rule body gets its own variable-binding scope.
 	si.varBindings = make(map[string]*ast.Term)
+	si.varElemHints = make(map[string]types.RegoTypeDef)
 	for _, expr := range rule.Body {
 		si.walkExpr(expr)
 	}
@@ -101,7 +126,7 @@ func (si *SchemaInferrer) walkExpr(expr *ast.Expr) {
 	// Non-call expression: single term (e.g. `input.active`)
 	if !expr.IsCall() {
 		if term, ok := expr.Terms.(*ast.Term); ok {
-			si.recordRef(term, HintUnknown)
+			si.recordRef(term, types.NewUnknownType())
 		}
 		return
 	}
@@ -115,18 +140,35 @@ func (si *SchemaInferrer) walkExpr(expr *ast.Expr) {
 	args := terms[1:]
 
 	switch {
-	case isEqualityOp(op) && len(args) == 2:
+	case types.IsEqualityOp(op) && len(args) == 2:
 		si.handleEquality(args[0], args[1])
 
-	case isNumericCompOp(op):
+	case types.IsNumericCompOp(op):
+		intType := types.NewAtomicType(types.AtomicInt)
 		for _, arg := range args {
-			si.recordRef(arg, HintInteger)
+			si.recordRef(arg, intType)
 		}
+
+	// `x in coll` membership check compiles to internal.member_2(elem, coll).
+	case op == "internal.member_2" && len(args) == 2:
+		si.handleMembership(args[0], args[1])
+
+	// 3-arg form internal.member_2(elem, idx, coll) appears in some OPA versions.
+	case op == "internal.member_2" && len(args) == 3:
+		si.handleMembership(args[0], args[2])
+
+	// `some k, v in obj` compiles to internal.member_3(key, val, coll).
+	case op == "internal.member_3" && len(args) == 3:
+		si.recordRef(args[2], types.RegoTypeDef{Kind: types.KindObject})
+
+	// `x in coll` (without some) may also compile to member(x, coll).
+	case op == "member" && len(args) == 2:
+		si.handleMembership(args[0], args[1])
 
 	default:
 		hints := builtinParamHints(op, len(args))
 		for i, arg := range args {
-			hint := HintUnknown
+			hint := types.NewUnknownType()
 			if i < len(hints) {
 				hint = hints[i]
 			}
@@ -140,17 +182,123 @@ func (si *SchemaInferrer) walkExpr(expr *ast.Expr) {
 // literal's type. Local variables bound to input/data refs are recorded in
 // varBindings so that subsequent expressions can propagate type hints back.
 func (si *SchemaInferrer) handleEquality(left, right *ast.Term) {
-	leftHint := literalHint(left)
-	rightHint := literalHint(right)
+	leftHint := types.LiteralTermType(left)
+	rightHint := types.LiteralTermType(right)
 
 	// Record variable → ref bindings so later expressions can propagate hints.
-	// Pattern: eq(var, input.x) or eq(input.x, var)
 	si.tryRecordVarBinding(left, right)
 	si.tryRecordVarBinding(right, left)
 
 	// Propagate the known side's hint to the ref on the other side.
 	si.recordRef(left, rightHint)
 	si.recordRef(right, leftHint)
+}
+
+// handleMembership processes `elem in coll` patterns.
+// It marks the collection as an array/set, propagates the element's literal type
+// to the collection's items, and records the element variable's type hint so it
+// can later be recognised as a dynamic object key (e.g. data.x[role]).
+func (si *SchemaInferrer) handleMembership(elem, coll *ast.Term) {
+	// Mark the collection as an array/set.
+	si.recordRef(coll, types.RegoTypeDef{Kind: types.KindArray})
+
+	// If the element is a literal, propagate its type to the collection's items.
+	elemHint := types.LiteralTermType(elem)
+	if !elemHint.IsUnknown() {
+		si.setCollectionItemsHint(coll, elemHint)
+	}
+
+	// Bind the element variable to the items type for later use as a dynamic key.
+	if v, ok := elem.Value.(ast.Var); ok {
+		varName := string(v)
+		finalHint := elemHint
+		if finalHint.IsUnknown() {
+			// Check if the collection already has a known items type.
+			if node := si.navigateToNode(coll); node != nil && node.Items != nil {
+				finalHint = node.Items.Hint
+			}
+		}
+		if !finalHint.IsUnknown() {
+			si.varElemHints[varName] = finalHint
+		}
+	}
+}
+
+// setCollectionItemsHint navigates to the node for coll and sets its Items hint.
+func (si *SchemaInferrer) setCollectionItemsHint(coll *ast.Term, hint types.RegoTypeDef) {
+	if hint.IsUnknown() {
+		return
+	}
+	node := si.navigateToNode(coll)
+	if node == nil {
+		return
+	}
+	if node.Items == nil {
+		node.Items = newNode()
+	}
+	node.Items.Hint = mergeType(node.Items.Hint, hint)
+}
+
+// navigateToNode walks the schema tree following the path described by term
+// (which must be an input.* or data.* ref) and returns the leaf SchemaNode,
+// or nil if the path does not yet exist in the tree.
+// Unlike recordRef it does not create nodes — it is purely read-only.
+func (si *SchemaInferrer) navigateToNode(term *ast.Term) *SchemaNode {
+	if term == nil {
+		return nil
+	}
+	// Follow variable bindings.
+	if v, ok := term.Value.(ast.Var); ok {
+		if bound, exists := si.varBindings[string(v)]; exists {
+			return si.navigateToNode(bound)
+		}
+		return nil
+	}
+	ref, ok := term.Value.(ast.Ref)
+	if !ok || len(ref) == 0 {
+		return nil
+	}
+	prefix := ref[0].String()
+	var root *SchemaNode
+	switch prefix {
+	case "input":
+		root = si.Input
+	case "data":
+		if si.packagePrefix != "" && strings.HasPrefix(ref.String(), si.packagePrefix) {
+			return nil
+		}
+		root = si.Data
+	default:
+		return nil
+	}
+	current := root
+	for i := 1; i < len(ref); i++ {
+		seg := ref[i]
+		key, isGround := segmentKey(seg)
+		if !isGround {
+			if si.isDynamicKey(seg) {
+				if current.AdditionalProperties == nil {
+					return nil
+				}
+				current = current.AdditionalProperties
+			} else {
+				if current.Items == nil {
+					return nil
+				}
+				current = current.Items
+			}
+			continue
+		}
+		if current.Properties == nil {
+			return nil
+		}
+		child, exists := current.Properties[key]
+		if !exists {
+			return nil
+		}
+		current = child
+	}
+	return current
 }
 
 // tryRecordVarBinding records a binding varTerm → refTerm when varTerm is a
@@ -174,9 +322,31 @@ func (si *SchemaInferrer) tryRecordVarBinding(varTerm, refTerm *ast.Term) {
 	si.varBindings[string(v)] = refTerm
 }
 
+// isDynamicKey reports whether a reference segment represents a dynamic object
+// key rather than an array index. This is true when:
+//   - the segment is a Var bound (via varBindings) to an input.* or data.* ref,
+//   - the segment is a Var known to have string type (from set-membership inference), or
+//   - the segment is itself a Ref starting with input.* or data.*.
+func (si *SchemaInferrer) isDynamicKey(seg *ast.Term) bool {
+	switch v := seg.Value.(type) {
+	case ast.Var:
+		varName := string(v)
+		if _, bound := si.varBindings[varName]; bound {
+			return true
+		}
+		h := si.varElemHints[varName]
+		return h.Kind == types.KindAtomic && h.AtomicType == types.AtomicString
+	case ast.Ref:
+		prefix := v[0].String()
+		return prefix == "input" || prefix == "data"
+	default:
+		return false
+	}
+}
+
 // recordRef checks whether term is an input.* or data.* reference (or a local
 // variable bound to one) and adds it to the schema tree with the given hint.
-func (si *SchemaInferrer) recordRef(term *ast.Term, hint TypeHint) {
+func (si *SchemaInferrer) recordRef(term *ast.Term, hint types.RegoTypeDef) {
 	if term == nil {
 		return
 	}
@@ -216,17 +386,29 @@ func (si *SchemaInferrer) recordRef(term *ast.Term, hint TypeHint) {
 		key, isGround := segmentKey(seg)
 
 		if !isGround {
-			// Non-ground segment = iteration over an array (e.g. input.items[_])
-			current.Hint = mergeHint(current.Hint, HintArray)
-			if current.Items == nil {
-				current.Items = newNode()
+			if si.isDynamicKey(seg) {
+				// Dynamic object key (e.g. data.users[input.user] or data.x[role]).
+				// Infer the key itself as string since object keys are strings.
+				current.Hint = mergeType(current.Hint, types.RegoTypeDef{Kind: types.KindObject})
+				si.recordRef(seg, types.NewAtomicType(types.AtomicString))
+				if current.AdditionalProperties == nil {
+					current.AdditionalProperties = newNode()
+				}
+				current = current.AdditionalProperties
+			} else {
+				// Non-ground variable = array/set iteration (e.g. input.items[_]).
+				current.Hint = mergeType(current.Hint, types.RegoTypeDef{Kind: types.KindArray})
+				if current.Items == nil {
+					current.Items = newNode()
+				}
+				current = current.Items
 			}
-			current = current.Items
 			continue
 		}
 
-		// Ground string key = object field access
-		current.Hint = mergeHint(current.Hint, HintObject)
+		// Ground string key = object field access.
+		_ = key
+		current.Hint = mergeType(current.Hint, types.RegoTypeDef{Kind: types.KindObject})
 		if current.Properties == nil {
 			current.Properties = make(map[string]*SchemaNode)
 		}
@@ -237,8 +419,8 @@ func (si *SchemaInferrer) recordRef(term *ast.Term, hint TypeHint) {
 	}
 
 	// Apply the inferred type hint to the leaf.
-	if hint != HintUnknown {
-		current.Hint = mergeHint(current.Hint, hint)
+	if !hint.IsUnknown() {
+		current.Hint = mergeType(current.Hint, hint)
 	}
 }
 
@@ -256,63 +438,15 @@ func segmentKey(term *ast.Term) (key string, isGround bool) {
 	}
 }
 
-// mergeHint combines an existing hint with a new one.
-// Unknown is the bottom element; any concrete type takes precedence.
-// If two different concrete types conflict, the existing one is kept.
-func mergeHint(existing, incoming TypeHint) TypeHint {
-	if existing == HintUnknown {
-		return incoming
-	}
-	return existing
-}
-
-// literalHint returns the TypeHint for a literal term, or HintUnknown for non-literals.
-func literalHint(term *ast.Term) TypeHint {
-	if term == nil {
-		return HintUnknown
-	}
-	switch term.Value.(type) {
-	case ast.String:
-		return HintString
-	case ast.Number:
-		return HintInteger
-	case ast.Boolean:
-		return HintBoolean
-	case ast.Null:
-		return HintNull
-	case *ast.Array:
-		return HintArray
-	case ast.Object:
-		return HintObject
-	default:
-		return HintUnknown
-	}
-}
-
-// isEqualityOp reports whether op is an OPA equality/assignment operator.
-func isEqualityOp(op string) bool {
-	switch op {
-	case "eq", "assign", "unify":
-		return true
-	}
-	return false
-}
-
-// isNumericCompOp reports whether op is a numeric comparison operator.
-func isNumericCompOp(op string) bool {
-	switch op {
-	case "gt", "lt", "gte", "lte":
-		return true
-	}
-	return false
-}
-
 // builtinParamHints returns per-argument type hints for known OPA builtins by
 // consulting the predefined-function registry from pkg/types. The returned
 // slice has length equal to arity; positions whose type cannot be determined
-// hold HintUnknown.
-func builtinParamHints(op string, arity int) []TypeHint {
-	hints := make([]TypeHint, arity)
+// hold NewUnknownType().
+func builtinParamHints(op string, arity int) []types.RegoTypeDef {
+	hints := make([]types.RegoTypeDef, arity)
+	for i := range hints {
+		hints[i] = types.NewUnknownType()
+	}
 	pf, ok := types.GetPredefFunctions()[op]
 	if !ok {
 		return hints
@@ -323,35 +457,6 @@ func builtinParamHints(op string, arity int) []TypeHint {
 	if pf.UpdateParams == nil {
 		return hints
 	}
-	pars := make([]types.RegoTypeDef, arity)
-	for i := range pars {
-		pars[i] = types.NewUnknownType()
-	}
-	pf.UpdateParams(pars)
-	for i, p := range pars {
-		hints[i] = regoTypeToHint(p)
-	}
+	pf.UpdateParams(hints)
 	return hints
-}
-
-// regoTypeToHint converts a RegoTypeDef (from the types package) to a TypeHint.
-func regoTypeToHint(t types.RegoTypeDef) TypeHint {
-	switch t.Kind {
-	case types.KindAtomic:
-		switch t.AtomicType {
-		case types.AtomicString:
-			return HintString
-		case types.AtomicInt:
-			return HintInteger
-		case types.AtomicBoolean:
-			return HintBoolean
-		case types.AtomicNull:
-			return HintNull
-		}
-	case types.KindArray:
-		return HintArray
-	case types.KindObject:
-		return HintObject
-	}
-	return HintUnknown
 }

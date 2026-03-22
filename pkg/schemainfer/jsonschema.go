@@ -3,6 +3,8 @@ package schemainfer
 import (
 	"encoding/json"
 	"sort"
+
+	"github.com/vhavlena/verirego/pkg/types"
 )
 
 // JSONSchema is a minimal JSON Schema (Draft-07) representation.
@@ -12,7 +14,7 @@ type JSONSchema struct {
 	Type                 interface{}            `json:"type,omitempty"` // string or []string
 	Properties           map[string]*JSONSchema `json:"properties,omitempty"`
 	Items                *JSONSchema            `json:"items,omitempty"`
-	AdditionalProperties *bool                  `json:"additionalProperties,omitempty"`
+	AdditionalProperties interface{}            `json:"additionalProperties,omitempty"` // bool or *JSONSchema
 }
 
 // MarshalIndent serializes the schema to indented JSON.
@@ -32,20 +34,21 @@ func ToJSONSchema(node *SchemaNode, topLevel bool) *JSONSchema {
 		schema.Schema = "http://json-schema.org/draft-07/schema#"
 	}
 
-	switch effectiveHint(node) {
-	case HintString:
-		schema.Type = "string"
+	et := effectiveType(node)
+	switch et.Kind {
+	case types.KindAtomic:
+		switch et.AtomicType {
+		case types.AtomicString:
+			schema.Type = "string"
+		case types.AtomicInt:
+			schema.Type = "integer"
+		case types.AtomicBoolean:
+			schema.Type = "boolean"
+		case types.AtomicNull:
+			schema.Type = "null"
+		}
 
-	case HintInteger:
-		schema.Type = "integer"
-
-	case HintBoolean:
-		schema.Type = "boolean"
-
-	case HintNull:
-		schema.Type = "null"
-
-	case HintArray:
+	case types.KindArray:
 		schema.Type = "array"
 		if node.Items != nil {
 			schema.Items = ToJSONSchema(node.Items, false)
@@ -53,11 +56,14 @@ func ToJSONSchema(node *SchemaNode, topLevel bool) *JSONSchema {
 			schema.Items = &JSONSchema{}
 		}
 
-	case HintObject:
+	case types.KindObject:
 		schema.Type = "object"
-		if len(node.Properties) > 0 {
+		if node.AdditionalProperties != nil && len(node.Properties) == 0 {
+			// Dynamic-key object: emit additionalProperties as a schema.
+			schema.AdditionalProperties = ToJSONSchema(node.AdditionalProperties, false)
+		} else if len(node.Properties) > 0 {
+			// Known-field object: enumerate properties and disallow extras.
 			schema.Properties = make(map[string]*JSONSchema, len(node.Properties))
-			// Sort keys for deterministic output.
 			keys := make([]string, 0, len(node.Properties))
 			for k := range node.Properties {
 				keys = append(keys, k)
@@ -66,28 +72,12 @@ func ToJSONSchema(node *SchemaNode, topLevel bool) *JSONSchema {
 			for _, k := range keys {
 				schema.Properties[k] = ToJSONSchema(node.Properties[k], false)
 			}
-			f := false
-			schema.AdditionalProperties = &f
+			schema.AdditionalProperties = false
 		}
 
 	default:
-		// HintUnknown: emit an empty schema (matches anything)
+		// KindUnknown: emit an empty schema (matches anything).
 	}
 
 	return schema
-}
-
-// effectiveHint resolves the best hint for a node, taking structural evidence
-// (presence of Properties or Items) into account when the explicit Hint is unknown.
-func effectiveHint(node *SchemaNode) TypeHint {
-	if node.Hint != HintUnknown {
-		return node.Hint
-	}
-	if len(node.Properties) > 0 {
-		return HintObject
-	}
-	if node.Items != nil {
-		return HintArray
-	}
-	return HintUnknown
 }
