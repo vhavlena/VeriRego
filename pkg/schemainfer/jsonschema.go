@@ -26,7 +26,7 @@ func (s *JSONSchema) MarshalIndent() ([]byte, error) {
 // topLevel should be true for the root call; it adds the $schema field.
 func ToJSONSchema(node *SchemaNode, topLevel bool) *JSONSchema {
 	if node == nil {
-		return &JSONSchema{}
+		return &JSONSchema{Type: "unknown"}
 	}
 
 	schema := &JSONSchema{}
@@ -53,7 +53,7 @@ func ToJSONSchema(node *SchemaNode, topLevel bool) *JSONSchema {
 		if node.Items != nil {
 			schema.Items = ToJSONSchema(node.Items, false)
 		} else {
-			schema.Items = &JSONSchema{}
+			schema.Items = &JSONSchema{Type: "unknown"}
 		}
 
 	case types.KindObject:
@@ -76,7 +76,8 @@ func ToJSONSchema(node *SchemaNode, topLevel bool) *JSONSchema {
 		}
 
 	default:
-		// KindUnknown: emit an empty schema (matches anything).
+		// KindUnknown: emit "unknown" so users know they must concretize this type.
+		schema.Type = "unknown"
 	}
 
 	return schema
