@@ -19,7 +19,7 @@ import (
 	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
-	"github.com/vhavlena/verirego/pkg/schemainfer"
+	"github.com/vhavlena/verirego/pkg/infer"
 	"github.com/vhavlena/verirego/pkg/simplify"
 )
 
@@ -67,11 +67,11 @@ func main() {
 	}
 
 	// Run schema inference.
-	inferrer := schemainfer.New()
+	inferrer := infer.New()
 	inferrer.InferFromModule(compiled, mod.Package.Path)
 
 	// Serialize and write the input schema.
-	inputSchema := schemainfer.ToJSONSchema(inferrer.Input, true)
+	inputSchema := infer.ToJSONSchema(inferrer.Input, true)
 	inputJSON, err := inputSchema.MarshalIndent()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to serialize input schema: %v\n", err)
@@ -79,7 +79,7 @@ func main() {
 	}
 
 	// Serialize and write the data schema.
-	dataSchema := schemainfer.ToJSONSchema(inferrer.Data, true)
+	dataSchema := infer.ToJSONSchema(inferrer.Data, true)
 	dataJSON, err := dataSchema.MarshalIndent()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to serialize data schema: %v\n", err)

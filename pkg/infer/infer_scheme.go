@@ -1,11 +1,11 @@
-// Package schemainfer derives an input/data JSON Schema from a compiled Rego module
+// Package infer derives an input/data JSON Schema from a compiled Rego module
 // by walking the AST and collecting type constraints on input.* and data.* references.
 //
 // The inferred schema is a best-effort approximation: it captures types that can be
 // determined statically from literal comparisons, equality constraints, and builtin
 // function usage. References that appear only in opaque contexts remain typed as
 // "unknown" (represented as an empty JSON Schema object).
-package schemainfer
+package infer
 
 import (
 	"strings"
@@ -153,9 +153,9 @@ func (si *SchemaInferrer) walkExpr(expr *ast.Expr) {
 	case op == "internal.member_2" && len(args) == 2:
 		si.handleMembership(args[0], args[1])
 
-	// 3-arg form internal.member_2(elem, idx, coll) appears in some OPA versions.
+	// 3-arg form internal.member_2(key, val, coll): use the value (args[1]) as the element.
 	case op == "internal.member_2" && len(args) == 3:
-		si.handleMembership(args[0], args[2])
+		si.handleMembership(args[1], args[2])
 
 	// `some k, v in obj` compiles to internal.member_3(key, val, coll).
 	case op == "internal.member_3" && len(args) == 3:
@@ -407,7 +407,6 @@ func (si *SchemaInferrer) recordRef(term *ast.Term, hint types.RegoTypeDef) {
 		}
 
 		// Ground string key = object field access.
-		_ = key
 		current.Hint = mergeType(current.Hint, types.RegoTypeDef{Kind: types.KindObject})
 		if current.Properties == nil {
 			current.Properties = make(map[string]*SchemaNode)

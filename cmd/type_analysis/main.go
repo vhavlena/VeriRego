@@ -12,39 +12,36 @@ import (
 )
 
 // newInputSchemaFromFlags builds an input schema from YAML examples or JSON Schema sources.
-func newInputSchemaFromFlags(yamlFile, jsonSchemaFile string) types.InputSchemaAPI {
+// Returns an error when a file path is provided but cannot be read or parsed.
+func newInputSchemaFromFlags(yamlFile, jsonSchemaFile string) (types.InputSchemaAPI, error) {
 	// Default to example-based YAML/JSON input schema when provided.
 	if yamlFile != "" {
 		b, err := os.ReadFile(yamlFile)
 		if err != nil {
-			fmt.Printf("Warning: Failed to read input example file: %v\n", err)
-		} else {
-			is := types.NewInputSchema()
-			if err := is.ProcessInput(b); err != nil {
-				fmt.Printf("Warning: Failed to process input example: %v\n", err)
-			} else {
-				return is
-			}
+			return nil, fmt.Errorf("failed to read input example file: %w", err)
 		}
+		is := types.NewInputSchema()
+		if err := is.ProcessInput(b); err != nil {
+			return nil, fmt.Errorf("failed to process input example: %w", err)
+		}
+		return is, nil
 	}
 
 	// Fallback to JSON Schema when provided.
 	if jsonSchemaFile != "" {
 		b, err := os.ReadFile(jsonSchemaFile)
 		if err != nil {
-			fmt.Printf("Warning: Failed to read JSON Schema file: %v\n", err)
-		} else {
-			js := types.NewInputJsonSchema()
-			if err := js.ProcessInput(b); err != nil {
-				fmt.Printf("Warning: Failed to process JSON Schema: %v\n", err)
-			} else {
-				return js
-			}
+			return nil, fmt.Errorf("failed to read JSON Schema file: %w", err)
 		}
+		js := types.NewInputJsonSchema()
+		if err := js.ProcessInput(b); err != nil {
+			return nil, fmt.Errorf("failed to process JSON Schema: %w", err)
+		}
+		return js, nil
 	}
 
 	// No schema information available.
-	return nil
+	return nil, nil
 }
 
 // analyzeModule compiles the Rego policy, optionally inlines helpers, and runs the type analyzer.
@@ -72,8 +69,16 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, data
 	fmt.Printf("\nRego Policy Analysis:\n")
 
 	// Prepare input and data schemas (example-based or JSON Schema)
-	inputSchema := newInputSchemaFromFlags(yamlFile, jsonSchemaFile)
-	dataSchema := newInputSchemaFromFlags(dataYamlFile, dataJsonSchemaFile)
+	inputSchema, err := newInputSchemaFromFlags(yamlFile, jsonSchemaFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: input schema: %v\n", err)
+		return
+	}
+	dataSchema, err := newInputSchemaFromFlags(dataYamlFile, dataJsonSchemaFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: data schema: %v\n", err)
+		return
+	}
 	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema)
 	typeAnalyzer.DataSchema = dataSchema
 	typeAnalyzer.AnalyzeModule(compiledModule)

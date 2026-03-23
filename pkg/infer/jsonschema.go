@@ -1,4 +1,4 @@
-package schemainfer
+package infer
 
 import (
 	"encoding/json"
@@ -58,11 +58,8 @@ func ToJSONSchema(node *SchemaNode, topLevel bool) *JSONSchema {
 
 	case types.KindObject:
 		schema.Type = "object"
-		if node.AdditionalProperties != nil && len(node.Properties) == 0 {
-			// Dynamic-key object: emit additionalProperties as a schema.
-			schema.AdditionalProperties = ToJSONSchema(node.AdditionalProperties, false)
-		} else if len(node.Properties) > 0 {
-			// Known-field object: enumerate properties and disallow extras.
+		if len(node.Properties) > 0 {
+			// Known-field object: enumerate properties.
 			schema.Properties = make(map[string]*JSONSchema, len(node.Properties))
 			keys := make([]string, 0, len(node.Properties))
 			for k := range node.Properties {
@@ -72,7 +69,15 @@ func ToJSONSchema(node *SchemaNode, topLevel bool) *JSONSchema {
 			for _, k := range keys {
 				schema.Properties[k] = ToJSONSchema(node.Properties[k], false)
 			}
-			schema.AdditionalProperties = false
+			if node.AdditionalProperties != nil {
+				// Mixed object: known fields plus dynamic keys.
+				schema.AdditionalProperties = ToJSONSchema(node.AdditionalProperties, false)
+			} else {
+				schema.AdditionalProperties = false
+			}
+		} else if node.AdditionalProperties != nil {
+			// Pure dynamic-key object: emit additionalProperties only.
+			schema.AdditionalProperties = ToJSONSchema(node.AdditionalProperties, false)
 		}
 
 	default:

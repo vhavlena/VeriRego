@@ -1,4 +1,4 @@
-package schemainfer
+package infer
 
 import (
 	"testing"
