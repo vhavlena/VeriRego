@@ -12,8 +12,8 @@ type TypeAnalyzer struct {
 	packagePath ast.Ref
 	Types       map[string]RegoTypeDef // Store types by string key
 	Refs        map[string]ast.Value   // Map string keys back to original values
-	Schema      InputSchemaAPI
-	Parameters  Parameters
+	Schema      InputSchemaAPI         // Schema for input.* references
+	DataSchema  InputSchemaAPI         // Schema for data.* references
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -33,23 +33,22 @@ func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 	}
 }
 
-// NewTypeAnalyzerWithParams creates a new type analyzer with parameters.
+// NewTypeAnalyzerWithParams creates a new type analyzer.
 //
 // Parameters:
 //
-//	schema *InputSchema: The input schema to use for type inference.
-//	params Parameters: The parameters for the type analyzer.
+//	packagePath ast.Ref: The package path for the module being analyzed.
+//	schema InputSchemaAPI: The input schema to use for type inference.
 //
 // Returns:
 //
-//	*TypeAnalyzer: A new instance of TypeAnalyzer with parameters.
-func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI, params Parameters) *TypeAnalyzer {
+//	*TypeAnalyzer: A new instance of TypeAnalyzer.
+func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
 		packagePath: packagePath,
 		Types:       make(map[string]RegoTypeDef),
 		Refs:        make(map[string]ast.Value),
 		Schema:      schema,
-		Parameters:  params,
 	}
 }
 
@@ -318,30 +317,25 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	head := ref[0].Value.String()
 	// input prefix
 	if head == "input" {
-		// Check for input.parameters.<name>
-		if len(ref) >= 3 {
-			second := ref[1].Value.String()
-			if second == "\"parameters\"" {
-				// Only support input.parameters.<name> (not nested)
-				if str, ok := ref[2].Value.(ast.String); ok {
-					// fmt.Printf("Parameter name: %s\n", str)
-					name := string(str)
-					if param, exists := ta.Parameters[name]; exists {
-						return param.dt
-					}
-				}
-			}
-		}
-		// Fallback to schema for other input references
-		if len(ref) > 3 {
-			path := FromRef(ref[3:])
+		if len(ref) > 1 && ta.Schema != nil {
+			path := FromRef(ref[1:])
 			if typ, exists := ta.Schema.GetType(path); exists && typ != nil {
 				return *typ
 			}
 		}
 	}
 
-	// data prefix
+	// data prefix - check DataSchema for external data references
+	if head == "data" && ta.DataSchema != nil {
+		if len(ref) > 1 {
+			path := FromRef(ref[1:])
+			if typ, exists := ta.DataSchema.GetType(path); exists && typ != nil {
+				return *typ
+			}
+		}
+	}
+
+	// data prefix - packagePath-based lookup for rules in the current package
 	if ref.HasPrefix(ta.packagePath) && len(ref) > len(ta.packagePath) {
 		strRule := ref[len(ta.packagePath)].Value.String()
 		key := strRule[1 : len(strRule)-1]
@@ -538,9 +532,13 @@ func (ta *TypeAnalyzer) AnalyzeRuleBody(rule *ast.Rule, tp *RegoTypeDef) {
 //	mod *ast.Module: The Rego module to analyze.
 func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 	var prevTypeMap map[string]RegoTypeDef
-	// include schema among types
+	// include input schema among types
 	if ta.Schema != nil {
-		ta.setType(ast.MustParseRef("input.review.object"), ta.Schema.GetTypes())
+		ta.setType(ast.MustParseRef("input"), ta.Schema.GetTypes())
+	}
+	// include data schema among types
+	if ta.DataSchema != nil {
+		ta.setType(ast.MustParseRef("data"), ta.DataSchema.GetTypes())
 	}
 	for {
 		for _, rule := range mod.Rules {
@@ -631,8 +629,8 @@ func isEquality(name string) bool {
 // Returns:
 //
 //	*TypeAnalyzer: The type analyzer with inferred types.
-func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI, params Parameters) *TypeAnalyzer {
-	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema, params)
+func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI) *TypeAnalyzer {
+	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema)
 	analyzer.AnalyzeRule(rule)
 	return analyzer
 }
