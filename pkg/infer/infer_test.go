@@ -145,6 +145,55 @@ allow if { contains(input.email, "@") }`)
 	assertAtomicType(t, node, types.AtomicString)
 }
 
+// Tests for the assigned form: z := startswith(input.user, "admin")
+// OPA compiles this to a 3-arg call startswith(input.user, "admin", z),
+// so arity-2-only CheckArity must not silently drop the type hints.
+
+func TestInfer_StringFromStartswithAssigned(t *testing.T) {
+	si := compileAndInfer(t, `package test
+import rego.v1
+allow if {
+	z := startswith(input.user, "admin")
+	z == true
+}`)
+
+	node := getNode(si.Input, "user")
+	if node == nil {
+		t.Fatal("input.user not found in schema")
+	}
+	assertAtomicType(t, node, types.AtomicString)
+}
+
+func TestInfer_StringFromEndswithAssigned(t *testing.T) {
+	si := compileAndInfer(t, `package test
+import rego.v1
+allow if {
+	z := endswith(input.path, "/admin")
+	z == true
+}`)
+
+	node := getNode(si.Input, "path")
+	if node == nil {
+		t.Fatal("input.path not found in schema")
+	}
+	assertAtomicType(t, node, types.AtomicString)
+}
+
+func TestInfer_StringFromContainsAssigned(t *testing.T) {
+	si := compileAndInfer(t, `package test
+import rego.v1
+allow if {
+	z := contains(input.email, "@")
+	z == true
+}`)
+
+	node := getNode(si.Input, "email")
+	if node == nil {
+		t.Fatal("input.email not found in schema")
+	}
+	assertAtomicType(t, node, types.AtomicString)
+}
+
 func TestInfer_StringFromTrim(t *testing.T) {
 	si := compileAndInfer(t, `package test
 import rego.v1
