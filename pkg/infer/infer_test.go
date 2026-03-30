@@ -164,6 +164,20 @@ allow if {
 	assertAtomicType(t, node, types.AtomicString)
 }
 
+func TestInfer_StringFromStartswithResult(t *testing.T) {
+	si := compileAndInfer(t, `package test
+import rego.v1
+allow if {
+	input.test == startswith(input.user, "admin")
+}`)
+
+	node := getNode(si.Input, "test")
+	if node == nil {
+		t.Fatal("input.test not found in schema")
+	}
+	assertAtomicType(t, node, types.AtomicBoolean)
+}
+
 func TestInfer_StringFromEndswithAssigned(t *testing.T) {
 	si := compileAndInfer(t, `package test
 import rego.v1

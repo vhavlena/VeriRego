@@ -83,6 +83,12 @@ type SchemaInferrer struct {
 	// data.role_permissions[role]) came from iterating a string-typed collection,
 	// and therefore treat the parent as a dynamic-key object rather than an array.
 	varElemHints map[string]types.RegoTypeDef
+
+	// varTypeHints maps a local variable name to the return type of the builtin
+	// that produced it (e.g. __local0__ from startswith/3 → boolean). Used to
+	// propagate the return type through equality expressions such as
+	// `input.test == startswith(input.user, "admin")`.
+	varTypeHints map[string]types.RegoTypeDef
 }
 
 // New creates a fresh SchemaInferrer.
@@ -91,6 +97,7 @@ func New() *SchemaInferrer {
 		Input:        newNode(),
 		Data:         newNode(),
 		varElemHints: make(map[string]types.RegoTypeDef),
+		varTypeHints: make(map[string]types.RegoTypeDef),
 	}
 }
 
@@ -110,6 +117,7 @@ func (si *SchemaInferrer) walkRule(rule *ast.Rule) {
 	// Each rule body gets its own variable-binding scope.
 	si.varBindings = make(map[string]*ast.Term)
 	si.varElemHints = make(map[string]types.RegoTypeDef)
+	si.varTypeHints = make(map[string]types.RegoTypeDef)
 	for _, expr := range rule.Body {
 		si.walkExpr(expr)
 	}
@@ -174,6 +182,24 @@ func (si *SchemaInferrer) walkExpr(expr *ast.Expr) {
 			}
 			si.recordRef(arg, hint)
 		}
+		// When a builtin has a known return type and the last arg's param hint is
+		// unknown (i.e. it is the output variable in the compiled N+1-arg form),
+		// apply the return type to that arg and record it in varTypeHints so that
+		// subsequent equality expressions (e.g. input.test == __local0__) can
+		// propagate the type back to the input/data ref on the other side.
+		if pf, ok := types.GetPredefFunctions()[op]; ok && !pf.ReturnType.IsUnknown() && len(args) > 0 {
+			lastParamHint := types.NewUnknownType()
+			if len(hints) > 0 {
+				lastParamHint = hints[len(hints)-1]
+			}
+			if lastParamHint.IsUnknown() {
+				lastArg := args[len(args)-1]
+				si.recordRef(lastArg, pf.ReturnType)
+				if v, isVar := lastArg.Value.(ast.Var); isVar {
+					si.varTypeHints[string(v)] = pf.ReturnType
+				}
+			}
+		}
 	}
 }
 
@@ -184,6 +210,23 @@ func (si *SchemaInferrer) walkExpr(expr *ast.Expr) {
 func (si *SchemaInferrer) handleEquality(left, right *ast.Term) {
 	leftHint := types.LiteralTermType(left)
 	rightHint := types.LiteralTermType(right)
+
+	// If one side is a variable whose return type was recorded from a prior
+	// builtin call, use that as the hint for the other side.
+	if leftHint.IsUnknown() {
+		if v, ok := left.Value.(ast.Var); ok {
+			if h, exists := si.varTypeHints[string(v)]; exists {
+				leftHint = h
+			}
+		}
+	}
+	if rightHint.IsUnknown() {
+		if v, ok := right.Value.(ast.Var); ok {
+			if h, exists := si.varTypeHints[string(v)]; exists {
+				rightHint = h
+			}
+		}
+	}
 
 	// Record variable → ref bindings so later expressions can propagate hints.
 	si.tryRecordVarBinding(left, right)
