@@ -38,12 +38,28 @@ func makeUpdateParamsAtomic(a AtomicType) func([]RegoTypeDef) {
 	}
 }
 
-// getPredefFunctions returns the registry of predefined/builtin functions and
+// makeUpdateParamsAtomicN creates an UpdateParams function that assigns the given
+// atomic type to the first n parameters only. Used for builtins whose compiled
+// form may carry an extra trailing output argument (e.g. startswith/3).
+func makeUpdateParamsAtomicN(n int, a AtomicType) func([]RegoTypeDef) {
+	return func(pars []RegoTypeDef) {
+		for i := 0; i < n && i < len(pars); i++ {
+			pars[i] = NewAtomicType(a)
+		}
+	}
+}
+
+// GetPredefFunctions returns the registry of predefined/builtin functions and
 // their typing behavior.
 //
 // Returns:
 //
 //	map[string]PredefFunction: A mapping from function name to its typing rules.
+func GetPredefFunctions() map[string]PredefFunction {
+	return getPredefFunctions()
+}
+
+// getPredefFunctions is the internal implementation backing GetPredefFunctions.
 func getPredefFunctions() map[string]PredefFunction {
 	return map[string]PredefFunction{
 		// String operations: all params are strings, return string
@@ -147,18 +163,18 @@ func getPredefFunctions() map[string]PredefFunction {
 		},
 		"contains": {
 			ReturnType:   NewAtomicType(AtomicBoolean),
-			CheckArity:   func(n int) bool { return n == arityBinary },
-			UpdateParams: func(_ []RegoTypeDef) {},
+			CheckArity:   func(n int) bool { return n == arityBinary || n == arityTernary },
+			UpdateParams: makeUpdateParamsAtomicN(arityBinary, AtomicString),
 		},
 		"startswith": {
 			ReturnType:   NewAtomicType(AtomicBoolean),
-			CheckArity:   func(n int) bool { return n == arityBinary },
-			UpdateParams: func(_ []RegoTypeDef) {},
+			CheckArity:   func(n int) bool { return n == arityBinary || n == arityTernary },
+			UpdateParams: makeUpdateParamsAtomicN(arityBinary, AtomicString),
 		},
 		"endswith": {
 			ReturnType:   NewAtomicType(AtomicBoolean),
-			CheckArity:   func(n int) bool { return n == arityBinary },
-			UpdateParams: func(_ []RegoTypeDef) {},
+			CheckArity:   func(n int) bool { return n == arityBinary || n == arityTernary },
+			UpdateParams: makeUpdateParamsAtomicN(arityBinary, AtomicString),
 		},
 
 		// Special-case: sprintf modeled as predicate returning boolean; first and last params must be strings
