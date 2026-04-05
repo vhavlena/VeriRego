@@ -13,7 +13,7 @@ import (
 type ExprTranslator struct {
 	TypeTrans *TypeTranslator // Type definitions and type-related operations
 	funcMap   map[string]Function
-	context   *TransContext   // Context to collect generated SMT declarations, assertions, and variable mappings
+	context   *TransContext // Context to collect generated SMT declarations, assertions, and variable mappings
 }
 
 // NewExprTranslator creates a new ExprTranslator instance.
@@ -99,16 +99,19 @@ func (et *ExprTranslator) ExprToSmt(expr *ast.Expr) (string, error) {
 	return smtStr, nil
 }
 
-type varDef struct { string; SmtValue }
+type varDef struct {
+	string
+	SmtValue
+}
 
-func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDef,error) {
+func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varDef, error) {
 	bodySmts := make([]SmtProposition, 0, len(*ruleBody))
 	definedVars := make(map[string]bool, 0)
 	localVarDefs := make([]varDef, 0)
 	for _, expr := range *ruleBody {
 		// single term
 		if term, ok := expr.Terms.(*ast.Term); ok {
-			smtVal,err := et.termToSmtValue(term)
+			smtVal, err := et.termToSmtValue(term)
 			if err != nil {
 				return nil, localVarDefs, err
 			}
@@ -144,12 +147,12 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 			params[i-1] = *val
 		}
 
-		if arity+1 == len(params) {		// the return is a part of the call
+		if arity+1 == len(params) { // the return is a part of the call
 			val, err := op.SmtCall(params[:len(params)-1])
 			if err != nil {
 				return nil, localVarDefs, err
 			}
-			def := varDef { params[len(params)-1].String(), *val.WrapToDepth(op.result.depth) }
+			def := varDef{params[len(params)-1].String(), *val.WrapToDepth(op.result.depth)}
 			localVarDefs = append(localVarDefs, def)
 			definedVars[def.string] = true
 			continue
@@ -157,7 +160,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 
 		// we handle ast.Equality separately, because it can be both assignment and comparison, based on the context
 		if opStr == ast.Equality.Name {
-			if variable,ok := terms[1].Value.(ast.Var); ok {
+			if variable, ok := terms[1].Value.(ast.Var); ok {
 				name := removeQuotes(variable.String())
 				if definedVars[name] != true {
 					localVarDefs = append(localVarDefs, varDef{name, params[1]})
@@ -192,14 +195,14 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition,[]varDe
 }
 
 func (et *ExprTranslator) handleAssigningFunction(op string, terms []*ast.Term) (*varDef, error) {
-	if name,ok := terms[len(terms)-1].Value.(ast.Var); ok {	// creating variable
+	if name, ok := terms[len(terms)-1].Value.(ast.Var); ok { // creating variable
 		// remove assigned variable from call
-		rhs := terms[0:len(terms)-1]
+		rhs := terms[0 : len(terms)-1]
 		args, err := et.getOperationArgSmts(rhs)
 		if err != nil {
 			return nil, err
 		}
-		val, err := et.getOperationValue(op,args,rhs)
+		val, err := et.getOperationValue(op, args, rhs)
 		if err != nil {
 			return nil, err
 		}
@@ -210,7 +213,7 @@ func (et *ExprTranslator) handleAssigningFunction(op string, terms []*ast.Term) 
 		}
 		return &varDef{name.String(), *val.WrapToDepth(tp.TypeDepth())}, nil
 	}
-	return nil, verr.ErrUnsupportedFunction	// this should be unreachable
+	return nil, verr.ErrUnsupportedFunction // this should be unreachable
 }
 
 func (et *ExprTranslator) getOperationArgSmts(terms []*ast.Term) ([]string, error) {
@@ -226,7 +229,7 @@ func (et *ExprTranslator) getOperationArgSmts(terms []*ast.Term) ([]string, erro
 }
 
 func (et *ExprTranslator) getOperationValue(op string, args []string, rhs []*ast.Term) (*SmtValue, error) {
-	val,err := et.regoFuncToSmt(op,args,rhs)
+	val, err := et.regoFuncToSmt(op, args, rhs)
 	if err != nil {
 		return nil, err
 	}
@@ -237,85 +240,85 @@ func (et *ExprTranslator) getOperationValue(op string, args []string, rhs []*ast
 	if construct != "" {
 		val = fmt.Sprintf("(%s %s)", construct, val)
 	}
-	return &SmtValue{value: val, depth: 0, atomics: []types.AtomicType{opType,types.AtomicUndef}}, nil	// TODO: user-defined functions
+	return &SmtValue{value: val, depth: 0, atomics: []types.AtomicType{opType, types.AtomicUndef}}, nil // TODO: user-defined functions
 }
 
-func getOperation(op string) (*ast.Builtin,error) {
+func getOperation(op string) (*ast.Builtin, error) {
 	switch op {
 	case ast.Plus.Name:
-		return ast.Plus,nil
+		return ast.Plus, nil
 	case ast.Minus.Name:
-		return ast.Minus,nil
+		return ast.Minus, nil
 	case ast.Multiply.Name:
-		return ast.Multiply,nil
+		return ast.Multiply, nil
 	case ast.Divide.Name:
-		return ast.Divide,nil
+		return ast.Divide, nil
 	case ast.Equal.Name:
-		return ast.Equal,nil
+		return ast.Equal, nil
 	case ast.Equality.Name:
-		return ast.Equality,nil
+		return ast.Equality, nil
 	case ast.Assign.Name:
-		return ast.Assign,nil
+		return ast.Assign, nil
 	case ast.GreaterThan.Name:
-		return ast.GreaterThan,nil
+		return ast.GreaterThan, nil
 	case ast.GreaterThanEq.Name:
-		return ast.GreaterThanEq,nil
+		return ast.GreaterThanEq, nil
 	case ast.LessThan.Name:
-		return ast.LessThan,nil
+		return ast.LessThan, nil
 	case ast.LessThanEq.Name:
-		return ast.LessThanEq,nil
+		return ast.LessThanEq, nil
 	case ast.Concat.Name:
-		return ast.Concat,nil
+		return ast.Concat, nil
 	case ast.Contains.Name:
-		return ast.Contains,nil
+		return ast.Contains, nil
 	case ast.StartsWith.Name:
-		return ast.StartsWith,nil
+		return ast.StartsWith, nil
 	case ast.EndsWith.Name:
-		return ast.EndsWith,nil
+		return ast.EndsWith, nil
 	case ast.IndexOf.Name:
-		return ast.IndexOf,nil
+		return ast.IndexOf, nil
 	case ast.Substring.Name:
-		return ast.Substring,nil
+		return ast.Substring, nil
 	default:
-		return nil,verr.ErrUnsupportedFunction
+		return nil, verr.ErrUnsupportedFunction
 	}
 }
 
-func /*(et *ExprTranslator)*/ getOperationReturnType(opName string) (types.AtomicType,error) {
+func /*(et *ExprTranslator)*/ getOperationReturnType(opName string) (types.AtomicType, error) {
 	funcMap := map[string]types.AtomicType{
-		ast.Plus.Name:          types.AtomicInt,        // +
-		ast.Minus.Name:         types.AtomicInt,        // -
-		ast.Multiply.Name:      types.AtomicInt,        // *
-		ast.Divide.Name:        types.AtomicInt,        // /
-		ast.Equal.Name:         types.AtomicBoolean,    // ==
-		ast.Equality.Name:      types.AtomicBoolean,    // =
-		ast.Assign.Name:        types.AtomicBoolean,    // :=
-		ast.GreaterThan.Name:   types.AtomicBoolean,    // >
-		ast.GreaterThanEq.Name:	types.AtomicBoolean,    // >=
-		ast.LessThan.Name:      types.AtomicBoolean,    // <
-		ast.LessThanEq.Name:    types.AtomicBoolean,    // <=
-		ast.Concat.Name:        types.AtomicString,     // concat
-		ast.Contains.Name:      types.AtomicBoolean,    // contains
-		ast.StartsWith.Name:    types.AtomicBoolean,    // startswith
-		ast.EndsWith.Name:      types.AtomicBoolean,    // endswith
-		ast.IndexOf.Name:       types.AtomicInt,        // indexof
-		ast.Substring.Name:     types.AtomicString,     // substring
+		ast.Plus.Name:          types.AtomicInt,     // +
+		ast.Minus.Name:         types.AtomicInt,     // -
+		ast.Multiply.Name:      types.AtomicInt,     // *
+		ast.Divide.Name:        types.AtomicInt,     // /
+		ast.Equal.Name:         types.AtomicBoolean, // ==
+		ast.Equality.Name:      types.AtomicBoolean, // =
+		ast.Assign.Name:        types.AtomicBoolean, // :=
+		ast.GreaterThan.Name:   types.AtomicBoolean, // >
+		ast.GreaterThanEq.Name: types.AtomicBoolean, // >=
+		ast.LessThan.Name:      types.AtomicBoolean, // <
+		ast.LessThanEq.Name:    types.AtomicBoolean, // <=
+		ast.Concat.Name:        types.AtomicString,  // concat
+		ast.Contains.Name:      types.AtomicBoolean, // contains
+		ast.StartsWith.Name:    types.AtomicBoolean, // startswith
+		ast.EndsWith.Name:      types.AtomicBoolean, // endswith
+		ast.IndexOf.Name:       types.AtomicInt,     // indexof
+		ast.Substring.Name:     types.AtomicString,  // substring
 		// "length" does not exist
 	}
 
 	// TODO: user defined functions
-	if atomicType,found := funcMap[opName]; found {
-		return atomicType,nil
+	if atomicType, found := funcMap[opName]; found {
+		return atomicType, nil
 	}
-	return types.AtomicUndef,verr.ErrUnsupportedFunction
+	return types.AtomicUndef, verr.ErrUnsupportedFunction
 }
 
-func getAtomConstructorForOperation(op string) (string,types.AtomicType,error) {
-	opType,err := getOperationReturnType(op)
+func getAtomConstructorForOperation(op string) (string, types.AtomicType, error) {
+	opType, err := getOperationReturnType(op)
 	if err != nil {
 		return "", "", verr.ErrUnsupportedFunction
 	}
-	return getAtomConstructorFromType(opType),opType,nil
+	return getAtomConstructorFromType(opType), opType, nil
 }
 
 func getAtomConstructorFromType(t types.AtomicType) string {
@@ -389,10 +392,10 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	case ast.String:
 		return NewSmtValueFromString(string(v)), nil
 	case ast.Number:
-		if val,ok := v.Int(); ok {
+		if val, ok := v.Int(); ok {
 			return NewSmtValueFromInt(val), nil
 		}
-		return nil,verr.ErrUnsupportedAtomic
+		return nil, verr.ErrUnsupportedAtomic
 	case ast.Boolean:
 		return NewSmtValueFromBoolean(bool(v)), nil
 	case *ast.Array:
@@ -405,12 +408,33 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	case ast.Var:
 		return et.GetVarValue(v)
 	case ast.Ref:
-		name := removeQuotes(v[len(v)-1].String())
+		var name string
+		head := v[0].Value.String()
+		if len(v) >= 2 && head == "input" {
+			name = getSchemaVar(v)
+		} else if len(v) >= 2 && head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
+			name = getDataSchemaVar(v)
+		} else {
+			name = removeQuotes(v[len(v)-1].String())
+		}
 		tp, ok := et.TypeTrans.TypeInfo.Types[name]
 		if !ok {
 			return nil, verr.ErrTypeNotFound
 		}
-		return NewSmtValue(name, tp.TypeDepth()), nil
+		path := refToPath(v[2:])
+		smtRef, actType, err := getSmtRef(name, path, &tp)
+		if err != nil {
+			return nil, err
+		}
+		smtStr, err := et.TypeTrans.getSmtValue(smtRef, actType)
+		if err != nil {
+			return nil, err
+		}
+		return &SmtValue{
+			value:   smtStr,
+			depth:   actType.TypeDepth(),
+			atomics: getAtomicTypes(*actType),
+		}, nil
 	case ast.Call:
 		// Handle string functions and other builtins
 		op := removeQuotes(v[0].String())
@@ -443,16 +467,16 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 
 	for index := range arr.Len() {
 		val := arr.Elem(index)
-		valSmt,err := et.termToSmtValue(val)
+		valSmt, err := et.termToSmtValue(val)
 		if err != nil {
-			return nil,err
+			return nil, err
 		}
-		valSmt = valSmt.WrapToDepth(depth-1)
+		valSmt = valSmt.WrapToDepth(depth - 1)
 		arrSmt = fmt.Sprintf("(store %s %d %s)", arrSmt, index, valSmt.String())
 	}
 
 	return &SmtValue{
-		value: fmt.Sprintf("(OArray%d %s)",depth,arrSmt), 
+		value: fmt.Sprintf("(OArray%d %s)", depth, arrSmt),
 		depth: depth,
 	}, nil
 }
@@ -468,26 +492,26 @@ func (et *ExprTranslator) objectToSmt(obj ast.Object) (*SmtValue, error) {
 
 	for _, key := range obj.Keys() {
 		val := obj.Get(key)
-		valSmt,err := et.termToSmtValue(val)
+		valSmt, err := et.termToSmtValue(val)
 		if err != nil {
-			return nil,err
+			return nil, err
 		}
-		valSmt = valSmt.WrapToDepth(depth-1)
+		valSmt = valSmt.WrapToDepth(depth - 1)
 		objSmt = fmt.Sprintf("(store %s %s %s)", objSmt, key.String(), valSmt.String())
 	}
 
 	return &SmtValue{
-		value: fmt.Sprintf("(OObj%d %s)",depth,objSmt),
+		value: fmt.Sprintf("(OObj%d %s)", depth, objSmt),
 		depth: depth,
 	}, nil
 }
 
 func createConstArray(keyType string, depth int) string {
 	undefChild := "OUndef"
-	for d := range depth-1 {
-		undefChild = fmt.Sprintf("(Atom%d %s)",d+1,undefChild)
+	for d := range depth - 1 {
+		undefChild = fmt.Sprintf("(Atom%d %s)", d+1, undefChild)
 	}
-	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)",keyType ,depth-1, undefChild)
+	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)", keyType, depth-1, undefChild)
 }
 
 // regoFuncToSmt converts a Rego function/operator name and its arguments to an SMT-LIB function application string.

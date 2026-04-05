@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/open-policy-agent/opa/v1/ast"
+	"github.com/vhavlena/verirego/pkg/simplify"
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
@@ -49,7 +50,6 @@ func TestRefToSmt_InputSimple(t *testing.T) {
 		t.Errorf("expected error for missing type, got nil")
 	}
 }
-
 
 func TestRefToSmt_EmptyRef(t *testing.T) {
 	t.Parallel()
@@ -698,4 +698,207 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 			t.Errorf("expected at least one SMT assertion, got none")
 		}
 	})
+}
+
+// TestTermToSmtValue_Ref exercises the ast.Ref branch of termToSmtValue, which
+// was previously broken: it only looked up the last path component instead of
+// the full "input.<field>" key used by the type analyzer.
+func TestTermToSmtValue_Ref(t *testing.T) {
+	t.Parallel()
+
+	t.Run("InputRefAtomic", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"input.role": types.NewAtomicType(types.AtomicString),
+		}
+		et := newTestExprTranslatorWithTypes(typeMap)
+		term := ast.MustParseTerm("input.role")
+		val, err := et.termToSmtValue(term)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val == nil {
+			t.Fatal("expected non-nil SmtValue")
+		}
+		if !strings.Contains(val.String(), "input.role") {
+			t.Errorf("expected SMT value to reference 'input.role', got %q", val.String())
+		}
+	})
+
+	t.Run("InputRefInt", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"input.count": types.NewAtomicType(types.AtomicInt),
+		}
+		et := newTestExprTranslatorWithTypes(typeMap)
+		term := ast.MustParseTerm("input.count")
+		val, err := et.termToSmtValue(term)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(val.String(), "input.count") {
+			t.Errorf("expected SMT value to reference 'input.count', got %q", val.String())
+		}
+	})
+
+	t.Run("InputRefBoolean", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"input.active": types.NewAtomicType(types.AtomicBoolean),
+		}
+		et := newTestExprTranslatorWithTypes(typeMap)
+		term := ast.MustParseTerm("input.active")
+		val, err := et.termToSmtValue(term)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(val.String(), "input.active") {
+			t.Errorf("expected SMT value to reference 'input.active', got %q", val.String())
+		}
+	})
+
+	t.Run("InputRefMissingType", func(t *testing.T) {
+		t.Parallel()
+		// Regression: previously this would try "x" instead of "input.x" and
+		// accidentally succeed if an unrelated "x" was in the type map.
+		typeMap := map[string]types.RegoTypeDef{
+			"x": types.NewAtomicType(types.AtomicInt), // wrong key — should not match input.x
+		}
+		et := newTestExprTranslatorWithTypes(typeMap)
+		term := ast.MustParseTerm("input.x")
+		_, err := et.termToSmtValue(term)
+		if err == nil {
+			t.Error("expected error for missing 'input.x' type, got nil")
+		}
+	})
+
+	t.Run("DataRefAtomic", func(t *testing.T) {
+		t.Parallel()
+		dataSchema := types.NewInputJsonSchema()
+		typeMap := map[string]types.RegoTypeDef{
+			"data.token": types.NewAtomicType(types.AtomicString),
+		}
+		ta := &types.TypeAnalyzer{
+			Types:      typeMap,
+			Refs:       map[string]ast.Value{},
+			DataSchema: dataSchema,
+		}
+		et := NewExprTranslator(NewTypeDefs(ta))
+		term := ast.MustParseTerm("data.token")
+		val, err := et.termToSmtValue(term)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(val.String(), "data.token") {
+			t.Errorf("expected SMT value to reference 'data.token', got %q", val.String())
+		}
+	})
+
+	t.Run("NonInputNonDataRef_FallbackToLastComponent", func(t *testing.T) {
+		t.Parallel()
+		// For refs that are neither input.* nor data.*, we fall back to the last component.
+		// Build the ref manually since "some.y" is not valid standalone Rego syntax.
+		ref := ast.Ref{
+			ast.NewTerm(ast.Var("some")),
+			ast.NewTerm(ast.String("y")),
+		}
+		typeMap := map[string]types.RegoTypeDef{
+			"y": types.NewAtomicType(types.AtomicInt),
+		}
+		et := newTestExprTranslatorWithTypes(typeMap)
+		val, err := et.termToSmtValue(ast.NewTerm(ref))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(val.String(), "y") {
+			t.Errorf("expected SMT value to reference 'y', got %q", val.String())
+		}
+	})
+}
+
+// generateSMT is a test helper that runs the compile → inline → type-infer →
+// SMT-translate pipeline and returns the raw SMT-LIB string.
+func generateSMT(t *testing.T, regoSrc string, jsonSchema []byte) string {
+	t.Helper()
+	mod, err := ast.ParseModuleWithOpts("p.rego", regoSrc, ast.ParserOptions{RegoVersion: ast.RegoV1})
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	compiler := ast.NewCompiler()
+	compiler.Compile(map[string]*ast.Module{mod.Package.Path.String(): mod})
+	if compiler.Failed() {
+		t.Fatalf("compile error: %v", compiler.Errors)
+	}
+	compiledModule := compiler.Modules[mod.Package.Path.String()]
+
+	inliner := simplify.NewInliner()
+	inliner.GatherInlinePredicates(compiledModule)
+	compiledModule = inliner.InlineModule(compiledModule)
+
+	inputSchema := types.InputSchemaAPI(types.NewInputJsonSchema())
+	if len(jsonSchema) > 0 {
+		js := types.NewInputJsonSchema()
+		if err := js.ProcessInput(jsonSchema); err != nil {
+			t.Fatalf("json schema error: %v", err)
+		}
+		inputSchema = js
+	}
+
+	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema)
+	typeAnalyzer.AnalyzeModule(compiledModule)
+
+	translator := NewTranslator(typeAnalyzer, compiledModule)
+	if err := translator.GenerateSmtContent(); err != nil {
+		t.Fatalf("smt generation error: %v", err)
+	}
+	return strings.Join(translator.SmtLines(), "\n")
+}
+
+// TestAllowIfSyntax_SMTEquivalence verifies that both `allow if { ... }` and
+// `allow := true if { ... }` produce structurally equivalent SMT-LIB output.
+// This is the end-to-end regression test for the inliner + termToSmtValue fix.
+func TestAllowIfSyntax_SMTEquivalence(t *testing.T) {
+	// No JSON schema: type for input.role is inferred from the Rego context,
+	// which avoids the forall quantifier so the two outputs can be compared
+	// with simple string equality.
+	regoAllowIf := `
+package example
+allow if {
+    input.role == "admin"
+}
+`
+	regoAllowAssign := `
+package example
+allow := true if {
+    input.role == "admin"
+}
+`
+	smt1 := generateSMT(t, regoAllowIf, nil)
+	smt2 := generateSMT(t, regoAllowAssign, nil)
+
+	if smt1 != smt2 {
+		t.Errorf("SMT content differs between syntactic forms.\nallow if:\n%s\n\nallow := true if:\n%s", smt1, smt2)
+	}
+}
+
+// TestAllowIfSyntax_NotDroppedByInliner verifies that `allow if { ... }` is not
+// silently removed by the inliner even when the rule qualifies as inlinable
+// (single-expression body, returns true).  Regression for the inliner bug where
+// all rules matching inlinePreds were removed regardless of usage.
+func TestAllowIfSyntax_NotDroppedByInliner(t *testing.T) {
+	for _, rego := range []struct{ name, src string }{
+		{"allow if", `package example
+default allow := false
+allow if { 1 == 1 }`},
+		{"allow := true if", `package example
+default allow := false
+allow := true if { 1 == 1 }`},
+	} {
+		t.Run(rego.name, func(t *testing.T) {
+			smt := generateSMT(t, rego.src, nil)
+			if !strings.Contains(smt, "(declare-fun allow ()") {
+				t.Errorf("expected 'allow' declaration in SMT output (inliner may have dropped the rule):\n%s", smt)
+			}
+		})
+	}
 }
