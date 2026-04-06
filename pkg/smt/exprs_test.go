@@ -85,24 +85,26 @@ func TestRefToSmt_NonInputRef(t *testing.T) {
 func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 	t.Parallel()
 	et := newDummyExprTranslator()
-	// Setup nested type at input.foo (schema root is now at input)
-	et.TypeTrans.TypeInfo.Types["input.foo"] = types.NewObjectType(map[string]types.RegoTypeDef{
-		"bar": types.NewObjectType(map[string]types.RegoTypeDef{
-			"baz": types.NewAtomicType(types.AtomicString),
+	// Schema root is "input"; fields are accessed via select chains.
+	et.TypeTrans.TypeInfo.Types["input"] = types.NewObjectType(map[string]types.RegoTypeDef{
+		"foo": types.NewObjectType(map[string]types.RegoTypeDef{
+			"bar": types.NewObjectType(map[string]types.RegoTypeDef{
+				"baz": types.NewAtomicType(types.AtomicString),
+			}),
 		}),
 	})
 
-	// Test direct field: input.foo
+	// input.foo → (select (obj<d> input) "foo")
 	ref1 := ast.MustParseRef("input.foo")
 	smt1, err1 := et.refToSmt(ref1)
 	if err1 != nil {
 		t.Fatalf("unexpected error: %v", err1)
 	}
-	if !strings.Contains(smt1, "input.foo") {
-		t.Errorf("expected reference to 'input.foo', got %q", smt1)
+	if !(strings.Contains(smt1, "select") && strings.Contains(smt1, "input") && strings.Contains(smt1, "foo")) {
+		t.Errorf("expected select expression referencing 'input' and 'foo', got %q", smt1)
 	}
 
-	// Test nested field: input.foo.bar
+	// input.foo.bar → nested select chain
 	ref2 := ast.MustParseRef("input.foo.bar")
 	smt2, err2 := et.refToSmt(ref2)
 	if err2 != nil {
@@ -112,7 +114,7 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 		t.Errorf("expected select chain with 'foo' and 'bar', got %q", smt2)
 	}
 
-	// Test full path: input.foo.bar.baz
+	// input.foo.bar.baz → full path
 	ref3 := ast.MustParseRef("input.foo.bar.baz")
 	smt3, err3 := et.refToSmt(ref3)
 	if err3 != nil {
@@ -122,11 +124,11 @@ func TestRefToSmt_InputDataReviewNestedObject(t *testing.T) {
 		t.Errorf("expected select chain with 'foo', 'bar', 'baz', got %q", smt3)
 	}
 
-	// Test missing type for unknown field
+	// input.unknown → field missing from the object type → error
 	ref4 := ast.MustParseRef("input.unknown")
 	_, err4 := et.refToSmt(ref4)
 	if err4 == nil {
-		t.Errorf("expected error for missing type in nested path, got nil")
+		t.Errorf("expected error for missing field 'unknown' in input type, got nil")
 	}
 }
 
@@ -142,33 +144,35 @@ func TestRefToSmt_DataSchemaField(t *testing.T) {
 		Refs:       map[string]ast.Value{},
 		DataSchema: dataSchema,
 	}
-	// Seed data.token and data.count as the type analyzer would after AnalyzeModule.
-	ta.Types["data.token"] = types.NewAtomicType(types.AtomicString)
-	ta.Types["data.count"] = types.NewAtomicType(types.AtomicInt)
+	// Schema root is "data"; fields are accessed via select chains.
+	ta.Types["data"] = types.NewObjectType(map[string]types.RegoTypeDef{
+		"token": types.NewAtomicType(types.AtomicString),
+		"count": types.NewAtomicType(types.AtomicInt),
+	})
 	typeTrans := NewTypeDefs(ta)
 	et := NewExprTranslator(typeTrans)
 
-	// data.token → should resolve to the string SMT form
+	// data.token → (str (select (obj1 data) "token"))
 	ref1 := ast.MustParseRef("data.token")
 	smt1, err1 := et.refToSmt(ref1)
 	if err1 != nil {
 		t.Fatalf("unexpected error for data.token: %v", err1)
 	}
-	if !strings.Contains(smt1, "data.token") {
-		t.Errorf("expected SMT to contain 'data.token', got %q", smt1)
+	if !(strings.Contains(smt1, "select") && strings.Contains(smt1, "data") && strings.Contains(smt1, "token")) {
+		t.Errorf("expected select expression referencing 'data' and 'token', got %q", smt1)
 	}
 
-	// data.count → int type
+	// data.count → (num (select (obj1 data) "count"))
 	ref2 := ast.MustParseRef("data.count")
 	smt2, err2 := et.refToSmt(ref2)
 	if err2 != nil {
 		t.Fatalf("unexpected error for data.count: %v", err2)
 	}
-	if !strings.Contains(smt2, "data.count") {
-		t.Errorf("expected SMT to contain 'data.count', got %q", smt2)
+	if !(strings.Contains(smt2, "select") && strings.Contains(smt2, "data") && strings.Contains(smt2, "count")) {
+		t.Errorf("expected select expression referencing 'data' and 'count', got %q", smt2)
 	}
 
-	// data.unknown → no type registered, should error
+	// data.unknown → field missing from the object type → error
 	ref3 := ast.MustParseRef("data.unknown")
 	_, err3 := et.refToSmt(ref3)
 	if err3 == nil {
@@ -700,16 +704,19 @@ func TestHandleConstObject_AllCases(t *testing.T) {
 	})
 }
 
-// TestTermToSmtValue_Ref exercises the ast.Ref branch of termToSmtValue, which
-// was previously broken: it only looked up the last path component instead of
-// the full "input.<field>" key used by the type analyzer.
+// TestTermToSmtValue_Ref exercises the ast.Ref branch of termToSmtValue.
+// After the refactoring, input.* and data.* refs resolve through the object
+// root ("input" / "data") rather than per-field type entries, producing
+// proper SMT select expressions that are valid Z3.
 func TestTermToSmtValue_Ref(t *testing.T) {
 	t.Parallel()
 
 	t.Run("InputRefAtomic", func(t *testing.T) {
 		t.Parallel()
 		typeMap := map[string]types.RegoTypeDef{
-			"input.role": types.NewAtomicType(types.AtomicString),
+			"input": types.NewObjectType(map[string]types.RegoTypeDef{
+				"role": types.NewAtomicType(types.AtomicString),
+			}),
 		}
 		et := newTestExprTranslatorWithTypes(typeMap)
 		term := ast.MustParseTerm("input.role")
@@ -720,15 +727,18 @@ func TestTermToSmtValue_Ref(t *testing.T) {
 		if val == nil {
 			t.Fatal("expected non-nil SmtValue")
 		}
-		if !strings.Contains(val.String(), "input.role") {
-			t.Errorf("expected SMT value to reference 'input.role', got %q", val.String())
+		s := val.String()
+		if !(strings.Contains(s, "select") && strings.Contains(s, "input") && strings.Contains(s, "role")) {
+			t.Errorf("expected select expression over 'input' accessing 'role', got %q", s)
 		}
 	})
 
 	t.Run("InputRefInt", func(t *testing.T) {
 		t.Parallel()
 		typeMap := map[string]types.RegoTypeDef{
-			"input.count": types.NewAtomicType(types.AtomicInt),
+			"input": types.NewObjectType(map[string]types.RegoTypeDef{
+				"count": types.NewAtomicType(types.AtomicInt),
+			}),
 		}
 		et := newTestExprTranslatorWithTypes(typeMap)
 		term := ast.MustParseTerm("input.count")
@@ -736,15 +746,18 @@ func TestTermToSmtValue_Ref(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(val.String(), "input.count") {
-			t.Errorf("expected SMT value to reference 'input.count', got %q", val.String())
+		s := val.String()
+		if !(strings.Contains(s, "select") && strings.Contains(s, "input") && strings.Contains(s, "count")) {
+			t.Errorf("expected select expression over 'input' accessing 'count', got %q", s)
 		}
 	})
 
 	t.Run("InputRefBoolean", func(t *testing.T) {
 		t.Parallel()
 		typeMap := map[string]types.RegoTypeDef{
-			"input.active": types.NewAtomicType(types.AtomicBoolean),
+			"input": types.NewObjectType(map[string]types.RegoTypeDef{
+				"active": types.NewAtomicType(types.AtomicBoolean),
+			}),
 		}
 		et := newTestExprTranslatorWithTypes(typeMap)
 		term := ast.MustParseTerm("input.active")
@@ -752,23 +765,23 @@ func TestTermToSmtValue_Ref(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(val.String(), "input.active") {
-			t.Errorf("expected SMT value to reference 'input.active', got %q", val.String())
+		s := val.String()
+		if !(strings.Contains(s, "select") && strings.Contains(s, "input") && strings.Contains(s, "active")) {
+			t.Errorf("expected select expression over 'input' accessing 'active', got %q", s)
 		}
 	})
 
 	t.Run("InputRefMissingType", func(t *testing.T) {
 		t.Parallel()
-		// Regression: previously this would try "x" instead of "input.x" and
-		// accidentally succeed if an unrelated "x" was in the type map.
+		// Neither "input" nor "input.x" is in the type map — must error.
 		typeMap := map[string]types.RegoTypeDef{
-			"x": types.NewAtomicType(types.AtomicInt), // wrong key — should not match input.x
+			"x": types.NewAtomicType(types.AtomicInt),
 		}
 		et := newTestExprTranslatorWithTypes(typeMap)
 		term := ast.MustParseTerm("input.x")
 		_, err := et.termToSmtValue(term)
 		if err == nil {
-			t.Error("expected error for missing 'input.x' type, got nil")
+			t.Error("expected error for missing 'input' type, got nil")
 		}
 	})
 
@@ -776,7 +789,9 @@ func TestTermToSmtValue_Ref(t *testing.T) {
 		t.Parallel()
 		dataSchema := types.NewInputJsonSchema()
 		typeMap := map[string]types.RegoTypeDef{
-			"data.token": types.NewAtomicType(types.AtomicString),
+			"data": types.NewObjectType(map[string]types.RegoTypeDef{
+				"token": types.NewAtomicType(types.AtomicString),
+			}),
 		}
 		ta := &types.TypeAnalyzer{
 			Types:      typeMap,
@@ -789,8 +804,9 @@ func TestTermToSmtValue_Ref(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(val.String(), "data.token") {
-			t.Errorf("expected SMT value to reference 'data.token', got %q", val.String())
+		s := val.String()
+		if !(strings.Contains(s, "select") && strings.Contains(s, "data") && strings.Contains(s, "token")) {
+			t.Errorf("expected select expression over 'data' accessing 'token', got %q", s)
 		}
 	})
 
@@ -881,10 +897,6 @@ allow := true if {
 	}
 }
 
-// TestAllowIfSyntax_NotDroppedByInliner verifies that `allow if { ... }` is not
-// silently removed by the inliner even when the rule qualifies as inlinable
-// (single-expression body, returns true).  Regression for the inliner bug where
-// all rules matching inlinePreds were removed regardless of usage.
 func TestAllowIfSyntax_NotDroppedByInliner(t *testing.T) {
 	for _, rego := range []struct{ name, src string }{
 		{"allow if", `package example

@@ -45,13 +45,6 @@ func (et *ExprTranslator) GetTransContext() *TransContext {
 	return et.context
 }
 
-// ClearTransContext resets the translator's translation context to a
-// fresh TransContext, discarding any previously collected declarations,
-// assertions, and variable mappings.
-func (et *ExprTranslator) ClearTransContext() {
-	et.context = NewTransContext()
-}
-
 // ExprToSmt converts a Rego AST expression to its SMT-LIB string representation.
 //
 // Parameters:
@@ -194,28 +187,6 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 	return bodySmt, localVarDefs, nil
 }
 
-func (et *ExprTranslator) handleAssigningFunction(op string, terms []*ast.Term) (*varDef, error) {
-	if name, ok := terms[len(terms)-1].Value.(ast.Var); ok { // creating variable
-		// remove assigned variable from call
-		rhs := terms[0 : len(terms)-1]
-		args, err := et.getOperationArgSmts(rhs)
-		if err != nil {
-			return nil, err
-		}
-		val, err := et.getOperationValue(op, args, rhs)
-		if err != nil {
-			return nil, err
-		}
-
-		tp, ok := et.TypeTrans.TypeInfo.Types[name.String()]
-		if !ok {
-			return nil, verr.ErrTypeNotFound
-		}
-		return &varDef{name.String(), *val.WrapToDepth(tp.TypeDepth())}, nil
-	}
-	return nil, verr.ErrUnsupportedFunction // this should be unreachable
-}
-
 func (et *ExprTranslator) getOperationArgSmts(terms []*ast.Term) ([]string, error) {
 	args := make([]string, len(terms)-1)
 	for i := 1; i < len(terms); i++ {
@@ -243,48 +214,7 @@ func (et *ExprTranslator) getOperationValue(op string, args []string, rhs []*ast
 	return &SmtValue{value: val, depth: 0, atomics: []types.AtomicType{opType, types.AtomicUndef}}, nil // TODO: user-defined functions
 }
 
-func getOperation(op string) (*ast.Builtin, error) {
-	switch op {
-	case ast.Plus.Name:
-		return ast.Plus, nil
-	case ast.Minus.Name:
-		return ast.Minus, nil
-	case ast.Multiply.Name:
-		return ast.Multiply, nil
-	case ast.Divide.Name:
-		return ast.Divide, nil
-	case ast.Equal.Name:
-		return ast.Equal, nil
-	case ast.Equality.Name:
-		return ast.Equality, nil
-	case ast.Assign.Name:
-		return ast.Assign, nil
-	case ast.GreaterThan.Name:
-		return ast.GreaterThan, nil
-	case ast.GreaterThanEq.Name:
-		return ast.GreaterThanEq, nil
-	case ast.LessThan.Name:
-		return ast.LessThan, nil
-	case ast.LessThanEq.Name:
-		return ast.LessThanEq, nil
-	case ast.Concat.Name:
-		return ast.Concat, nil
-	case ast.Contains.Name:
-		return ast.Contains, nil
-	case ast.StartsWith.Name:
-		return ast.StartsWith, nil
-	case ast.EndsWith.Name:
-		return ast.EndsWith, nil
-	case ast.IndexOf.Name:
-		return ast.IndexOf, nil
-	case ast.Substring.Name:
-		return ast.Substring, nil
-	default:
-		return nil, verr.ErrUnsupportedFunction
-	}
-}
-
-func /*(et *ExprTranslator)*/ getOperationReturnType(opName string) (types.AtomicType, error) {
+func getOperationReturnType(opName string) (types.AtomicType, error) {
 	funcMap := map[string]types.AtomicType{
 		ast.Plus.Name:          types.AtomicInt,     // +
 		ast.Minus.Name:         types.AtomicInt,     // -
@@ -408,33 +338,7 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	case ast.Var:
 		return et.GetVarValue(v)
 	case ast.Ref:
-		var name string
-		head := v[0].Value.String()
-		if len(v) >= 2 && head == "input" {
-			name = getSchemaVar(v)
-		} else if len(v) >= 2 && head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
-			name = getDataSchemaVar(v)
-		} else {
-			name = removeQuotes(v[len(v)-1].String())
-		}
-		tp, ok := et.TypeTrans.TypeInfo.Types[name]
-		if !ok {
-			return nil, verr.ErrTypeNotFound
-		}
-		path := refToPath(v[2:])
-		smtRef, actType, err := getSmtRef(name, path, &tp)
-		if err != nil {
-			return nil, err
-		}
-		smtStr, err := et.TypeTrans.getSmtValue(smtRef, actType)
-		if err != nil {
-			return nil, err
-		}
-		return &SmtValue{
-			value:   smtStr,
-			depth:   actType.TypeDepth(),
-			atomics: getAtomicTypes(*actType),
-		}, nil
+		return et.refToSmtValue(v)
 	case ast.Call:
 		// Handle string functions and other builtins
 		op := removeQuotes(v[0].String())
@@ -564,7 +468,51 @@ func (et *ExprTranslator) regoFuncToSmt(op string, args []string, terms []*ast.T
 	return fmt.Sprintf("(%s %s)", funcName, strings.Join(args, " ")), nil
 }
 
+// refToSmtValue converts a Rego reference (ast.Ref) to an SmtValue.
+// It resolves the base variable name depending on the reference prefix
+// (input.*, data.*, or fallback to the last path component), looks up the
+// type, navigates the field path via getSmtRef, and wraps the result.
+func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
+	if len(ref) == 0 {
+		return nil, verr.ErrEmptyReferenceConv
+	}
+
+	head := ref[0].Value.String()
+	var name string
+	var path []string
+	if len(ref) >= 2 && head == "input" {
+		name = "input"
+		path = refToPath(ref[1:])
+	} else if len(ref) >= 2 && head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
+		name = "data"
+		path = refToPath(ref[1:])
+	} else {
+		name = removeQuotes(ref[len(ref)-1].String())
+		path = refToPath(ref[2:])
+	}
+
+	tp, ok := et.TypeTrans.TypeInfo.Types[name]
+	if !ok {
+		return nil, verr.ErrTypeNotFound
+	}
+	smtRef, actType, err := getSmtRef(name, path, &tp)
+	if err != nil {
+		return nil, err
+	}
+	smtStr, err := et.TypeTrans.getSmtValue(smtRef, actType)
+	if err != nil {
+		return nil, err
+	}
+	return &SmtValue{
+		value:   smtStr,
+		depth:   actType.TypeDepth(),
+		atomics: getAtomicTypes(*actType),
+	}, nil
+}
+
 // refToSmt converts a Rego reference (ast.Ref) to its SMT-LIB string representation.
+// For input.* and data.* prefixes it delegates to refToSmtValue; for all other
+// references it falls back to looking up the full reference string as a variable.
 //
 // Parameters:
 //
@@ -580,45 +528,13 @@ func (et *ExprTranslator) refToSmt(ref ast.Ref) (string, error) {
 	}
 
 	head := ref[0].Value.String()
-	// input prefix
-	if head == "input" {
-
-		var baseVar string
-		var path []string
-
-		if len(ref) >= 2 {
-			path = refToPath(ref[2:])
-			baseVar = getSchemaVar(ref)
-		}
-		tp, ok := et.TypeTrans.TypeInfo.Types[baseVar]
-		if !ok {
-			return "", verr.ErrTypeNotFound
-		}
-		smt, actType, err := getSmtRef(baseVar, path, &tp)
+	if (len(ref) >= 2 && head == "input") ||
+		(len(ref) >= 2 && head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil) {
+		val, err := et.refToSmtValue(ref)
 		if err != nil {
 			return "", fmt.Errorf("error converting reference to SMT: %w", err)
 		}
-		return et.TypeTrans.getSmtValue(smt, actType)
-	}
-
-	// data prefix (when DataSchema is provided)
-	if head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
-		var baseVar string
-		var path []string
-
-		if len(ref) >= 2 {
-			path = refToPath(ref[2:])
-			baseVar = getDataSchemaVar(ref)
-		}
-		tp, ok := et.TypeTrans.TypeInfo.Types[baseVar]
-		if !ok {
-			return "", verr.ErrTypeNotFound
-		}
-		smt, actType, err := getSmtRef(baseVar, path, &tp)
-		if err != nil {
-			return "", fmt.Errorf("error converting reference to SMT: %w", err)
-		}
-		return et.TypeTrans.getSmtValue(smt, actType)
+		return val.String(), nil
 	}
 
 	// TODO: handle most general references

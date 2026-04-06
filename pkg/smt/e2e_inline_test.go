@@ -126,3 +126,109 @@ func varKeys(m map[string]modelPkg.Value) []string {
 	}
 	return keys
 }
+
+// TestRef_E2E tests the full pipeline — parse → compile → inline → type-infer →
+// SMT-translate → Z3 solve — for policies that access input and data fields
+// through ast.Ref terms.  Each sub-test uses RunPolicyToModel so that Z3
+// validates the generated SMT, exercising the complete ast.Ref code path.
+func TestRef_E2E(t *testing.T) {
+	t.Parallel()
+
+	// allow if input.role == "admin": Z3 must satisfy the constraint with a
+	// model where allow is present in the result.
+	t.Run("InputStringRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.role == "admin"
+}
+`
+		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"}}}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// allow if input.count > 5: integer field comparison.
+	t.Run("InputIntRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.count > 5
+}
+`
+		schema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}}}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// allow if input.active == true: boolean field.
+	t.Run("InputBooleanRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.active == true
+}
+`
+		schema := []byte(`{"type":"object","properties":{"active":{"type":"boolean"}}}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// Two input fields in one rule body.
+	t.Run("MultipleInputRefs", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.role == "admin"
+    input.level > 0
+}
+`
+		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"},"level":{"type":"integer"}}}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// data.threshold: integer data-schema field compared with an input field.
+	t.Run("DataRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.count > data.threshold
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}}}`)
+		dataSchema := []byte(`{"type":"object","properties":{"threshold":{"type":"integer"}}}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+}

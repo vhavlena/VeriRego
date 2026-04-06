@@ -721,7 +721,7 @@ func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *ty
 		if !found {
 			return "", nil, fmt.Errorf("field not found in object type: %s", p)
 		}
-		depth := max(actType.TypeDepth()-1, 0)
+		depth := max(actType.TypeDepth(), 0)
 		actType = val
 		smtref = fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtref, p)
 	}
