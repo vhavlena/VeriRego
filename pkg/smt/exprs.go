@@ -499,12 +499,11 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 	if err != nil {
 		return nil, err
 	}
-	smtStr, err := et.TypeTrans.getSmtValue(smtRef, actType)
-	if err != nil {
-		return nil, err
-	}
+	// Return the raw OType expression without applying the atom extractor.
+	// Extraction (num/str/bool) is deferred to the point of use (e.g. refToSmt
+	// for operation arguments, or getVarValue for let-bound variable lookups).
 	return &SmtValue{
-		value:   smtStr,
+		value:   smtRef,
 		depth:   actType.TypeDepth(),
 		atomics: getAtomicTypes(*actType),
 	}, nil
@@ -533,6 +532,19 @@ func (et *ExprTranslator) refToSmt(ref ast.Ref) (string, error) {
 		val, err := et.refToSmtValue(ref)
 		if err != nil {
 			return "", fmt.Errorf("error converting reference to SMT: %w", err)
+		}
+		// For atomic types, extract the primitive value so it can be used
+		// directly in SMT operations (>, =, str.++, etc.).
+		if len(val.atomics) == 1 {
+			base := val.UnwrapToDepth(0).String()
+			switch val.atomics[0] {
+			case types.AtomicInt:
+				return fmt.Sprintf("(num %s)", base), nil
+			case types.AtomicString:
+				return fmt.Sprintf("(str %s)", base), nil
+			case types.AtomicBoolean:
+				return fmt.Sprintf("(bool %s)", base), nil
+			}
 		}
 		return val.String(), nil
 	}

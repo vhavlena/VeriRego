@@ -115,7 +115,7 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 		wrapper := ""
 		switch sv.atomics[0] {
 		case types.AtomicBoolean:
-			wrapper = "OBool"
+			wrapper = "OBoolean"
 		case types.AtomicInt:
 			wrapper = "ONumber"
 		case types.AtomicString:
