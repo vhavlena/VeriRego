@@ -484,8 +484,23 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 		name = "input"
 		path = refToPath(ref[1:])
 	} else if len(ref) >= 2 && head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
-		name = "data"
-		path = refToPath(ref[1:])
+		dataPath := refToPath(ref[1:])
+		// Only treat as a data schema reference if the path actually resolves through
+		// Types["data"]. Rule variables appear as data.<module>.<variable> and are
+		// not registered under the "data" object type.
+		if dataTp, ok := et.TypeTrans.TypeInfo.Types["data"]; ok {
+			if _, exists := dataTp.GetTypeFromPath(types.FromGroundPath(dataPath)); exists {
+				name = "data"
+				path = dataPath
+			} else {
+				// Rule variable: data.<module>.<variable>
+				name = removeQuotes(ref[len(ref)-1].String())
+				path = refToPath(ref[len(ref):])
+			}
+		} else {
+			name = removeQuotes(ref[len(ref)-1].String())
+			path = refToPath(ref[len(ref):])
+		}
 	} else {
 		name = removeQuotes(ref[len(ref)-1].String())
 		path = refToPath(ref[2:])
@@ -536,14 +551,25 @@ func (et *ExprTranslator) refToSmt(ref ast.Ref) (string, error) {
 		// For atomic types, extract the primitive value so it can be used
 		// directly in SMT operations (>, =, str.++, etc.).
 		if len(val.atomics) == 1 {
-			base := val.UnwrapToDepth(0).String()
 			switch val.atomics[0] {
 			case types.AtomicInt:
-				return fmt.Sprintf("(num %s)", base), nil
+				extracted, err := val.AsInt()
+				if err != nil {
+					return "", err
+				}
+				return extracted.String(), nil
 			case types.AtomicString:
-				return fmt.Sprintf("(str %s)", base), nil
+				extracted, err := val.AsString()
+				if err != nil {
+					return "", err
+				}
+				return extracted.String(), nil
 			case types.AtomicBoolean:
-				return fmt.Sprintf("(bool %s)", base), nil
+				extracted, err := val.AsBool()
+				if err != nil {
+					return "", err
+				}
+				return extracted.String(), nil
 			}
 		}
 		return val.String(), nil
