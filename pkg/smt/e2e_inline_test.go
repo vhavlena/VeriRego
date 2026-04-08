@@ -144,7 +144,7 @@ allow if {
     input.role == "admin"
 }
 `
-		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"}}}`)
+		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"}},"additionalProperties":false}`)
 		result, err := RunPolicyToModel(rego, schema, nil)
 		if err != nil {
 			t.Fatalf("RunPolicyToModel error: %v", err)
@@ -163,7 +163,7 @@ allow if {
     input.count > 5
 }
 `
-		schema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}}}`)
+		schema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}},"additionalProperties":false}`)
 		result, err := RunPolicyToModel(rego, schema, nil)
 		if err != nil {
 			t.Fatalf("RunPolicyToModel error: %v", err)
@@ -182,7 +182,7 @@ allow if {
     input.active == true
 }
 `
-		schema := []byte(`{"type":"object","properties":{"active":{"type":"boolean"}}}`)
+		schema := []byte(`{"type":"object","properties":{"active":{"type":"boolean"}},"additionalProperties":false}`)
 		result, err := RunPolicyToModel(rego, schema, nil)
 		if err != nil {
 			t.Fatalf("RunPolicyToModel error: %v", err)
@@ -202,7 +202,7 @@ allow if {
     input.level > 0
 }
 `
-		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"},"level":{"type":"integer"}}}`)
+		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"},"level":{"type":"integer"}},"additionalProperties":false}`)
 		result, err := RunPolicyToModel(rego, schema, nil)
 		if err != nil {
 			t.Fatalf("RunPolicyToModel error: %v", err)
@@ -221,8 +221,8 @@ allow if {
     input.count > data.threshold
 }
 `
-		inputSchema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}}}`)
-		dataSchema := []byte(`{"type":"object","properties":{"threshold":{"type":"integer"}}}`)
+		inputSchema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{"threshold":{"type":"integer"}},"additionalProperties":false}`)
 		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
 		if err != nil {
 			t.Fatalf("RunPolicyToModel error: %v", err)

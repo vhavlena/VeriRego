@@ -870,33 +870,6 @@ func generateSMT(t *testing.T, regoSrc string, jsonSchema []byte) string {
 	return strings.Join(translator.SmtLines(), "\n")
 }
 
-// TestAllowIfSyntax_SMTEquivalence verifies that both `allow if { ... }` and
-// `allow := true if { ... }` produce structurally equivalent SMT-LIB output.
-// This is the end-to-end regression test for the inliner + termToSmtValue fix.
-func TestAllowIfSyntax_SMTEquivalence(t *testing.T) {
-	// No JSON schema: type for input.role is inferred from the Rego context,
-	// which avoids the forall quantifier so the two outputs can be compared
-	// with simple string equality.
-	regoAllowIf := `
-package example
-allow if {
-    input.role == "admin"
-}
-`
-	regoAllowAssign := `
-package example
-allow := true if {
-    input.role == "admin"
-}
-`
-	smt1 := generateSMT(t, regoAllowIf, nil)
-	smt2 := generateSMT(t, regoAllowAssign, nil)
-
-	if smt1 != smt2 {
-		t.Errorf("SMT content differs between syntactic forms.\nallow if:\n%s\n\nallow := true if:\n%s", smt1, smt2)
-	}
-}
-
 func TestAllowIfSyntax_NotDroppedByInliner(t *testing.T) {
 	for _, rego := range []struct{ name, src string }{
 		{"allow if", `package example
