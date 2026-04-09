@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -86,10 +87,47 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, data
 	typeMap := typeAnalyzer.GetAllTypes()
 	if len(typeMap) > 0 {
 		fmt.Printf("\nInferred Types (all rules):\n")
-		for varName, varType := range typeMap {
-			fmt.Printf("  %s: %s\n", varName, varType.PrettyPrintShort())
+		typeNames := make([]string, 0, len(typeMap))
+		for name := range typeMap {
+			typeNames = append(typeNames, name)
+		}
+		sort.Strings(typeNames)
+		for _, varName := range typeNames {
+			tp := typeMap[varName]
+			fmt.Printf("  %s: %s\n", varName, tp.PrettyPrintShort())
 		}
 	}
+
+	if len(compiledModule.Rules) > 0 {
+		fmt.Printf("\nVariable Classification (per rule):\n")
+		for _, rule := range compiledModule.Rules {
+			vc := typeAnalyzer.GetVarClassification(rule)
+
+			localVars := make([]string, 0, len(vc.Local))
+			for v := range vc.Local {
+				localVars = append(localVars, v)
+			}
+			sort.Strings(localVars)
+
+			quantifiedVars := make([]string, 0, len(vc.Quantified))
+			for v := range vc.Quantified {
+				quantifiedVars = append(quantifiedVars, v)
+			}
+			sort.Strings(quantifiedVars)
+
+			fmt.Printf("  rule %s:\n", rule.Head.Name)
+			fmt.Printf("    local:      %s\n", formatVarList(localVars))
+			fmt.Printf("    quantified: %s\n", formatVarList(quantifiedVars))
+		}
+	}
+}
+
+// formatVarList formats a sorted variable name slice for display.
+func formatVarList(vars []string) string {
+	if len(vars) == 0 {
+		return "(none)"
+	}
+	return strings.Join(vars, ", ")
 }
 
 // parseRegoFile parses the provided Rego policy using the specified language version constraints.

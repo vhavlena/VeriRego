@@ -164,8 +164,8 @@ allow if {
 //
 //	__localV__ = data.roles[__localK__]
 //
-// Here __localK__ is the quantified index and __localV__ is the quantified
-// value.  Both must end up in the Quantified set.
+// __localK__ is the ref index → quantified.
+// __localV__ is the LHS variable receiving the fetched value → local.
 func TestClassifyVars_SomeInCollection(t *testing.T) {
 	t.Parallel()
 	rule := compileAndGetFirstRule(t, `package test
@@ -177,13 +177,15 @@ allow if {
 
 	vc := ClassifyVars(rule)
 
-	// At least two __localN__ should be quantified: the index and the value.
-	n := countLocalN(vc.Quantified)
-	if n < 2 {
-		t.Errorf("expected ≥2 quantified __localN__ (idx + val from some...in); got %d; local=%v quantified=%v", n, vc.Local, vc.Quantified)
+	// Exactly one __localN__ quantified (the ref index).
+	nQ := countLocalN(vc.Quantified)
+	if nQ < 1 {
+		t.Errorf("expected ≥1 quantified __localN__ (ref index from some...in); got %d; local=%v quantified=%v", nQ, vc.Local, vc.Quantified)
 	}
-	if hasLocalN(vc.Local) {
-		t.Errorf("unexpected __localN__ in local set; local=%v quantified=%v", vc.Local, vc.Quantified)
+	// At least one __localN__ local (the value variable).
+	nL := countLocalN(vc.Local)
+	if nL < 1 {
+		t.Errorf("expected ≥1 local __localN__ (value from some...in); got %d; local=%v quantified=%v", nL, vc.Local, vc.Quantified)
 	}
 }
 
@@ -191,7 +193,8 @@ allow if {
 //
 //	__local1__ = data.permissions[__local0__]
 //
-// Both variables (key and value) must be quantified.
+// __local0__ (ref index / key) → quantified.
+// __local1__ (LHS value) → local.
 func TestClassifyVars_SomeKeyValueInObject(t *testing.T) {
 	t.Parallel()
 	rule := compileAndGetFirstRule(t, `package test
@@ -204,10 +207,15 @@ allow if {
 
 	vc := ClassifyVars(rule)
 
-	// Both __local0__ (key) and __local1__ (value) should be quantified.
-	n := countLocalN(vc.Quantified)
-	if n < 2 {
-		t.Errorf("expected ≥2 quantified __localN__ for some k,v in; got %d; local=%v quantified=%v", n, vc.Local, vc.Quantified)
+	// __local0__ (key/index) should be quantified.
+	nQ := countLocalN(vc.Quantified)
+	if nQ < 1 {
+		t.Errorf("expected ≥1 quantified __localN__ (key/index) for some k,v in; got %d; local=%v quantified=%v", nQ, vc.Local, vc.Quantified)
+	}
+	// __local1__ (value) should be local.
+	nL := countLocalN(vc.Local)
+	if nL < 1 {
+		t.Errorf("expected ≥1 local __localN__ (value) for some k,v in; got %d; local=%v quantified=%v", nL, vc.Local, vc.Quantified)
 	}
 }
 

@@ -142,16 +142,17 @@ func classifyExpr(expr *ast.Expr, vc *VarClassification) {
 func classifyCall(op string, args []*ast.Term, vc *VarClassification) {
 	switch {
 	// Equality / assignment / unification operators.
-	// OPA compiles  val = coll[idx]  for iteration patterns.
-	// If the RHS is a ref that has a variable index, the LHS variable is also
-	// quantified (it holds an iterated value, not a fixed assignment).
+	// The LHS always receives a value and is classified as local, regardless of
+	// whether the RHS is a collection access.  Non-ground index variables inside
+	// the RHS ref (e.g. coll[idx]) are classified as quantified by
+	// collectVarsFromTerm when it descends into the ref.
+	//
+	// Example:  __local2__ = data.valid[__local1__]
+	//   __local1__ → quantified  (ref index, detected inside collectVarsFromTerm)
+	//   __local2__ → local       (LHS receives the fetched value)
 	case IsEqualityOp(op) && len(args) == 2:
 		lhs, rhs := args[0], args[1]
-		if refTermHasVarIndex(rhs) {
-			markQuantifiedIfVar(lhs, vc)
-		} else {
-			collectVarsFromTerm(lhs, vc)
-		}
+		collectVarsFromTerm(lhs, vc)
 		collectVarsFromTerm(rhs, vc)
 
 	// internal.member_2(elem, coll)  — 2-arg membership (some x in coll).
@@ -176,25 +177,6 @@ func classifyCall(op string, args []*ast.Term, vc *VarClassification) {
 			collectVarsFromTerm(arg, vc)
 		}
 	}
-}
-
-// refTermHasVarIndex reports whether term is a Ref that has at least one
-// non-ground (variable) component at position ≥ 1 (i.e. a non-constant
-// index, including the anonymous wildcard "_").
-func refTermHasVarIndex(term *ast.Term) bool {
-	if term == nil {
-		return false
-	}
-	ref, ok := term.Value.(ast.Ref)
-	if !ok {
-		return false
-	}
-	for i := 1; i < len(ref); i++ {
-		if _, isVar := ref[i].Value.(ast.Var); isVar {
-			return true
-		}
-	}
-	return false
 }
 
 // markQuantifiedIfVar marks a term's variable as quantified (and removes it
