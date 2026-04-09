@@ -261,8 +261,13 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value, inherType *RegoTypeDef) Rego
 		if v == nil || v.Len() == 0 {
 			typ = NewArrayType(NewUnknownType())
 		} else {
-			elemType := ta.GetType(v.Elem(0).Value)
-			typ = NewArrayType(elemType)
+			var elementTypes []RegoTypeDef
+			v.Foreach(func(elem *ast.Term) {
+				elementTypes = append(elementTypes, ta.inferAstType(elem.Value, nil))
+			})
+			unionType := NewUnionType(elementTypes)
+			unionType.CanonizeUnion()
+			typ = NewArrayType(unionType)
 		}
 	case ast.Object:
 		fields := make(map[string]RegoTypeDef)

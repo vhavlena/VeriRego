@@ -68,9 +68,15 @@ func (s *InputSchema) processNode(node interface{}) RegoTypeDef {
 		return NewObjectType(fields)
 	case []interface{}:
 		if len(nodeValue) > 0 {
-			// Process the first element to get the type of array elements
-			elementType := s.processNode(nodeValue[0])
-			return NewArrayType(elementType)
+			var elementTypes []RegoTypeDef
+			for _, item := range nodeValue {
+				elementTypes = append(elementTypes, s.processNode(item))
+			}
+
+			unionType := NewUnionType(elementTypes)
+			unionType.CanonizeUnion()
+
+			return NewArrayType(unionType)
 		}
 		// Empty array defaults to unknown element type
 		return NewArrayType(NewUnknownType())
