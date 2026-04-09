@@ -155,7 +155,19 @@ func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 	}
 	bucket.Append(varDeclBucket)
 
-	constrBucket, er := td.getSmtConstrAssert(varName, &tp)
+	// Prefer store-based construction for fully-closed object schemas
+	// (additionalProperties: false throughout): it directly constructs the object
+	// with SMT `store` expressions and avoids emitting a `forall` quantifier.
+	var constrBucket *Bucket
+	if tp.IsObject() && tp.HasNoAdditionalPropertiesDeep() {
+		constrBucket, er = td.GetSmtObjectConstrStore(varName, &tp)
+		if er != nil {
+			// Fall back when store construction is unsupported (e.g. object has array fields).
+			constrBucket, er = td.getSmtConstrAssert(varName, &tp)
+		}
+	} else {
+		constrBucket, er = td.getSmtConstrAssert(varName, &tp)
+	}
 	if er != nil {
 		return nil, er
 	}
