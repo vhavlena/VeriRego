@@ -252,4 +252,40 @@ allow if {
 			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
 		}
 	})
+
+	// Local variable assigned a literal integer, then compared with a nested
+	// input field (input.user.numero). The schema has no additionalProperties.
+	t.Run("DefaultAllowLocalVarNestedInput", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+
+default allow := false
+
+allow if {
+    nombr := 69
+    input.user.numero == nombr
+}
+`
+		schema := []byte(`{
+			"type": "object",
+			"properties": {
+				"user": {
+					"type": "object",
+					"properties": {
+						"numero": {"type": "integer"}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
 }
