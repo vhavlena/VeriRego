@@ -9,11 +9,12 @@ import (
 
 // TypeAnalyzer performs type analysis on Rego AST
 type TypeAnalyzer struct {
-	packagePath ast.Ref
-	Types       map[string]RegoTypeDef // Store types by string key
-	Refs        map[string]ast.Value   // Map string keys back to original values
-	Schema      InputSchemaAPI         // Schema for input.* references
-	DataSchema  InputSchemaAPI         // Schema for data.* references
+	packagePath         ast.Ref
+	Types               map[string]RegoTypeDef          // Store types by string key
+	Refs                map[string]ast.Value            // Map string keys back to original values
+	Schema              InputSchemaAPI                  // Schema for input.* references
+	DataSchema          InputSchemaAPI                  // Schema for data.* references
+	RuleVarClassifications map[*ast.Rule]VarClassification // Per-rule variable classification (local vs. quantified)
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -27,9 +28,10 @@ type TypeAnalyzer struct {
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		Types:  make(map[string]RegoTypeDef),
-		Refs:   make(map[string]ast.Value),
-		Schema: schema,
+		Types:                  make(map[string]RegoTypeDef),
+		Refs:                   make(map[string]ast.Value),
+		Schema:                 schema,
+		RuleVarClassifications: make(map[*ast.Rule]VarClassification),
 	}
 }
 
@@ -45,10 +47,11 @@ func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		packagePath: packagePath,
-		Types:       make(map[string]RegoTypeDef),
-		Refs:        make(map[string]ast.Value),
-		Schema:      schema,
+		packagePath:            packagePath,
+		Types:                  make(map[string]RegoTypeDef),
+		Refs:                   make(map[string]ast.Value),
+		Schema:                 schema,
+		RuleVarClassifications: make(map[*ast.Rule]VarClassification),
 	}
 }
 
@@ -530,6 +533,8 @@ func (ta *TypeAnalyzer) AnalyzeRuleBody(rule *ast.Rule, tp *RegoTypeDef) {
 }
 
 // AnalyzeModule performs iterative type analysis on all rules in a Rego module.
+// After the type map converges, variable classifications (local vs. quantified)
+// are computed once per rule and stored in RuleVarClassifications.
 //
 // Parameters:
 //
@@ -553,6 +558,26 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 			break
 		}
 		prevTypeMap = CopyTypeMap(typeMap)
+	}
+
+	// Classify variables for each rule once types have converged.
+	if ta.RuleVarClassifications == nil {
+		ta.RuleVarClassifications = make(map[*ast.Rule]VarClassification)
+	}
+	for _, rule := range mod.Rules {
+		ta.RuleVarClassifications[rule] = ClassifyVars(rule)
+	}
+}
+
+// GetVarClassification returns the VarClassification for the given compiled
+// rule, or an empty classification if the rule was not analysed.
+func (ta *TypeAnalyzer) GetVarClassification(rule *ast.Rule) VarClassification {
+	if vc, ok := ta.RuleVarClassifications[rule]; ok {
+		return vc
+	}
+	return VarClassification{
+		Local:      make(map[string]bool),
+		Quantified: make(map[string]bool),
 	}
 }
 
