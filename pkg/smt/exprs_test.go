@@ -10,10 +10,18 @@ import (
 )
 
 func newDummyExprTranslator() *ExprTranslator {
-	// Setup a dummy type analyzer with some schema variables
+	// Setup a dummy type analyzer with some schema variables.
+	// The root key is "input" (the new architecture); nested fields are
+	// accessed via the path resolution in refToSmtValue.
 	ta := &types.TypeAnalyzer{
 		Types: map[string]types.RegoTypeDef{
-			"input.data.x": types.NewObjectType(map[string]types.RegoTypeDef{"y": types.NewAtomicType(types.AtomicBoolean)}),
+			"input": types.NewObjectType(map[string]types.RegoTypeDef{
+				"data": types.NewObjectType(map[string]types.RegoTypeDef{
+					"x": types.NewObjectType(map[string]types.RegoTypeDef{
+						"y": types.NewAtomicType(types.AtomicBoolean),
+					}),
+				}),
+			}),
 		},
 		Refs: map[string]ast.Value{},
 	}
@@ -31,10 +39,17 @@ func newTestExprTranslatorWithTypes(typeMap map[string]types.RegoTypeDef) *ExprT
 }
 
 func newDummyTranslator() *Translator {
-	// Setup a dummy type analyzer with some schema variables
+	// Setup a dummy type analyzer with some schema variables.
+	// The root key is "input" (the new architecture).
 	ta := &types.TypeAnalyzer{
 		Types: map[string]types.RegoTypeDef{
-			"input.data.x": types.NewObjectType(map[string]types.RegoTypeDef{"y": types.NewAtomicType(types.AtomicBoolean)}),
+			"input": types.NewObjectType(map[string]types.RegoTypeDef{
+				"data": types.NewObjectType(map[string]types.RegoTypeDef{
+					"x": types.NewObjectType(map[string]types.RegoTypeDef{
+						"y": types.NewAtomicType(types.AtomicBoolean),
+					}),
+				}),
+			}),
 		},
 		Refs: map[string]ast.Value{},
 	}

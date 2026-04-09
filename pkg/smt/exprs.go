@@ -503,7 +503,7 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 		}
 	} else {
 		name = removeQuotes(ref[len(ref)-1].String())
-		path = refToPath(ref[2:])
+		path = refToPath(ref[len(ref):])
 	}
 
 	tp, ok := et.TypeTrans.TypeInfo.Types[name]

@@ -288,11 +288,11 @@ func findConstString(sv *SmtValue) (string, error) {
 		return "", verr.ErrUnsupportedAtomic
 	}
 	s = s[start:]
-	end := strings.Index(s, "\"")
+	end := strings.Index(s[1:], "\"")
 	if end == -1 {
 		return "", verr.ErrUnsupportedAtomic
 	}
-	return s[start : end+1], nil
+	return s[:end+2], nil
 }
 
 func (sv *SmtValue) AsString() (*SmtValue, error) {
