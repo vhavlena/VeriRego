@@ -231,4 +231,25 @@ allow if {
 			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
 		}
 	})
+
+	// Test the referencing of rule variables in other rules
+	t.Run("VarRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+minimumAge := 18
+allow if {
+    input.age > minimumAge
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{"age":{"type":"integer"}},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
 }
