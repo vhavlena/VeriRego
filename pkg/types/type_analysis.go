@@ -650,5 +650,6 @@ func isEquality(name string) bool {
 func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI) *TypeAnalyzer {
 	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema)
 	analyzer.AnalyzeRule(rule)
+	analyzer.RuleVarClassifications[rule] = ClassifyVars(rule)
 	return analyzer
 }

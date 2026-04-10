@@ -129,12 +129,18 @@ func classifyExpr(expr *ast.Expr, vc *VarClassification) {
 			for _, t := range terms {
 				collectVarsFromTerm(t, vc)
 			}
-			return
+			break
 		}
 
 		op := terms[0].String()
 		args := terms[1:]
 		classifyCall(op, args, vc)
+	}
+
+	// Traverse "with" modifier values (e.g. `f(x) with input.user as x`).
+	// Variables that appear only in with-value positions must also be classified.
+	for _, w := range expr.With {
+		collectVarsFromTerm(w.Value, vc)
 	}
 }
 
