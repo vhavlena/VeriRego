@@ -62,7 +62,7 @@ func (et *ExprTranslator) ExprToSmt(expr *ast.Expr) (string, error) {
 	// If the expression is a call or operator (e.g., [op, arg1, arg2, ...])
 	terms, ok := expr.Terms.([]*ast.Term)
 	if !ok || len(terms) == 0 {
-		return "", verr.ErrInvalidEmptyTerm
+		return "", verr.ErrUnexpected
 	}
 
 	opStr := removeQuotes(terms[0].String())
@@ -109,7 +109,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 		// call
 		terms, ok := expr.Terms.([]*ast.Term)
 		if !ok || len(terms) == 0 {
-			return nil, localVarDefs, verr.ErrInvalidEmptyTerm
+			return nil, localVarDefs, verr.ErrUnexpected
 		}
 
 		opStr := removeQuotes(terms[0].String())
@@ -120,7 +120,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 			opStr = opParts[len(opParts)-1]
 			op, ok = et.funcMap[opStr]
 			if !ok {
-				return nil, localVarDefs, verr.ErrTypeNotFound // FIXME: error: function not found
+				return nil, localVarDefs, verr.ErrFunctionNotFound(opStr)
 			}
 		}
 
@@ -234,13 +234,13 @@ func getOperationReturnType(opName string) (types.AtomicType, error) {
 	if atomicType, found := funcMap[opName]; found {
 		return atomicType, nil
 	}
-	return types.AtomicUndef, verr.ErrUnsupportedFunction
+	return types.AtomicUndef,verr.ErrUnsupportedFunction(opName)
 }
 
 func getAtomConstructorForOperation(op string) (string, types.AtomicType, error) {
 	opType, err := getOperationReturnType(op)
 	if err != nil {
-		return "", "", verr.ErrUnsupportedFunction
+		return "", "", verr.ErrUnsupportedFunction(op)
 	}
 	return getAtomConstructorFromType(opType), opType, nil
 }
@@ -287,8 +287,7 @@ func (et *ExprTranslator) termToSmt(term *ast.Term) (string, error) {
 	case ast.Object:
 		return et.handleConstObject(v)
 	case ast.Set:
-		// Not directly supported in SMT-LIB, return error
-		return "", verr.ErrSetConversionNotSupported
+		return "", verr.ErrNotImplemented("sets")
 	case ast.Var:
 		// Variable name
 		return et.TypeTrans.getVarValue(v.String())
@@ -319,7 +318,7 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 		if val, ok := v.Int(); ok {
 			return NewSmtValueFromInt(val), nil
 		}
-		return nil, verr.ErrUnsupportedAtomic
+		return nil,verr.ErrInvalidInt(v.String())
 	case ast.Boolean:
 		return NewSmtValueFromBoolean(bool(v)), nil
 	case *ast.Array:
@@ -327,8 +326,7 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	case ast.Object:
 		return et.objectToSmt(v)
 	case ast.Set:
-		// Not directly supported in SMT-LIB, return error
-		return nil, verr.ErrSetConversionNotSupported
+		return nil, verr.ErrNotImplemented("sets")
 	case ast.Var:
 		return et.GetVarValue(v)
 	case ast.Ref:
@@ -357,7 +355,7 @@ func (et *ExprTranslator) GetVarValue(v ast.Var) (*SmtValue, error) {
 func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 	tp, ok := et.TypeTrans.TypeInfo.Types[arr.String()]
 	if !ok {
-		return nil, verr.ErrTypeNotFound
+		return nil, verr.ErrTypeNotFound(arr.String())
 	}
 
 	depth := tp.TypeDepth()
@@ -382,7 +380,7 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 func (et *ExprTranslator) objectToSmt(obj ast.Object) (*SmtValue, error) {
 	tp, ok := et.TypeTrans.TypeInfo.Types[obj.String()]
 	if !ok {
-		return nil, verr.ErrTypeNotFound
+		return nil, verr.ErrTypeNotFound(obj.String())
 	}
 
 	depth := tp.TypeDepth()
@@ -468,7 +466,7 @@ func (et *ExprTranslator) regoFuncToSmt(op string, args []string, terms []*ast.T
 // type, navigates the field path via getSmtRef, and wraps the result.
 func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 	if len(ref) == 0 {
-		return nil, verr.ErrEmptyReferenceConv
+		return nil, verr.ErrUnexpected
 	}
 
 	head := ref[0].Value.String()
@@ -492,14 +490,14 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 				name = "data"
 				path = dataPath
 			} else {
-				return nil, verr.ErrTypeNotFound
+				return nil, verr.ErrTypeNotFound(ref.String())
 			}
 		}
 	}
 
 	tp, ok := et.TypeTrans.TypeInfo.Types[name]
 	if !ok {
-		return nil, verr.ErrTypeNotFound
+		return nil, verr.ErrTypeNotFound(name)
 	}
 	smtRef, actType, err := getSmtRef(name, path, &tp)
 	if err != nil {
@@ -529,7 +527,7 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 //	error: An error if the reference cannot be converted.
 func (et *ExprTranslator) refToSmt(ref ast.Ref) (string, error) {
 	if len(ref) == 0 {
-		return "", verr.ErrEmptyReferenceConv
+		return "", verr.ErrUnexpected
 	}
 
 	head := ref[0].Value.String()
@@ -585,7 +583,7 @@ func (et *ExprTranslator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 	termStr := arr.String()
 	tp, ok := et.TypeTrans.TypeInfo.Types[termStr]
 	if !ok {
-		return "", verr.ErrTypeNotFound
+		return "", verr.ErrTypeNotFound(termStr)
 	}
 	varDeclBucket, err := et.TypeTrans.getVarDeclaration(varName, &tp)
 	if err != nil {
@@ -630,14 +628,14 @@ func (et *ExprTranslator) declareUnintFunc(name string, terms []*ast.Term) error
 	for i := 1; i < len(terms); i++ {
 		tp, ok := et.TypeTrans.TypeInfo.Types[terms[i].String()]
 		if !ok {
-			return verr.ErrTypeNotFound
+			return verr.ErrTypeNotFound(terms[i].String())
 		}
 		pars[i-1] = et.TypeTrans.getSmtType(&tp)
 	}
 	// gather return type
 	rtype, ok := et.TypeTrans.TypeInfo.Types[terms[0].String()]
 	if !ok {
-		return verr.ErrTypeNotFound
+		return verr.ErrTypeNotFound(terms[0].String())
 	}
 
 	decl := DeclareFun(name, pars, et.TypeTrans.getSmtType(&rtype))
@@ -659,7 +657,7 @@ func (et *ExprTranslator) handleConstObject(obj ast.Object) (string, error) {
 	varName := et.TypeTrans.getFreshVariable("const_obj", et.context.VarMap)
 	tp, ok := et.TypeTrans.TypeInfo.Types[obj.String()]
 	if !ok {
-		return "", verr.ErrTypeNotFound
+		return "", verr.ErrTypeNotFound(obj.String())
 	}
 
 	declBucket, err := et.TypeTrans.getVarDeclaration(varName, &tp)

@@ -9,7 +9,7 @@ import (
 
 	"github.com/open-policy-agent/opa/v1/ast"
 
-	"github.com/vhavlena/verirego/pkg/err"
+	verr "github.com/vhavlena/verirego/pkg/err"
 	"github.com/vhavlena/verirego/pkg/types"
 )
 
@@ -218,10 +218,8 @@ func getTypeConstr(depth int, tp *types.RegoTypeDef) (string, error) {
 			return "is-ONull", nil
 		case types.AtomicUndef:
 			return "is-OUndef", nil
-		case types.AtomicFunction, types.AtomicSet:
-			return "", err.ErrUnsupportedAtomic
 		default:
-			return "", err.ErrUnsupportedAtomic
+			return "", verr.ErrUnsupportedAtomic(tp.PrettyPrint())
 		}
 	} else if tp.IsArray() {
 		return fmt.Sprintf("is-OArray%d", depth), nil
@@ -320,7 +318,7 @@ func (td *TypeTranslator) getSmtConstrAssert(smtValue string, tp *types.RegoType
 	bucket := NewBucket()
 	andBucket, er := td.getSmtConstr(smtValue, tp)
 	if er != nil {
-		return nil, err.ErrSmtConstraints(er)
+		return nil, verr.ErrSmtConstraints(er)
 	}
 	andProp := AndPtrs(andBucket.Props)
 	bucket.Asserts = append(bucket.Asserts, Assert(andProp))
@@ -347,7 +345,7 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 	case tp.IsUnion():
 		return td.getSmtUnionConstr(smtValue, tp)
 	default:
-		return nil, err.ErrUnsupportedType
+		return nil, verr.ErrUnsupportedType(smtValue, tp.PrettyPrint())
 	}
 }
 
@@ -365,7 +363,7 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 // - `error`: Non-nil if `tp` is not a union or member constraints fail.
 func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsUnion() {
-		return nil, err.ErrUnsupportedType
+		return nil, verr.ErrUnsupportedType(smtValue, tp.PrettyPrint())
 	}
 
 	bucket := NewPropBucket()
@@ -401,7 +399,7 @@ func (td *TypeTranslator) getSmtUnionConstr(smtValue string, tp *types.RegoTypeD
 // - `error`: Non-nil if `tp` is not an object or a field type is missing.
 func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsObject() {
-		return nil, err.ErrUnsupportedType
+		return nil, verr.ErrUnsupportedType(smtValue, tp.PrettyPrint())
 	}
 
 	bucket := NewPropBucket()
@@ -415,7 +413,7 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 	for _, key := range keys {
 		val, found := tp.ObjectFields.Get(key)
 		if !found {
-			return nil, err.ErrSmtFieldConstraints(key, err.ErrTypeNotFound)
+			return nil, verr.ErrMissingObjectKey(smtValue, key)
 		}
 		sel := fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtValue, key)
 		if !val.IsAtomic() {
@@ -426,9 +424,9 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 			bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, sel)))
 		}
 
-		valAnalysis, er := td.getSmtConstr(sel, val)
-		if er != nil {
-			return nil, err.ErrSmtFieldConstraints(key, er)
+		valAnalysis, err := td.getSmtConstr(sel, val)
+		if err != nil {
+			return nil, verr.ErrSmtFieldConstraints(key, err)
 		}
 		bucket.Append(valAnalysis)
 	}
@@ -502,7 +500,7 @@ func (td *TypeTranslator) getSmtUndefValue(depth int) string {
 // - `error`: Non-nil if `leafType` is nil or non-atomic.
 func (td *TypeTranslator) getSmtLeafVarDefs(leafName string, leafType *types.RegoTypeDef) (*Bucket, error) {
 	if leafType == nil || !leafType.IsAtomic() {
-		return nil, err.ErrUnsupportedType
+		return nil, verr.ErrUnsupportedType(leafName, leafType.PrettyPrint())
 	}
 
 	bucket := NewBucket()
@@ -562,7 +560,7 @@ func (td *TypeTranslator) getSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bu
 // - `error`: Non-nil if `tp` is not a supported simple object.
 func (td *TypeTranslator) getSmtObjStoreExprRec(tp *types.RegoTypeDef, depth int, usedVars map[string]string) (string, *Bucket, error) {
 	if tp == nil || !tp.IsObject() {
-		return "", nil, err.ErrUnsupportedType
+		return "", nil, verr.ErrNotObjectTypeSign
 	}
 	keys := tp.ObjectFields.GetKeys()
 	sort.Strings(keys)
@@ -577,10 +575,10 @@ func (td *TypeTranslator) getSmtObjStoreExprRec(tp *types.RegoTypeDef, depth int
 	for _, key := range keys {
 		fieldType, found := tp.ObjectFields.Get(key)
 		if !found {
-			return "", nil, err.ErrTypeNotFound
+			return "", nil, verr.ErrUnexpected
 		}
 		if fieldType == nil {
-			return "", nil, err.ErrUnsupportedType
+			return "", nil, verr.ErrUnsupportedTypeSign
 		}
 
 		switch {
@@ -610,7 +608,7 @@ func (td *TypeTranslator) getSmtObjStoreExprRec(tp *types.RegoTypeDef, depth int
 
 		default:
 			// Arrays/unions are not constructed here (only object nesting requested).
-			return "", nil, err.ErrUnsupportedType
+			return "", nil, verr.ErrUnsupportedTypeSign
 		}
 	}
 
@@ -629,7 +627,7 @@ func (td *TypeTranslator) getSmtObjStoreExprRec(tp *types.RegoTypeDef, depth int
 // - `error`: Non-nil if the object type is unsupported.
 func (td *TypeTranslator) GetSmtObjStoreExpr(tp *types.RegoTypeDef) (string, *Bucket, error) {
 	if tp == nil || !tp.HasNoAdditionalPropertiesDeep() {
-		return "", nil, err.ErrUnsupportedType
+		return "", nil, verr.ErrUnsupportedTypeSign
 	}
 	return td.getSmtObjStoreExpr(tp)
 }
@@ -666,7 +664,7 @@ func (td *TypeTranslator) GetSmtObjectConstrStore(smtValue string, tp *types.Reg
 // - `error`: Non-nil if `tp` is not atomic or unsupported.
 func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsAtomic() {
-		return nil, err.ErrUnsupportedType
+		return nil, verr.ErrUnexpected
 	}
 	constr, err := getTypeConstr(0, tp)
 	if err != nil {
@@ -692,7 +690,7 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 // - `error`: Non-nil if `tp` is not an array or element constraints fail.
 func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
 	if !tp.IsArray() {
-		return nil, err.ErrUnsupportedType
+		return nil, verr.ErrUnexpectedValueType(smtValue, "array")
 	}
 
 	bucket := NewPropBucket()
@@ -731,7 +729,7 @@ func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *ty
 		}
 		val, found := actType.ObjectFields.Get(p)
 		if !found {
-			return "", nil, fmt.Errorf("field not found in object type: %s", p)
+			return "", nil, verr.ErrMissingObjectKey(smtvar, p)
 		}
 		depth := max(actType.TypeDepth(), 0)
 		actType = val
@@ -871,10 +869,8 @@ func (td *TypeTranslator) getAtomValue(name string, tp *types.RegoTypeDef) (stri
 		return "ONull", nil
 	case types.AtomicUndef:
 		return "OUndef", nil
-	case types.AtomicFunction, types.AtomicSet:
-		return "", err.ErrUnsupportedAtomic
 	default:
-		return "", err.ErrUnsupportedAtomic
+		return "", verr.ErrUnsupportedAtomic(tp.PrettyPrint())
 	}
 }
 
@@ -915,7 +911,7 @@ func (td *TypeTranslator) getSmtValue(smt string, tp *types.RegoTypeDef) (string
 func (td *TypeTranslator) getVarValue(name string) (string, error) {
 	tp, ok := td.TypeInfo.Types[name]
 	if !ok {
-		return "", err.ErrTypeNotFound
+		return "", verr.ErrTypeNotFound(name)
 	}
 	return td.getSmtValue(name, &tp)
 }
