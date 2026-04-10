@@ -38,7 +38,7 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 //  *SmtValue: assignment - value, which is conditional to the rule body
 //  error
 func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error) {
-	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap, t.funcMap)
+	exprTrans := t.IntoExprTranslator()
 	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
 	if err != nil {
 		return nil, nil, err

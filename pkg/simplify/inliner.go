@@ -8,6 +8,7 @@ import (
 type Inliner struct {
 	inlinePreds map[string]*ast.Rule
 	packagePath ast.Ref
+	usedPreds   map[string]bool // tracks which inlinable predicates were actually substituted
 }
 
 // NewInliner creates a new Inliner with an empty inlinePreds map.
@@ -16,7 +17,11 @@ type Inliner struct {
 //
 // *Inliner: A new Inliner instance.
 func NewInliner() *Inliner {
-	return &Inliner{inlinePreds: make(map[string]*ast.Rule), packagePath: ast.Ref{}}
+	return &Inliner{
+		inlinePreds: make(map[string]*ast.Rule),
+		packagePath: ast.Ref{},
+		usedPreds:   make(map[string]bool),
+	}
 }
 
 // GatherInlinePredicates sets the inlinePreds map to rules that assign true and have only one expression in the body.
@@ -26,6 +31,7 @@ func NewInliner() *Inliner {
 // module (*ast.Module): The AST module to scan for inlinable predicates.
 func (inl *Inliner) GatherInlinePredicates(module *ast.Module) {
 	inl.inlinePreds = map[string]*ast.Rule{}
+	inl.usedPreds = make(map[string]bool)
 	for _, rule := range module.Rules {
 		if rule.Head.Value == nil {
 			continue
@@ -68,6 +74,8 @@ func (inl *Inliner) inlinePredicates(expr *ast.Expr, funcDefs map[string]*ast.Ru
 	if !ok {
 		return []*ast.Expr{expr}
 	}
+	// Record that this predicate was actually used in inlining.
+	inl.usedPreds[funcName] = true
 	// Map arguments to parameters
 	argMap := map[string]*ast.Term{}
 	for i, param := range def.Head.Args {
@@ -202,13 +210,28 @@ func (inl *Inliner) InlineModule(module *ast.Module) *ast.Module {
 		inl.packagePath = module.Package.Path
 	}
 	newModule := *module
-	newRules := make([]*ast.Rule, 0, len(module.Rules))
+	// First pass: inline rule bodies so that usedPreds is populated.
+	inlinedRules := make([]*ast.Rule, 0, len(module.Rules))
 	for _, rule := range module.Rules {
-		// Only keep rules that are not in the inlinePreds map (i.e., not substituted)
-		if _, isInlined := inl.inlinePreds[rule.Head.Name.String()]; isInlined {
+		inlinedRules = append(inlinedRules, inl.InlineRule(rule))
+	}
+	// Second pass: drop only predicates that were actually substituted into
+	// another rule. Predicates that appear in inlinePreds but were never
+	// referenced elsewhere are kept so that top-level policy rules (e.g.
+	// "allow if { ... }") are not silently discarded.
+	newRules := make([]*ast.Rule, 0, len(inlinedRules))
+	for _, rule := range inlinedRules {
+		name := rule.Head.Name.String()
+		if _, isInlineable := inl.inlinePreds[name]; isInlineable {
+			if !inl.usedPreds[name] {
+				// Never used as a helper — keep the rule as-is.
+				newRules = append(newRules, rule)
+				continue
+			}
+			// Was actually inlined somewhere — remove it.
 			continue
 		}
-		newRules = append(newRules, inl.InlineRule(rule))
+		newRules = append(newRules, rule)
 	}
 	newModule.Rules = newRules
 	return &newModule
