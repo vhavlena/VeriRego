@@ -824,27 +824,6 @@ func TestTermToSmtValue_Ref(t *testing.T) {
 			t.Errorf("expected select expression over 'data' accessing 'token', got %q", s)
 		}
 	})
-
-	t.Run("NonInputNonDataRef_FallbackToLastComponent", func(t *testing.T) {
-		t.Parallel()
-		// For refs that are neither input.* nor data.*, we fall back to the last component.
-		// Build the ref manually since "some.y" is not valid standalone Rego syntax.
-		ref := ast.Ref{
-			ast.NewTerm(ast.Var("some")),
-			ast.NewTerm(ast.String("y")),
-		}
-		typeMap := map[string]types.RegoTypeDef{
-			"y": types.NewAtomicType(types.AtomicInt),
-		}
-		et := newTestExprTranslatorWithTypes(typeMap)
-		val, err := et.termToSmtValue(ast.NewTerm(ref))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !strings.Contains(val.String(), "y") {
-			t.Errorf("expected SMT value to reference 'y', got %q", val.String())
-		}
-	})
 }
 
 // generateSMT is a test helper that runs the compile → inline → type-infer →

@@ -359,6 +359,10 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	return NewUnknownType()
 }
 
+func (ta *TypeAnalyzer) GetPackagePath() *ast.Ref {
+	return &ta.packagePath
+}
+
 // AnalyzeRule analyzes the given Rego rule and records the inferred type for the rule head.
 //
 // For parametric rules (functions) — those whose head carries at least one argument —

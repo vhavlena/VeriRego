@@ -11,25 +11,19 @@ import (
 
 // ExprTranslator handles the translation of Rego expressions to SMT-LIB format.
 type ExprTranslator struct {
-	TypeTrans *TypeTranslator // Type definitions and type-related operations
-	funcMap   map[string]Function
-	context   *TransContext // Context to collect generated SMT declarations, assertions, and variable mappings
+	TypeTrans   *TypeTranslator // Type definitions and type-related operations
+	funcMap     map[string]Function
+	context     *TransContext // Context to collect generated SMT declarations, assertions, and variable mappings
+	packagePath *ast.Ref      // Path of the currently processed package (TODO: this needs to be changed when introducing import of other Rego modules)
 }
 
 // NewExprTranslator creates a new ExprTranslator instance.
 func NewExprTranslator(typeTrans *TypeTranslator) *ExprTranslator {
 	return &ExprTranslator{
-		TypeTrans: typeTrans,
-		funcMap:   GetBuiltinFuncMap(),
-		context:   NewTransContext(),
-	}
-}
-
-func NewExprTranslatorWithVarMap(typeTrans *TypeTranslator, varMap map[string]string, funcMap map[string]Function) *ExprTranslator {
-	return &ExprTranslator{
-		TypeTrans: typeTrans,
-		funcMap:   funcMap,
-		context:   NewTransContextWithVarMap(varMap),
+		TypeTrans:   typeTrans,
+		funcMap:     GetBuiltinFuncMap(),
+		context:     NewTransContext(),
+		packagePath: typeTrans.TypeInfo.GetPackagePath(),
 	}
 }
 
@@ -480,7 +474,12 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 	head := ref[0].Value.String()
 	var name string
 	var path []string
-	if len(ref) >= 2 && head == "input" {
+	prefix := *et.packagePath
+	if ref.HasPrefix(prefix) && len(prefix) != 0 {
+		// Rule variable: <module-prefix>.<variable> ... e.g. data.test.foo
+		name = removeQuotes(ref[len(prefix)].String())
+		path = refToPath(ref[len(prefix)+1:])
+	} else if len(ref) >= 2 && head == "input" {
 		name = "input"
 		path = refToPath(ref[1:])
 	} else if len(ref) >= 2 && head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
@@ -493,17 +492,9 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 				name = "data"
 				path = dataPath
 			} else {
-				// Rule variable: data.<module>.<variable>
-				name = removeQuotes(ref[len(ref)-1].String())
-				path = refToPath(ref[len(ref):])
+				return nil, verr.ErrTypeNotFound
 			}
-		} else {
-			name = removeQuotes(ref[len(ref)-1].String())
-			path = refToPath(ref[len(ref):])
 		}
-	} else {
-		name = removeQuotes(ref[len(ref)-1].String())
-		path = refToPath(ref[len(ref):])
 	}
 
 	tp, ok := et.TypeTrans.TypeInfo.Types[name]
