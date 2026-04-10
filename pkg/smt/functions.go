@@ -61,7 +61,7 @@ type Function struct {
 // SmtCall generates a SMT representation of call of given function
 func (f *Function) SmtCall(params []SmtValue) (*SmtValue,error) {
 	if len(f.args) != len(params) {
-		return nil, verr.ErrTypeNotFound // TODO: change error
+		return nil, verr.ErrUnexpected
 	}
 
 	callVal := "("
@@ -69,7 +69,7 @@ func (f *Function) SmtCall(params []SmtValue) (*SmtValue,error) {
 	for i := range f.args {
 		smt, err := params[i].AsArgType(f.args[i])
 		if err != nil {
-			return nil, verr.ErrTypeNotFound // TODO: change error
+			return nil, verr.ErrUnexpectedValueType(params[i].String(), string(f.args[i].atomic))
 		}
 		callVal += " "
 		callVal += smt.String()

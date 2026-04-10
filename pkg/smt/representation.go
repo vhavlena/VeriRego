@@ -72,7 +72,7 @@ func NewSmtValueFromVar(v ast.Var, exprTrans *ExprTranslator) (*SmtValue, error)
 	name := removeQuotes(v.String())
 	tp, ok := exprTrans.TypeTrans.TypeInfo.Types[name]
 	if !ok {
-		return nil, verr.ErrTypeNotFound
+		return nil, verr.ErrTypeNotFound(name)
 	}
 	types := getAtomicTypes(tp)
 	return &SmtValue{
@@ -285,19 +285,19 @@ func findConstString(sv *SmtValue) (string, error) {
 	s := sv.value
 	start := strings.Index(s, "\"")
 	if start == -1 {
-		return "", verr.ErrUnsupportedAtomic
+		return "", fmt.Errorf("smt value %s does not contain a string literal", sv.String())
 	}
 	s = s[start:]
 	end := strings.Index(s[1:], "\"")
 	if end == -1 {
-		return "", verr.ErrUnsupportedAtomic
+		return "", fmt.Errorf("smt value %s does not contain a string literal", sv.String())
 	}
 	return s[:end+2], nil
 }
 
 func (sv *SmtValue) AsString() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicString) {
-		return nil, verr.ErrUnsupportedType // FIXME: better error type
+		return nil, verr.ErrUnexpectedValueType(sv.String(), "string")
 	}
 
 	if sv.isConst {
@@ -314,7 +314,7 @@ func (sv *SmtValue) AsString() (*SmtValue, error) {
 
 func (sv *SmtValue) AsInt() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicInt) {
-		return nil, verr.ErrUnsupportedType // FIXME: better error type
+		return nil, verr.ErrUnexpectedValueType(sv.String(), "int")
 	}
 
 	if sv.isConst {
@@ -332,7 +332,7 @@ func (sv *SmtValue) AsInt() (*SmtValue, error) {
 
 func (sv *SmtValue) AsBool() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicBoolean) {
-		return nil, verr.ErrUnsupportedType // FIXME: better error type
+		return nil, verr.ErrUnexpectedValueType(sv.String(), "bool")
 	}
 
 	if sv.isConst {
@@ -352,7 +352,7 @@ func (sv *SmtValue) AsBool() (*SmtValue, error) {
 func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue, error) {
 	if t.depth == -1 {
 		if !sv.TypeIs(t.atomic) {
-			return nil, verr.ErrUnsupportedType // FIXME: Incorrect type
+			panic("unreachable")
 		}
 		if sv.depth == -1 {
 			return sv, nil

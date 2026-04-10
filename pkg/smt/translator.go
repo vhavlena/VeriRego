@@ -142,7 +142,7 @@ func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
 		def := NewSmtValue("OUndef", 0) 
 		return def.WrapToDepth(depth),nil
 	}
-	return nil,verr.ErrTypeNotFound
+	return nil,verr.ErrTypeNotFound(varName)
 }
 
 // IntoExprTranslator creates an ExprTranslator populated with values from given Translator

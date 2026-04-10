@@ -77,7 +77,7 @@ func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 		name := removeQuotes(arg.String())
 		tp, ok := t.TypeTrans.TypeInfo.Types[name]
 		if !ok {
-			return nil, verr.ErrTypeNotFound
+			return nil, verr.ErrTypeNotFound(name)
 		}
 		depth := tp.TypeDepth()
 		args = append(args, Arg{name, depth})
