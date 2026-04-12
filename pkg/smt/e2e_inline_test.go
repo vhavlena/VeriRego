@@ -253,6 +253,65 @@ allow if {
 		}
 	})
 
+	// allow if { input.user.numero == 69 } with no default.
+	// Without a default, the only satisfying model has allow=true and numero=69.
+	// Schema: user.numero is an integer with no additionalProperties.
+	// The model must assign 69 to input.user.numero.
+	t.Run("DefaultAllowNestedInputLiteral", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+
+allow if {
+    input.user.numero == 69
+}
+`
+		schema := []byte(`{
+			"type": "object",
+			"properties": {
+				"user": {
+					"type": "object",
+					"properties": {
+						"numero": {"type": "integer"}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+		inputVal, ok := result.Vars["input"]
+		if !ok {
+			t.Fatalf("expected 'input' in model vars, got: %v", varKeys(result.Vars))
+		}
+		inputMap, ok := inputVal.Map()
+		if !ok {
+			t.Fatalf("expected input to be a map, got kind: %s", inputVal.Kind())
+		}
+		userVal, ok := inputMap["user"]
+		if !ok {
+			t.Fatalf("expected 'user' field in input map, got: %v", inputVal.AsInterface())
+		}
+		userMap, ok := userVal.Map()
+		if !ok {
+			t.Fatalf("expected input.user to be a map, got kind: %s", userVal.Kind())
+		}
+		numeroVal, ok := userMap["numero"]
+		if !ok {
+			t.Fatalf("expected 'numero' field in input.user, got: %v", userVal.AsInterface())
+		}
+		num, ok := numeroVal.Int64()
+		if !ok || num != 69 {
+			t.Fatalf("expected input.user.numero == 69, got: %v (ok=%v)", num, ok)
+		}
+	})
+
 	// Local variable assigned a literal integer, then compared with a nested
 	// input field (input.user.numero). The schema has no additionalProperties.
 	t.Run("DefaultAllowLocalVarNestedInput", func(t *testing.T) {
