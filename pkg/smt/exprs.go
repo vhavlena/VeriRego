@@ -150,7 +150,15 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 			if variable, ok := terms[1].Value.(ast.Var); ok {
 				name := removeQuotes(variable.String())
 				if definedVars[name] != true {
-					localVarDefs = append(localVarDefs, varDef{name, params[1]})
+					rhs := params[1]
+					// Wrap the RHS constant to the declared type depth of the target variable so
+					// the let-binding has the correct sort (e.g. (ONumber 69) instead of 69).
+					if tp, ok := et.TypeTrans.TypeInfo.Types[name]; ok {
+						if wrapped := rhs.WrapToDepth(tp.TypeDepth()); wrapped != nil {
+							rhs = *wrapped
+						}
+					}
+					localVarDefs = append(localVarDefs, varDef{name, rhs})
 					definedVars[name] = true
 				} else {
 					varSmt, err := et.GetVarValue(variable)
