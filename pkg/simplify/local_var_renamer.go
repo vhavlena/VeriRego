@@ -66,5 +66,9 @@ func (r *LocalVarRenamer) SimplifyRule(rule *ast.Rule) *ast.Rule {
 		assigned[varName] = newName
 		return newName, true
 	}
-	return util.RenameLocalVarsInRule(rule, 0, fn)
+	// Each occurrence of "_" is independent, so give every one its own fresh name.
+	wildcardFn := func(_ string, _ int, _ string) (string, bool) {
+		return r.freshName(), true
+	}
+	return util.RenameLocalAndWildcardVarsInRule(rule, 0, fn, wildcardFn)
 }

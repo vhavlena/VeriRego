@@ -261,6 +261,37 @@ allow if {
 	}
 }
 
+// Each "_" wildcard occurrence (compiled by OPA to "$0", "$1", etc.) must be
+// replaced by a distinct fresh name.
+func TestSimplifyRule_WildcardsReplaced(t *testing.T) {
+	src := `package test
+import rego.v1
+foo = true if {
+    __local0__ = data.test.sites[_].servers[_].hostname
+    gt(__local0__, 3)
+}`
+	module := mustParseModule(t, src)
+	rule := module.Rules[0]
+	r := NewLocalVarRenamer()
+	renamed := r.SimplifyRule(rule)
+
+	vars := collectAllVarNames(renamed)
+	if vars["_"] > 0 {
+		t.Errorf("wildcard '_' should have been replaced but is still present")
+	}
+
+	// There must be at least two distinct fresh names for the two "_" occurrences.
+	freshNames := map[string]bool{}
+	for name := range vars {
+		if strings.HasPrefix(name, "__lv") {
+			freshNames[name] = true
+		}
+	}
+	if len(freshNames) < 2 {
+		t.Errorf("expected at least 2 distinct fresh names for two '_' occurrences, got %v", freshNames)
+	}
+}
+
 // Quantified variables must not be renamed.
 func TestSimplifyRule_QuantifiedVarsUntouched(t *testing.T) {
 	src := `package test

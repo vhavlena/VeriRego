@@ -3,6 +3,7 @@ package util
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/vhavlena/verirego/pkg/types"
@@ -50,12 +51,24 @@ func RenameLocalVarsInModule(module *ast.Module, fn RenameFunc) *ast.Module {
 // The function operates on a deep copy of the rule so the original is not
 // mutated.
 func RenameLocalVarsInRule(rule *ast.Rule, ruleIdx int, fn RenameFunc) *ast.Rule {
+	return RenameLocalAndWildcardVarsInRule(rule, ruleIdx, fn, nil)
+}
+
+// RenameLocalAndWildcardVarsInRule is like [RenameLocalVarsInRule] but also
+// replaces every occurrence of an OPA-generated wildcard variable (names that
+// start with "$", e.g. "$0", "$1") by calling wildcardFn.  OPA renames each
+// "_" occurrence to a unique "$N" name during parsing, so wildcardFn is
+// invoked once per variable occurrence and can return a distinct fresh name
+// for each.  Pass nil for wildcardFn to leave wildcard variables unchanged
+// (identical behaviour to [RenameLocalVarsInRule]).
+func RenameLocalAndWildcardVarsInRule(rule *ast.Rule, ruleIdx int, fn RenameFunc, wildcardFn RenameFunc) *ast.Rule {
 	vc := types.ClassifyVars(rule)
 	w := &renameWalker{
-		ruleName:  rule.Head.Name.String(),
-		ruleIdx:   ruleIdx,
-		localVars: vc.Local,
-		fn:        fn,
+		ruleName:   rule.Head.Name.String(),
+		ruleIdx:    ruleIdx,
+		localVars:  vc.Local,
+		fn:         fn,
+		wildcardFn: wildcardFn,
 	}
 	return w.inRule(rule)
 }
@@ -65,10 +78,11 @@ func RenameLocalVarsInRule(rule *ast.Rule, ruleIdx int, fn RenameFunc) *ast.Rule
 // ──────────────────────────────────────────────────────────────────────────────
 
 type renameWalker struct {
-	ruleName  string
-	ruleIdx   int
-	localVars map[string]bool
-	fn        RenameFunc
+	ruleName   string
+	ruleIdx    int
+	localVars  map[string]bool
+	fn         RenameFunc
+	wildcardFn RenameFunc
 }
 
 func (w *renameWalker) inRule(rule *ast.Rule) *ast.Rule {
@@ -145,6 +159,11 @@ func (w *renameWalker) inValue(val ast.Value) ast.Value {
 	switch v := val.(type) {
 	case ast.Var:
 		name := string(v)
+		if strings.HasPrefix(name, "$") && w.wildcardFn != nil {
+			if newName, ok := w.wildcardFn(w.ruleName, w.ruleIdx, name); ok {
+				return ast.Var(newName)
+			}
+		}
 		if w.localVars[name] {
 			if newName, ok := w.fn(w.ruleName, w.ruleIdx, name); ok {
 				return ast.Var(newName)
