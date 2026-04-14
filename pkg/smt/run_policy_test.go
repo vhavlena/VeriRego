@@ -26,11 +26,12 @@ type PolicyModel struct {
 //
 //  1. Parse the Rego source (Rego v1).
 //  2. Compile with OPA's compiler.
-//  3. Inline predicate definitions.
-//  4. Infer types, optionally guided by a JSON Schema document.
-//  5. Translate to SMT-LIB.
-//  6. Assert the SMT-LIB in Z3 and check satisfiability.
-//  7. Extract and return a model for all declared global variables.
+//  3. Rename local variables to unique names.
+//  4. Inline predicate definitions.
+//  5. Infer types, optionally guided by a JSON Schema document.
+//  6. Translate to SMT-LIB.
+//  7. Assert the SMT-LIB in Z3 and check satisfiability.
+//  8. Extract and return a model for all declared global variables.
 //
 // The returned PolicyModel includes the raw SMT-LIB2 string (SmtContent) for
 // debugging and testing purposes, regardless of satisfiability.
@@ -64,12 +65,16 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	}
 	compiledModule := compiler.Modules[mod.Package.Path.String()]
 
-	// 3. Inline predicate definitions.
+	// 3. Rename local variables to unique names before any simplification.
+	renamer := simplify.NewLocalVarRenamer()
+	compiledModule = renamer.SimplifyModule(compiledModule)
+
+	// 4. Inline predicate definitions.
 	inliner := simplify.NewInliner()
 	inliner.GatherInlinePredicates(compiledModule)
 	compiledModule = inliner.InlineModule(compiledModule)
 
-	// 4. Build input schema from the JSON Schema document.
+	// 5. Build input schema from the JSON Schema document.
 	// GenerateSmtContent always declares input, which requires a
 	// typed schema to generate constraints. Fall back to an empty object schema
 	// when no JSON Schema is provided so the pipeline succeeds.
@@ -82,7 +87,7 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 		inputSchema = js
 	}
 
-	// 4b. Build data schema from the JSON Schema document (optional).
+	// 5b. Build data schema from the JSON Schema document (optional).
 	var dataSchema types.InputSchemaAPI
 	if len(dataJsonSchema) > 0 {
 		js := types.NewInputJsonSchema()
@@ -92,19 +97,19 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 		dataSchema = js
 	}
 
-	// 5. Run type inference.
+	// 6. Run type inference.
 	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema)
 	typeAnalyzer.DataSchema = dataSchema
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
-	// 6. Generate SMT-LIB content.
+	// 7. Generate SMT-LIB content.
 	translator := NewTranslator(typeAnalyzer, compiledModule)
 	if err := translator.GenerateSmtContent(); err != nil {
 		return nil, fmt.Errorf("smt generation: %w", err)
 	}
 	smtContent := strings.Join(translator.SmtLines(), "\n")
 
-	// 7. Assert the SMT-LIB in Z3 and check satisfiability.
+	// 8. Assert the SMT-LIB in Z3 and check satisfiability.
 	// smtContent is also stored in the returned PolicyModel for debugging.
 	ctx := z3.NewContext(nil)
 	defer ctx.Close()
@@ -122,7 +127,7 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 		return nil, fmt.Errorf("formula is %v", res)
 	}
 
-	// 8. Extract model values for all declared global variables.
+	// 9. Extract model values for all declared global variables.
 	z3Model := solver.Model()
 	defer z3Model.Close()
 

@@ -60,6 +60,10 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, data
 
 	compiledModule := compiler.Modules[mod.Package.Path.String()]
 
+	// Rename local variables to unique names before any simplification.
+	renamer := simplify.NewLocalVarRenamer()
+	compiledModule = renamer.SimplifyModule(compiledModule)
+
 	if inline {
 		inliner := simplify.NewInliner()
 		inliner.GatherInlinePredicates(compiledModule)
