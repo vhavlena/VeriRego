@@ -73,6 +73,23 @@ func RenameLocalAndWildcardVarsInRule(rule *ast.Rule, ruleIdx int, fn RenameFunc
 	return w.inRule(rule)
 }
 
+// RenameVarsInBranchOnly renames variables in the head and body of rule using
+// the caller-supplied localVars set.  Unlike [RenameLocalAndWildcardVarsInRule],
+// it does NOT recurse into else branches — the caller is responsible for
+// renaming them separately.  This enables each else branch to be processed
+// as an independent scope with its own fresh-name mapping.
+func RenameVarsInBranchOnly(rule *ast.Rule, ruleIdx int, localVars map[string]bool, fn RenameFunc, wildcardFn RenameFunc) *ast.Rule {
+	w := &renameWalker{
+		ruleName:   rule.Head.Name.String(),
+		ruleIdx:    ruleIdx,
+		localVars:  localVars,
+		fn:         fn,
+		wildcardFn: wildcardFn,
+		noElse:     true,
+	}
+	return w.inRule(rule)
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // renameWalker — deep-copies the AST while calling fn for each local-var occurrence
 // ──────────────────────────────────────────────────────────────────────────────
@@ -83,6 +100,7 @@ type renameWalker struct {
 	localVars  map[string]bool
 	fn         RenameFunc
 	wildcardFn RenameFunc
+	noElse     bool // if true, inRule does not recurse into Else branches
 }
 
 func (w *renameWalker) inRule(rule *ast.Rule) *ast.Rule {
@@ -93,7 +111,7 @@ func (w *renameWalker) inRule(rule *ast.Rule) *ast.Rule {
 		newBody[i] = w.inExpr(expr)
 	}
 	newRule.Body = newBody
-	if rule.Else != nil {
+	if rule.Else != nil && !w.noElse {
 		newRule.Else = w.inRule(rule.Else)
 	}
 	return &newRule

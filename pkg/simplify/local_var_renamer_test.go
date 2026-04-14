@@ -292,6 +292,113 @@ foo = true if {
 	}
 }
 
+// A variable used as the return value (head value) must be renamed.
+func TestSimplifyRule_HeadValueVarRenamed(t *testing.T) {
+	src := `package test
+import rego.v1
+foo := x if {
+    input.bar[x] == 1
+}`
+	module := mustParseModule(t, src)
+	r := NewLocalVarRenamer()
+	renamed := r.SimplifyRule(module.Rules[0])
+
+	s := renamed.String()
+	if strings.Contains(s, "x") {
+		t.Errorf("head-value variable 'x' should have been renamed, got:\n%s", s)
+	}
+	if !strings.Contains(s, "__lv") {
+		t.Errorf("expected a fresh __lv* variable in renamed rule, got:\n%s", s)
+	}
+}
+
+// The return-value variable must be renamed to the SAME fresh name in both
+// the head and the body within the same branch.
+func TestSimplifyRule_HeadValueVarConsistent(t *testing.T) {
+	src := `package test
+import rego.v1
+foo := x if {
+    input.bar[x] == 1
+}`
+	module := mustParseModule(t, src)
+	r := NewLocalVarRenamer()
+	renamed := r.SimplifyRule(module.Rules[0])
+
+	// __lv0 is the fresh name assigned to x; it must appear in both the head
+	// ("foo := __lv0") and the body ("equal(input.bar[__lv0], 1)").
+	s := renamed.String()
+	if strings.Count(s, "__lv0") < 2 {
+		t.Errorf("expected __lv0 to appear in both head and body, got:\n%s", s)
+	}
+}
+
+// Variables with the same name in the main branch and an else branch must
+// receive DISTINCT fresh names (they are independent scopes).
+func TestSimplifyRule_ElseBranchIndependentRenaming(t *testing.T) {
+	src := `package test
+import rego.v1
+foo := x if {
+    input.bar[x] == 1
+} else := x if {
+    input.baz[x] == 2
+}`
+	module := mustParseModule(t, src)
+	r := NewLocalVarRenamer()
+	renamed := r.SimplifyRule(module.Rules[0])
+
+	if renamed.Else == nil {
+		t.Fatal("expected an else branch")
+	}
+
+	full := renamed.String()
+	elseStr := renamed.Else.String()
+
+	if strings.Contains(full, "x") {
+		t.Errorf("original 'x' should not appear after renaming, got:\n%s", full)
+	}
+	// Main branch uses __lv0; else branch must use a different name (__lv1).
+	if strings.Contains(elseStr, "__lv0") {
+		t.Errorf("else branch should not contain main branch's __lv0, got:\n%s", elseStr)
+	}
+	if !strings.Contains(elseStr, "__lv1") {
+		t.Errorf("else branch should contain its own fresh name __lv1, got:\n%s", elseStr)
+	}
+}
+
+// Two else branches (else-if-else) must each get independent fresh names.
+func TestSimplifyRule_MultipleElseBranchesIndependent(t *testing.T) {
+	src := `package test
+import rego.v1
+foo := x if {
+    input.a[x] == 1
+} else := x if {
+    input.b[x] == 2
+} else := x if {
+    input.c[x] == 3
+}`
+	module := mustParseModule(t, src)
+	r := NewLocalVarRenamer()
+	renamed := r.SimplifyRule(module.Rules[0])
+
+	if renamed.Else == nil || renamed.Else.Else == nil {
+		t.Fatal("expected two else branches")
+	}
+
+	full := renamed.String()
+	else2Str := renamed.Else.Else.String()
+
+	if strings.Contains(full, "x") {
+		t.Errorf("original 'x' should not appear after renaming, got:\n%s", full)
+	}
+	// else-2 must use __lv2, not the names from earlier branches.
+	if strings.Contains(else2Str, "__lv0") || strings.Contains(else2Str, "__lv1") {
+		t.Errorf("else-2 should use its own fresh name, not __lv0/__lv1, got:\n%s", else2Str)
+	}
+	if !strings.Contains(else2Str, "__lv2") {
+		t.Errorf("else-2 should contain __lv2, got:\n%s", else2Str)
+	}
+}
+
 // Quantified variables must not be renamed.
 func TestSimplifyRule_QuantifiedVarsUntouched(t *testing.T) {
 	src := `package test

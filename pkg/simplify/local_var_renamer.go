@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/open-policy-agent/opa/v1/ast"
+	"github.com/vhavlena/verirego/pkg/types"
 	"github.com/vhavlena/verirego/pkg/util"
 )
 
@@ -50,13 +51,18 @@ func (r *LocalVarRenamer) SimplifyModule(module *ast.Module) *ast.Module {
 	return &newModule
 }
 
-// SimplifyRule returns a deep copy of rule in which every local variable has
-// been replaced by a fresh, globally unique name.  The original rule is not
-// mutated.
+// SimplifyRule returns a deep copy of rule in which every local variable (and
+// every variable used as a head return value) has been replaced by a fresh,
+// globally unique name.  The original rule is not mutated.
 //
-// The lambda closes over an assigned map: the first occurrence of a variable
-// triggers fresh-name allocation; subsequent occurrences reuse the same name.
+// Each else branch is treated as an independent scope: variables that share a
+// name across the main branch and an else branch receive distinct fresh names.
+// This is achieved by calling SimplifyRule recursively for each else branch
+// with a fresh assigned map.
 func (r *LocalVarRenamer) SimplifyRule(rule *ast.Rule) *ast.Rule {
+	// Classify variables for this branch only (head value vars included as local).
+	vc := types.ClassifyVarsBranch(rule)
+
 	assigned := make(map[string]string)
 	fn := func(_ string, _ int, varName string) (string, bool) {
 		if newName, ok := assigned[varName]; ok {
@@ -70,5 +76,13 @@ func (r *LocalVarRenamer) SimplifyRule(rule *ast.Rule) *ast.Rule {
 	wildcardFn := func(_ string, _ int, _ string) (string, bool) {
 		return r.freshName(), true
 	}
-	return util.RenameLocalAndWildcardVarsInRule(rule, 0, fn, wildcardFn)
+
+	// Rename only this branch's head + body (not else).
+	result := util.RenameVarsInBranchOnly(rule, 0, vc.Local, fn, wildcardFn)
+
+	// Recurse into else branches independently, each with a fresh assigned map.
+	if rule.Else != nil {
+		result.Else = r.SimplifyRule(rule.Else)
+	}
+	return result
 }

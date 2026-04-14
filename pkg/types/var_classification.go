@@ -46,6 +46,80 @@ func isExcluded(name string) bool {
 }
 
 
+// collectVarsLocal recursively walks term and marks every variable it
+// finds as local, unless already classified as quantified.
+func collectVarsLocal(term *ast.Term, vc *VarClassification) {
+	if term == nil {
+		return
+	}
+	switch v := term.Value.(type) {
+	case ast.Var:
+		name := string(v)
+		if !isExcluded(name) && !vc.Quantified[name] {
+			vc.Local[name] = true
+		}
+	case ast.Ref:
+		for _, seg := range v {
+			collectVarsLocal(seg, vc)
+		}
+	case *ast.Array:
+		for i := 0; i < v.Len(); i++ {
+			collectVarsLocal(v.Elem(i), vc)
+		}
+	case ast.Object:
+		v.Foreach(func(k, val *ast.Term) {
+			collectVarsLocal(k, vc)
+			collectVarsLocal(val, vc)
+		})
+	case ast.Set:
+		v.Foreach(func(elem *ast.Term) {
+			collectVarsLocal(elem, vc)
+		})
+	case ast.Call:
+		for _, t := range v {
+			collectVarsLocal(t, vc)
+		}
+	}
+}
+
+// ClassifyVarsBranch classifies variables for a single rule branch (the head
+// and body of rule only — else branches are NOT traversed).  Variables
+// appearing in the rule head value are additionally marked as local, because
+// they are output variables scoped to this branch.
+//
+// Function arguments (rule.Head.Args) are explicitly excluded from the local
+// set: they define the function's call interface and must not be renamed as if
+// they were branch-local variables.
+//
+// Use this instead of [ClassifyVars] when processing each else branch as an
+// independent scope.
+func ClassifyVarsBranch(rule *ast.Rule) VarClassification {
+	vc := VarClassification{
+		Local:      make(map[string]bool),
+		Quantified: make(map[string]bool),
+	}
+	// Variables in the head value act as outputs of this branch — treat as local.
+	if rule.Head.Value != nil {
+		collectVarsLocal(rule.Head.Value, &vc)
+	}
+	// Function arguments are NOT local; remove them if they slipped in from the
+	// head value (e.g. foo(x,y) := x — here x is an arg, not a branch-local).
+	for _, arg := range rule.Head.Args {
+		if v, ok := arg.Value.(ast.Var); ok {
+			delete(vc.Local, string(v))
+		}
+	}
+	// Head key of a partial-set / partial-object rule is quantified.
+	if rule.Head.Key != nil {
+		collectVarsQuantified(rule.Head.Key, &vc)
+	}
+	// Classify body expressions (no else recursion).
+	for _, expr := range rule.Body {
+		classifyExpr(expr, &vc)
+	}
+	return vc
+}
+
 // ClassifyVars analyzes a compiled Rego rule (including else branches) and
 // classifies each variable as local or quantified.
 //
