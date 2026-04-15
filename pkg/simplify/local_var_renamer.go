@@ -77,8 +77,17 @@ func (r *LocalVarRenamer) SimplifyRule(rule *ast.Rule) *ast.Rule {
 		return r.freshName(), true
 	}
 
+	// Build combined set: local + quantified variables are both renamed.
+	allVars := make(map[string]bool, len(vc.Local)+len(vc.Quantified))
+	for k := range vc.Local {
+		allVars[k] = true
+	}
+	for k := range vc.Quantified {
+		allVars[k] = true
+	}
+
 	// Rename only this branch's head + body (not else).
-	result := util.RenameVarsInBranchOnly(rule, 0, vc.Local, fn, wildcardFn)
+	result := util.RenameVarsInBranchOnly(rule, 0, allVars, fn, wildcardFn)
 
 	// Recurse into else branches independently, each with a fresh assigned map.
 	if rule.Else != nil {
