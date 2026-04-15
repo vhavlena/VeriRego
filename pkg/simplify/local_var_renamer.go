@@ -85,6 +85,15 @@ func (r *LocalVarRenamer) SimplifyRule(rule *ast.Rule) *ast.Rule {
 	for k := range vc.Quantified {
 		allVars[k] = true
 	}
+	// Function arguments define the call interface and must not be renamed:
+	// they appear in Quantified (used in body expressions) but renaming them
+	// only in the main branch while the else branch leaves them unchanged
+	// would create inconsistent variable names across branches.
+	for _, arg := range rule.Head.Args {
+		if v, ok := arg.Value.(ast.Var); ok {
+			delete(allVars, string(v))
+		}
+	}
 
 	// Rename only this branch's head + body (not else).
 	result := util.RenameVarsInBranchOnly(rule, 0, allVars, fn, wildcardFn)
