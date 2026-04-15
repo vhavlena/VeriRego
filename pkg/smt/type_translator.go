@@ -254,7 +254,7 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
   ((OTypeD%d
     (Atom%d (atom%d OTypeD0))
     (OObj%d (obj%d (Array String %s)))
-    (OArray%d (arr%d (Array Int %s)))
+    (OArray%d (arr%d (Seq Int %s)))
 	(Wrap%d (wrap%d %s))
   ))
 )`, d, d, d, d, d, inner, d, d, inner, d, d, inner)))
@@ -406,13 +406,13 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 			return nil, err.ErrSmtFieldConstraints(key, err.ErrTypeNotFound)
 		}
 		sel := fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtValue, key)
-		if !val.IsAtomic() {
-			constr, err := getTypeConstr(depth-1, val)
-			if err != nil {
-				return nil, err
-			}
-			bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, sel)))
-		}
+		// if !val.IsAtomic() {
+		// 	constr, err := getTypeConstr(depth-1, val)
+		// 	if err != nil {
+		// 		return nil, err
+		// 	}
+		// 	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, sel)))
+		// }
 
 		valAnalysis, er := td.getSmtConstr(sel, val)
 		if er != nil {
@@ -693,6 +693,20 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	}
 	ands := AndPtrs(valAnalysis.Props)
 	qvar := RandString(5)
+	//	 (assert (forall ((i Int)) 
+	//   (let ((numero_seq (arr1 (select (obj2 (select (obj3 input) "user")) "numero"))))
+	//     (=> (and (>= i 0) (< i (seq.len numero_seq)))
+	//         (let ((elem (seq.nth numero_seq i)))
+	//           (or (is-ONumber elem) (is-OString elem)))))))
+
+	//   (assert (and (is-OObj3 input) 
+	//   (is-OObj2 (select (obj3 input) "user"))
+	//   (is-OObj2 (select (obj3 input) "user"))
+	//   (is-OArray1 (select (obj2 (select (obj3 input) "user")) "numero"))
+	//   (is-OArray1 (select (obj2 (select (obj3 input) "user")) "numero"))
+	//   (forall ((ztoN1 Int))  (let ((elem (select (arr1 (select (obj2 (select (obj3 input) "user")) "numero")) ztoN1)))
+	//            (or (is-ONumber elem) (is-OString elem))))))
+
 	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands.String())
 	bucket.Props = append(bucket.Props, RawProposition(forall))
 
