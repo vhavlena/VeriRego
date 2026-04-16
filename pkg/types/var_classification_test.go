@@ -357,3 +357,134 @@ result := "admin" if {
 		t.Errorf("expected else-branch 'role' to be quantified; local=%v quantified=%v", vc.Local, vc.Quantified)
 	}
 }
+
+// ---- parameter variables ---------------------------------------------------
+
+// paramNamesFromArgs returns the set of variable names found in rule.Head.Args.
+// OPA's compiler renames source-level parameter names to __localN__ temporaries,
+// so tests must inspect the compiled names rather than the source names.
+func paramNamesFromArgs(rule *ast.Rule) map[string]bool {
+	m := make(map[string]bool)
+	for _, arg := range rule.Head.Args {
+		if v, ok := arg.Value.(ast.Var); ok {
+			m[string(v)] = true
+		}
+	}
+	return m
+}
+
+func TestClassifyVars_FunctionParamIsParameter(t *testing.T) {
+	// Parameters declared in the rule head must land in Parameter, not in
+	// Local or Quantified.  OPA renames source params to __localN__ temporaries.
+	t.Parallel()
+	rule := compileAndGetFirstRule(t, `package test
+import rego.v1
+is_admin(user) if {
+	user == "admin"
+}`)
+
+	params := paramNamesFromArgs(rule)
+	if len(params) == 0 {
+		t.Fatal("expected at least one compiled parameter in rule.Head.Args")
+	}
+
+	vc := ClassifyVars(rule)
+
+	for name := range params {
+		if !vc.IsParameter(name) {
+			t.Errorf("expected %q (compiled param) to be a parameter; local=%v quantified=%v parameter=%v", name, vc.Local, vc.Quantified, vc.Parameter)
+		}
+		if vc.IsLocal(name) {
+			t.Errorf("expected %q NOT to be local", name)
+		}
+		if vc.IsQuantified(name) {
+			t.Errorf("expected %q NOT to be quantified", name)
+		}
+	}
+}
+
+func TestClassifyVars_MultipleParamsAreParameter(t *testing.T) {
+	// All parameters from a multi-arg function must be in Parameter.
+	t.Parallel()
+	rule := compileAndGetFirstRule(t, `package test
+import rego.v1
+has_role(user, role) if {
+	data.roles[user] == role
+}`)
+
+	params := paramNamesFromArgs(rule)
+	if len(params) < 2 {
+		t.Fatalf("expected 2 compiled parameters in rule.Head.Args, got %d", len(params))
+	}
+
+	vc := ClassifyVars(rule)
+
+	for name := range params {
+		if !vc.IsParameter(name) {
+			t.Errorf("expected %q (compiled param) to be a parameter; local=%v quantified=%v parameter=%v", name, vc.Local, vc.Quantified, vc.Parameter)
+		}
+		if vc.IsLocal(name) {
+			t.Errorf("expected %q NOT to be local", name)
+		}
+		if vc.IsQuantified(name) {
+			t.Errorf("expected %q NOT to be quantified", name)
+		}
+	}
+}
+
+func TestClassifyVars_ParamNotInLocalOrQuantified(t *testing.T) {
+	// A parameter used as a head return value (foo(x) := x) must still be
+	// classified as parameter, not as local.
+	t.Parallel()
+	rule := compileAndGetFirstRule(t, `package test
+import rego.v1
+identity(x) := x`)
+
+	params := paramNamesFromArgs(rule)
+	if len(params) == 0 {
+		t.Fatal("expected at least one compiled parameter in rule.Head.Args")
+	}
+
+	vc := ClassifyVarsBranch(rule)
+
+	for name := range params {
+		if !vc.IsParameter(name) {
+			t.Errorf("expected %q (compiled param) to be a parameter; local=%v quantified=%v parameter=%v", name, vc.Local, vc.Quantified, vc.Parameter)
+		}
+		if vc.IsLocal(name) {
+			t.Errorf("expected %q NOT to be local", name)
+		}
+		if vc.IsQuantified(name) {
+			t.Errorf("expected %q NOT to be quantified", name)
+		}
+	}
+}
+
+func TestClassifyVars_SetsAreDisjointWithParameter(t *testing.T) {
+	// No variable should appear in more than one of Local, Quantified, Parameter.
+	t.Parallel()
+	rule := compileAndGetFirstRule(t, `package test
+import rego.v1
+check(user) if {
+	x := input.age
+	data.users[uid]
+	uid != user
+	x > 0
+}`)
+
+	vc := ClassifyVars(rule)
+
+	for name := range vc.Local {
+		if vc.Quantified[name] {
+			t.Errorf("variable %q in both Local and Quantified", name)
+		}
+		if vc.Parameter[name] {
+			t.Errorf("variable %q in both Local and Parameter", name)
+		}
+	}
+	for name := range vc.Quantified {
+		if vc.Parameter[name] {
+			t.Errorf("variable %q in both Quantified and Parameter", name)
+		}
+	}
+}

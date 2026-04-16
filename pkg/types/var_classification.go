@@ -14,19 +14,27 @@ const (
 	// VarKindQuantified represents variables that are not bound by assignment
 	// (iteration indices, free variables in comparisons, head keys, etc.).
 	VarKindQuantified VarKind = "quantified"
+
+	// VarKindParameter represents variables declared as rule or function
+	// parameters in the rule head (rule.Head.Args).
+	VarKindParameter VarKind = "parameter"
 )
 
-// VarClassification holds the local vs. quantified classification of every
-// variable encountered in a compiled Rego rule body.
+// VarClassification holds the local / quantified / parameter classification of
+// every variable encountered in a compiled Rego rule body.
 //
-// A variable appears in at most one of the two sets.  The anonymous wildcard
+// A variable appears in at most one of the three sets.  The anonymous wildcard
 // "_" and the top-level namespace roots "data"/"input"/"rego" are excluded
-// from both sets.
+// from all sets.
 type VarClassification struct {
 	// Local contains variable names that are the LHS of an assignment (= or :=).
 	Local map[string]bool
 	// Quantified contains all other variable names (ref indices, free vars, …).
 	Quantified map[string]bool
+	// Parameter contains variable names declared as rule/function parameters in
+	// the rule head (rule.Head.Args).  Parameters are excluded from both Local
+	// and Quantified.
+	Parameter map[string]bool
 }
 
 // IsLocal reports whether the named variable is classified as local.
@@ -34,6 +42,9 @@ func (vc *VarClassification) IsLocal(name string) bool { return vc.Local[name] }
 
 // IsQuantified reports whether the named variable is classified as quantified.
 func (vc *VarClassification) IsQuantified(name string) bool { return vc.Quantified[name] }
+
+// IsParameter reports whether the named variable is a rule/function parameter.
+func (vc *VarClassification) IsParameter(name string) bool { return vc.Parameter[name] }
 
 // isExcluded reports whether a variable name should be excluded from
 // classification entirely (wildcard, top-level namespace roots).
@@ -55,7 +66,7 @@ func collectVarsLocal(term *ast.Term, vc *VarClassification) {
 	switch v := term.Value.(type) {
 	case ast.Var:
 		name := string(v)
-		if !isExcluded(name) && !vc.Quantified[name] {
+		if !isExcluded(name) && !vc.Quantified[name] && !vc.Parameter[name] {
 			vc.Local[name] = true
 		}
 	case ast.Ref:
@@ -87,9 +98,8 @@ func collectVarsLocal(term *ast.Term, vc *VarClassification) {
 // appearing in the rule head value are additionally marked as local, because
 // they are output variables scoped to this branch.
 //
-// Function arguments (rule.Head.Args) are explicitly excluded from the local
-// set: they define the function's call interface and must not be renamed as if
-// they were branch-local variables.
+// Rule/function parameters (rule.Head.Args) are placed in the Parameter set
+// and excluded from both Local and Quantified.
 //
 // Use this instead of [ClassifyVars] when processing each else branch as an
 // independent scope.
@@ -97,17 +107,17 @@ func ClassifyVarsBranch(rule *ast.Rule) VarClassification {
 	vc := VarClassification{
 		Local:      make(map[string]bool),
 		Quantified: make(map[string]bool),
+		Parameter:  make(map[string]bool),
+	}
+	// Seed parameters so they are excluded from Local and Quantified.
+	for _, arg := range rule.Head.Args {
+		if v, ok := arg.Value.(ast.Var); ok {
+			vc.Parameter[string(v)] = true
+		}
 	}
 	// Variables in the head value act as outputs of this branch — treat as local.
 	if rule.Head.Value != nil {
 		collectVarsLocal(rule.Head.Value, &vc)
-	}
-	// Function arguments are NOT local; remove them if they slipped in from the
-	// head value (e.g. foo(x,y) := x — here x is an arg, not a branch-local).
-	for _, arg := range rule.Head.Args {
-		if v, ok := arg.Value.(ast.Var); ok {
-			delete(vc.Local, string(v))
-		}
 	}
 	// Head key of a partial-set / partial-object rule is quantified.
 	if rule.Head.Key != nil {
@@ -135,6 +145,13 @@ func ClassifyVars(rule *ast.Rule) VarClassification {
 	vc := VarClassification{
 		Local:      make(map[string]bool),
 		Quantified: make(map[string]bool),
+		Parameter:  make(map[string]bool),
+	}
+	// Seed parameters from the top-level rule head; else branches share them.
+	for _, arg := range rule.Head.Args {
+		if v, ok := arg.Value.(ast.Var); ok {
+			vc.Parameter[string(v)] = true
+		}
 	}
 	classifyRule(rule, &vc)
 	return vc
@@ -190,7 +207,7 @@ func classifyExpr(expr *ast.Expr, vc *VarClassification) {
 func markLocalIfVar(term *ast.Term, vc *VarClassification) {
 	if v, ok := term.Value.(ast.Var); ok {
 		name := string(v)
-		if !isExcluded(name) && !vc.Quantified[name] {
+		if !isExcluded(name) && !vc.Quantified[name] && !vc.Parameter[name] {
 			vc.Local[name] = true
 		}
 	}
@@ -205,7 +222,7 @@ func collectVarsQuantified(term *ast.Term, vc *VarClassification) {
 	switch v := term.Value.(type) {
 	case ast.Var:
 		name := string(v)
-		if !isExcluded(name) && !vc.Local[name] {
+		if !isExcluded(name) && !vc.Local[name] && !vc.Parameter[name] {
 			vc.Quantified[name] = true
 		}
 	case ast.Ref:

@@ -578,6 +578,7 @@ func (ta *TypeAnalyzer) GetVarClassification(rule *ast.Rule) VarClassification {
 	return VarClassification{
 		Local:      make(map[string]bool),
 		Quantified: make(map[string]bool),
+		Parameter:  make(map[string]bool),
 	}
 }
 

@@ -78,21 +78,13 @@ func (r *LocalVarRenamer) SimplifyRule(rule *ast.Rule) *ast.Rule {
 	}
 
 	// Build combined set: local + quantified variables are both renamed.
+	// Parameters are already excluded from both sets by ClassifyVarsBranch.
 	allVars := make(map[string]bool, len(vc.Local)+len(vc.Quantified))
 	for k := range vc.Local {
 		allVars[k] = true
 	}
 	for k := range vc.Quantified {
 		allVars[k] = true
-	}
-	// Function arguments define the call interface and must not be renamed:
-	// they appear in Quantified (used in body expressions) but renaming them
-	// only in the main branch while the else branch leaves them unchanged
-	// would create inconsistent variable names across branches.
-	for _, arg := range rule.Head.Args {
-		if v, ok := arg.Value.(ast.Var); ok {
-			delete(allVars, string(v))
-		}
 	}
 
 	// Rename only this branch's head + body (not else).

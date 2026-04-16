@@ -119,7 +119,14 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, data
 			}
 			sort.Strings(quantifiedVars)
 
+			paramVars := make([]string, 0, len(vc.Parameter))
+			for v := range vc.Parameter {
+				paramVars = append(paramVars, v)
+			}
+			sort.Strings(paramVars)
+
 			fmt.Printf("  rule %s:\n", rule.Head.Name)
+			fmt.Printf("    parameters: %s\n", formatVarList(paramVars))
 			fmt.Printf("    local:      %s\n", formatVarList(localVars))
 			fmt.Printf("    quantified: %s\n", formatVarList(quantifiedVars))
 		}
