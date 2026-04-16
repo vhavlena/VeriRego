@@ -1,6 +1,7 @@
 package smt
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -260,8 +261,11 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 	if b.Props[0].String() != "(is-OArray1 a)" {
 		t.Errorf("missing or incorrect OArray constraint: %v", b.Props[0].String())
 	}
-	if !strings.Contains(b.Props[1].String(), "(is-OString elem)") {
-		t.Errorf("missing or incorrect atomic string constraint in forall: %v", b.Props[1].String())
+
+	re := regexp.MustCompile(`\(is-OString [A-Za-z][A-Za-z0-9]{4}\)`)
+
+	if !re.MatchString(b.Props[1].String()) {
+    	t.Errorf("missing or incorrect atomic string constraint in forall: %v", b.Props[1].String())
 	}
 
 	// Test nested array: array of array of ints
@@ -285,12 +289,19 @@ func TestTypeDefs_getSmtArrConstr(t *testing.T) {
 	if nestedB.Props[0].String() != "(is-OArray2 b)" {
 		t.Errorf("missing or incorrect OArray constraint for nested array: %v", nestedB.Props[0].String())
 	}
-	if !strings.Contains(nestedB.Props[1].String(), "(is-OArray1 elem)") {
+
+	re1 := regexp.MustCompile(`\(is-OArray1 [A-Za-z][A-Za-z0-9]{4}\)`)
+
+	if !re1.MatchString(nestedB.Props[1].String()) {
 		t.Errorf("missing or incorrect nested OArray constraint in forall: %v", nestedB.Props[1].String())
 	}
-	if !strings.Contains(nestedB.Props[1].String(), "(is-ONumber elem") {
-		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedB.Props[1].String())
+	
+	re2 := regexp.MustCompile(`\(is-ONumber [A-Za-z][A-Za-z0-9]{4}\)`)
+
+	if !re2.MatchString(nestedB.Props[1].String()) {
+		t.Errorf("missing or incorrect atomic int constraint in forall: %v", nestedB.Props[1].String())
 	}
+
 }
 
 func TestTypeDefs_getSmtConstr_Union(t *testing.T) {

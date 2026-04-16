@@ -254,7 +254,7 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
   ((OTypeD%d
     (Atom%d (atom%d OTypeD0))
     (OObj%d (obj%d (Array String %s)))
-    (OArray%d (arr%d (Seq Int %s)))
+    (OArray%d (arr%d (Seq %s)))
 	(Wrap%d (wrap%d %s))
   ))
 )`, d, d, d, d, d, inner, d, d, inner, d, d, inner)))
@@ -686,28 +686,33 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	bucket := NewPropBucket()
 	depth := max(tp.TypeDepth(), 0)
 	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(is-OArray%d %s)", depth, smtValue)))
+	
+	qvar := RandString(5)
+	seqvar := RandString(5)
+	elvar := RandString(5)
 
-	valAnalysis, er := td.getSmtConstr("elem", tp.ArrayType)
+	valAnalysis, er := td.getSmtConstr(elvar, tp.ArrayType)
 	if er != nil {
 		return nil, er
 	}
 	ands := AndPtrs(valAnalysis.Props)
-	qvar := RandString(5)
+	andsStr := ands.String()
 	//	 (assert (forall ((i Int)) 
 	//   (let ((numero_seq (arr1 (select (obj2 (select (obj3 input) "user")) "numero"))))
 	//     (=> (and (>= i 0) (< i (seq.len numero_seq)))
 	//         (let ((elem (seq.nth numero_seq i)))
 	//           (or (is-ONumber elem) (is-OString elem)))))))
 
-	//   (assert (and (is-OObj3 input) 
-	//   (is-OObj2 (select (obj3 input) "user"))
-	//   (is-OObj2 (select (obj3 input) "user"))
-	//   (is-OArray1 (select (obj2 (select (obj3 input) "user")) "numero"))
-	//   (is-OArray1 (select (obj2 (select (obj3 input) "user")) "numero"))
-	//   (forall ((ztoN1 Int))  (let ((elem (select (arr1 (select (obj2 (select (obj3 input) "user")) "numero")) ztoN1)))
-	//            (or (is-ONumber elem) (is-OString elem))))))
+	// (assert 
+	// (and (is-OObj3 input) (is-OObj2 (select (obj3 input) "user")) 
+	// (is-OArray1 (select (obj2 (select (obj3 input) "user")) "numero")) 
+	// (forall ((cudcu Int))  
+	// (let ((elem (select (arr1 (select (obj2 (select (obj3 input) "user")) "numero")) cudcu))) 
+	// (or (is-ONumber elem) (is-OString elem))))))
 
-	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands.String())
+	//forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands.String())
+	forall := fmt.Sprintf("(forall ((%s Int)) (let ((%s (arr%d %s))) (=> (and (>= %s 0) (< %s (seq.len %s))) (let ((%s (seq.nth %s %s))) %s))))", qvar, seqvar, depth, smtValue, qvar, qvar, seqvar, elvar, seqvar, qvar, andsStr)
+
 	bucket.Props = append(bucket.Props, RawProposition(forall))
 
 	return bucket, nil
