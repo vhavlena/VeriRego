@@ -103,33 +103,30 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, data
 	}
 
 	if len(compiledModule.Rules) > 0 {
-		fmt.Printf("\nVariable Classification (per rule):\n")
-		for _, rule := range compiledModule.Rules {
-			vc := typeAnalyzer.GetVarClassification(rule)
+		vc := typeAnalyzer.GetVarClassification()
 
-			localVars := make([]string, 0, len(vc.Local))
-			for v := range vc.Local {
-				localVars = append(localVars, v)
-			}
-			sort.Strings(localVars)
-
-			quantifiedVars := make([]string, 0, len(vc.Quantified))
-			for v := range vc.Quantified {
-				quantifiedVars = append(quantifiedVars, v)
-			}
-			sort.Strings(quantifiedVars)
-
-			paramVars := make([]string, 0, len(vc.Parameter))
-			for v := range vc.Parameter {
-				paramVars = append(paramVars, v)
-			}
-			sort.Strings(paramVars)
-
-			fmt.Printf("  rule %s:\n", rule.Head.Name)
-			fmt.Printf("    parameters: %s\n", formatVarList(paramVars))
-			fmt.Printf("    local:      %s\n", formatVarList(localVars))
-			fmt.Printf("    quantified: %s\n", formatVarList(quantifiedVars))
+		localVars := make([]string, 0, len(vc.Local))
+		for v := range vc.Local {
+			localVars = append(localVars, v)
 		}
+		sort.Strings(localVars)
+
+		quantifiedVars := make([]string, 0, len(vc.Quantified))
+		for v := range vc.Quantified {
+			quantifiedVars = append(quantifiedVars, v)
+		}
+		sort.Strings(quantifiedVars)
+
+		paramVars := make([]string, 0, len(vc.Parameter))
+		for v := range vc.Parameter {
+			paramVars = append(paramVars, v)
+		}
+		sort.Strings(paramVars)
+
+		fmt.Printf("\nVariable Classification:\n")
+		fmt.Printf("  parameters: %s\n", formatVarList(paramVars))
+		fmt.Printf("  local:      %s\n", formatVarList(localVars))
+		fmt.Printf("  quantified: %s\n", formatVarList(quantifiedVars))
 	}
 }
 

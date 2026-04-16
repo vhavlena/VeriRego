@@ -46,6 +46,19 @@ func (vc *VarClassification) IsQuantified(name string) bool { return vc.Quantifi
 // IsParameter reports whether the named variable is a rule/function parameter.
 func (vc *VarClassification) IsParameter(name string) bool { return vc.Parameter[name] }
 
+// Merge adds all entries from other into vc.
+func (vc *VarClassification) Merge(other VarClassification) {
+	for k, v := range other.Local {
+		vc.Local[k] = v
+	}
+	for k, v := range other.Quantified {
+		vc.Quantified[k] = v
+	}
+	for k, v := range other.Parameter {
+		vc.Parameter[k] = v
+	}
+}
+
 // isExcluded reports whether a variable name should be excluded from
 // classification entirely (wildcard, top-level namespace roots).
 func isExcluded(name string) bool {

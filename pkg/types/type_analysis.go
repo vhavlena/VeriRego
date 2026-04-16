@@ -14,7 +14,7 @@ type TypeAnalyzer struct {
 	Refs                map[string]ast.Value            // Map string keys back to original values
 	Schema              InputSchemaAPI                  // Schema for input.* references
 	DataSchema          InputSchemaAPI                  // Schema for data.* references
-	RuleVarClassifications map[*ast.Rule]VarClassification // Per-rule variable classification (local vs. quantified)
+	VarClassification VarClassification // Variable classification (local vs. quantified vs. parameter) across all rules
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -31,7 +31,11 @@ func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 		Types:                  make(map[string]RegoTypeDef),
 		Refs:                   make(map[string]ast.Value),
 		Schema:                 schema,
-		RuleVarClassifications: make(map[*ast.Rule]VarClassification),
+		VarClassification: VarClassification{
+			Local:      make(map[string]bool),
+			Quantified: make(map[string]bool),
+			Parameter:  make(map[string]bool),
+		},
 	}
 }
 
@@ -51,7 +55,11 @@ func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI) *Type
 		Types:                  make(map[string]RegoTypeDef),
 		Refs:                   make(map[string]ast.Value),
 		Schema:                 schema,
-		RuleVarClassifications: make(map[*ast.Rule]VarClassification),
+		VarClassification: VarClassification{
+			Local:      make(map[string]bool),
+			Quantified: make(map[string]bool),
+			Parameter:  make(map[string]bool),
+		},
 	}
 }
 
@@ -561,25 +569,14 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 	}
 
 	// Classify variables for each rule once types have converged.
-	if ta.RuleVarClassifications == nil {
-		ta.RuleVarClassifications = make(map[*ast.Rule]VarClassification)
-	}
 	for _, rule := range mod.Rules {
-		ta.RuleVarClassifications[rule] = ClassifyVars(rule)
+		ta.VarClassification.Merge(ClassifyVars(rule))
 	}
 }
 
-// GetVarClassification returns the VarClassification for the given compiled
-// rule, or an empty classification if the rule was not analysed.
-func (ta *TypeAnalyzer) GetVarClassification(rule *ast.Rule) VarClassification {
-	if vc, ok := ta.RuleVarClassifications[rule]; ok {
-		return vc
-	}
-	return VarClassification{
-		Local:      make(map[string]bool),
-		Quantified: make(map[string]bool),
-		Parameter:  make(map[string]bool),
-	}
+// GetVarClassification returns the flat VarClassification across all analysed rules.
+func (ta *TypeAnalyzer) GetVarClassification() VarClassification {
+	return ta.VarClassification
 }
 
 // GetAllTypes returns a copy of all inferred variable types.
@@ -651,6 +648,6 @@ func isEquality(name string) bool {
 func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI) *TypeAnalyzer {
 	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema)
 	analyzer.AnalyzeRule(rule)
-	analyzer.RuleVarClassifications[rule] = ClassifyVars(rule)
+	analyzer.VarClassification.Merge(ClassifyVars(rule))
 	return analyzer
 }
