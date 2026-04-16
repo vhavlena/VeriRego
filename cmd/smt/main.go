@@ -59,6 +59,10 @@ func analyzeAndWriteSMT(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile,
 
 	compiledModule := compiler.Modules[mod.Package.Path.String()]
 
+	// Rename local variables to unique names before any simplification.
+	renamer := simplify.NewLocalVarRenamer()
+	compiledModule = renamer.SimplifyModule(compiledModule)
+
 	// Inline definitions before type analysis
 	inliner := simplify.NewInliner()
 	inliner.GatherInlinePredicates(compiledModule)
