@@ -9,12 +9,12 @@ import (
 
 // TypeAnalyzer performs type analysis on Rego AST
 type TypeAnalyzer struct {
-	packagePath         ast.Ref
-	Types               map[string]RegoTypeDef          // Store types by string key
-	Refs                map[string]ast.Value            // Map string keys back to original values
-	Schema              InputSchemaAPI                  // Schema for input.* references
-	DataSchema          InputSchemaAPI                  // Schema for data.* references
-	VarClassification VarClassification // Variable classification (local vs. quantified vs. parameter) across all rules
+	packagePath       ast.Ref
+	Types             map[string]RegoTypeDef // Store types by string key
+	Refs              map[string]ast.Value   // Map string keys back to original values
+	Schema            InputSchemaAPI         // Schema for input.* references
+	DataSchema        InputSchemaAPI         // Schema for data.* references
+	VarClassification VarClassification      // Variable classification (local vs. quantified vs. parameter) across all rules
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -28,9 +28,9 @@ type TypeAnalyzer struct {
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		Types:                  make(map[string]RegoTypeDef),
-		Refs:                   make(map[string]ast.Value),
-		Schema:                 schema,
+		Types:  make(map[string]RegoTypeDef),
+		Refs:   make(map[string]ast.Value),
+		Schema: schema,
 		VarClassification: VarClassification{
 			Local:      make(map[string]bool),
 			Quantified: make(map[string]bool),
@@ -51,10 +51,10 @@ func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		packagePath:            packagePath,
-		Types:                  make(map[string]RegoTypeDef),
-		Refs:                   make(map[string]ast.Value),
-		Schema:                 schema,
+		packagePath: packagePath,
+		Types:       make(map[string]RegoTypeDef),
+		Refs:        make(map[string]ast.Value),
+		Schema:      schema,
 		VarClassification: VarClassification{
 			Local:      make(map[string]bool),
 			Quantified: make(map[string]bool),
@@ -580,7 +580,6 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 	}
 }
 
-
 // inferQuantifiedVarTypesInSomeDecl handles range-iteration declarations of
 // the form `some k in collection` (OPA v1 syntax).  These are stored in the
 // parsed AST as *ast.SomeDecl whose Symbols contain ast.Call nodes:
@@ -627,12 +626,6 @@ func (ta *TypeAnalyzer) inferMemberValueVarType(varTerm *ast.Term, collTerm *ast
 	if isExcluded(name) {
 		return
 	}
-	if ta.VarClassification.IsParameter(name) || ta.VarClassification.IsLocal(name) {
-		return
-	}
-	if existing, ok := ta.Types[name]; ok && !existing.IsUnknown() {
-		return
-	}
 	collType := ta.inferAstType(collTerm.Value, nil)
 	// Value type = element type (array) or union of values (object).
 	nonGroundPath := []PathNode{{Key: "_", IsGround: false}}
@@ -652,12 +645,6 @@ func (ta *TypeAnalyzer) inferMemberKeyVarType(varTerm *ast.Term, collTerm *ast.T
 	if isExcluded(name) {
 		return
 	}
-	if ta.VarClassification.IsParameter(name) || ta.VarClassification.IsLocal(name) {
-		return
-	}
-	if existing, ok := ta.Types[name]; ok && !existing.IsUnknown() {
-		return
-	}
 	collType := ta.inferAstType(collTerm.Value, nil)
 	if t := ta.indexTypeFromCollection(collType); t != nil {
 		ta.addToType(v, *t)
@@ -665,13 +652,10 @@ func (ta *TypeAnalyzer) inferMemberKeyVarType(varTerm *ast.Term, collTerm *ast.T
 }
 
 // inferQuantifiedVarTypesInRef inspects every non-head segment of ref. For
-// segments whose value is a variable that:
-//   - is not a rule/function parameter,
-//   - is not a local variable (bound by an equality LHS), and
-//   - does not already have a concrete (non-unknown) type,
-//
-// the function infers the index type from the collection type of the prefix ref
-// that precedes this segment:
+// each segment whose value is a variable (and whose name is not excluded), the
+// function infers the index type from the collection type of the prefix ref
+// that precedes this segment and records it via addToType — creating a union
+// with any previously inferred type when appropriate:
 //
 //   - array collection → AtomicInt
 //   - object collection → AtomicString
@@ -687,16 +671,6 @@ func (ta *TypeAnalyzer) inferQuantifiedVarTypesInRef(ref ast.Ref) {
 		}
 		name := string(v)
 		if isExcluded(name) {
-			continue
-		}
-		// Skip parameters (typed from function signature) and locals (typed
-		// via equality assignment). Quantified and unclassified ref-index
-		// variables both need inference here.
-		if ta.VarClassification.IsParameter(name) || ta.VarClassification.IsLocal(name) {
-			continue
-		}
-		// Skip if already has a concrete type.
-		if existing, ok := ta.Types[name]; ok && !existing.IsUnknown() {
 			continue
 		}
 

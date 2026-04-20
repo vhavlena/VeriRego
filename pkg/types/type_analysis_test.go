@@ -1432,6 +1432,31 @@ allowed[uid] if { input.users[uid].age > 18 }`
 			t.Errorf("expected type %v for 'uid', got %v", expected, tp)
 		}
 	})
+
+	t.Run("function parameter used as ref-index — index type added to parameter", func(t *testing.T) {
+		t.Parallel()
+		// x is a declared function parameter, initially unknown, but also used
+		// as an index into input.users (an array).  After analysis the index-
+		// type inference should add AtomicInt to x via addToType, yielding
+		// AtomicInt (unknown is dropped by CanonizeUnion).
+		src := `package test
+f(x) if { input.users[x].age > 18 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		tp, exists := analyzer.Types["x"]
+		if !exists {
+			t.Fatalf("function parameter 'x' absent from Types map after ref-index inference")
+		}
+		expected := NewAtomicType(AtomicInt)
+		if !tp.IsEqual(&expected) {
+			t.Errorf("expected type %v for parameter 'x', got %v", expected, tp)
+		}
+	})
 }
 
 // TestResolveFunctionTypeArityMismatch verifies that calling a user-defined function
