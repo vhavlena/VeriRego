@@ -253,17 +253,17 @@ allow if {
 		}
 	})
 
-	// allow if { input.user.numero == 69 } with no default.
-	// Without a default, the only satisfying model has allow=true and numero=69.
-	// Schema: user.numero is an integer with no additionalProperties.
-	// The model must assign 69 to input.user.numero.
+	// allow if { input.user.number == 42 } with no default.
+	// Without a default, the only satisfying model has allow=true and number=42.
+	// Schema: user.number is an integer with no additionalProperties.
+	// The model must assign 42 to input.user.number.
 	t.Run("DefaultAllowNestedInputLiteral", func(t *testing.T) {
 		t.Parallel()
 		rego := `
 package example
 
 allow if {
-    input.user.numero == 69
+    input.user.number == 42
 }
 `
 		schema := []byte(`{
@@ -272,7 +272,7 @@ allow if {
 				"user": {
 					"type": "object",
 					"properties": {
-						"numero": {"type": "integer"}
+						"number": {"type": "integer"}
 					},
 					"additionalProperties": false
 				}
@@ -302,18 +302,18 @@ allow if {
 		if !ok {
 			t.Fatalf("expected input.user to be a map, got kind: %s", userVal.Kind())
 		}
-		numeroVal, ok := userMap["numero"]
+		numberVal, ok := userMap["number"]
 		if !ok {
-			t.Fatalf("expected 'numero' field in input.user, got: %v", userVal.AsInterface())
+			t.Fatalf("expected 'number' field in input.user, got: %v", userVal.AsInterface())
 		}
-		num, ok := numeroVal.Int64()
-		if !ok || num != 69 {
-			t.Fatalf("expected input.user.numero == 69, got: %v (ok=%v)", num, ok)
+		num, ok := numberVal.Int64()
+		if !ok || num != 42 {
+			t.Fatalf("expected input.user.number == 42, got: %v (ok=%v)", num, ok)
 		}
 	})
 
 	// Local variable assigned a literal integer, then compared with a nested
-	// input field (input.user.numero). The schema has no additionalProperties.
+	// input field (input.user.number). The schema has no additionalProperties.
 	t.Run("DefaultAllowLocalVarNestedInput", func(t *testing.T) {
 		t.Parallel()
 		rego := `
@@ -322,8 +322,8 @@ package example
 default allow := false
 
 allow if {
-    nombr := 69
-    input.user.numero == nombr
+    nombr := 42
+    input.user.number == nombr
 }
 `
 		schema := []byte(`{
@@ -332,7 +332,7 @@ allow if {
 				"user": {
 					"type": "object",
 					"properties": {
-						"numero": {"type": "integer"}
+						"number": {"type": "integer"}
 					},
 					"additionalProperties": false
 				}
