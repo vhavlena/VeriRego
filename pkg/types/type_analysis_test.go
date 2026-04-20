@@ -1326,22 +1326,31 @@ test if { x := data.config.enabled }`,
 func TestQuantifiedVarTypeInference(t *testing.T) {
 	t.Parallel()
 
-	// YAML schema: roles is an object with string keys; users is an array of
+	// JSON Schema: roles is an object with string values; users is an array of
 	// objects with an age (int) field; role is a string.
-	yamlInput := []byte(`
-roles:
-  admin: "full"
-  viewer: "readonly"
-users:
-  - age: 30
-    name: "alice"
-  - age: 17
-    name: "bob"
-role: "admin"
-`)
-	schema := NewInputSchema()
-	if err := schema.ProcessYAMLInput(yamlInput); err != nil {
-		t.Fatalf("failed to process YAML: %v", err)
+	jsonSchema := []byte(`{
+		"type": "object",
+		"properties": {
+			"roles": {
+				"type": "object",
+				"additionalProperties": {"type": "string"}
+			},
+			"users": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"age":  {"type": "integer"},
+						"name": {"type": "string"}
+					}
+				}
+			},
+			"role": {"type": "string"}
+		}
+	}`)
+	schema := NewInputJsonSchema()
+	if err := schema.ProcessJSONSchema(jsonSchema); err != nil {
+		t.Fatalf("failed to process JSON Schema: %v", err)
 	}
 
 	t.Run("some k in object — key type should be inferred", func(t *testing.T) {
