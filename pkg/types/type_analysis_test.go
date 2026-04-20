@@ -1304,6 +1304,127 @@ test if { x := data.config.enabled }`,
 	}
 }
 
+// TestQuantifiedVarTypeInference checks that type inference records a type for
+// variables classified as VarKindQuantified by ClassifyVars.  These are
+// variables that appear as iteration indices, ref-index variables, or head keys
+// of partial rules — not on the LHS of an assignment.
+//
+// Issue #40: AnalyzeModule / AnalyzeRuleBody never calls any logic that sets a
+// type for quantified variables.  Downstream consumers such as NewSmtValueFromVar
+// look up the variable name in TypeInfo.Types and receive ErrTypeNotFound,
+// breaking the entire SMT translation for any rule that uses quantified vars.
+//
+// The test verifies three concrete broken cases from the issue description:
+//  1. some k in input.roles — iteration index k should get the key type (String
+//     for an object, Int for an array).
+//  2. input.users[uid].age > 18 — ref-index variable uid should get a type.
+//  3. allow contains role { role := input.role } — head-key variable role
+//     should be present in Types (as quantified).
+//
+// Until the feature is implemented each sub-test will fail because the variable
+// is absent from the Types map.
+func TestQuantifiedVarTypeInference(t *testing.T) {
+	t.Parallel()
+
+	// YAML schema: roles is an object with string keys; users is an array of
+	// objects with an age (int) field; role is a string.
+	yamlInput := []byte(`
+roles:
+  admin: "full"
+  viewer: "readonly"
+users:
+  - age: 30
+    name: "alice"
+  - age: 17
+    name: "bob"
+role: "admin"
+`)
+	schema := NewInputSchema()
+	if err := schema.ProcessYAMLInput(yamlInput); err != nil {
+		t.Fatalf("failed to process YAML: %v", err)
+	}
+
+	t.Run("some k in object — key type should be inferred", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+allow if { some k in input.roles; k == "admin" }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		// k is quantified; after inference it must be present in Types.
+		tp, exists := analyzer.Types["k"]
+		if !exists {
+			t.Fatalf("issue #40: quantified variable 'k' absent from Types map; ErrTypeNotFound would fire during SMT translation")
+		}
+		expected := NewAtomicType(AtomicString)
+		if !tp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'k', got %v", expected, tp)
+		}
+	})
+
+	t.Run("ref-index variable uid — type should be inferred", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+allow if { input.users[uid].age > 18 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		// uid indexes into an array, so its type should be Int.
+		tp, exists := analyzer.Types["uid"]
+		if !exists {
+			t.Fatalf("issue #40: quantified ref-index variable 'uid' absent from Types map; ErrTypeNotFound would fire during SMT translation")
+		}
+		expected := NewAtomicType(AtomicInt)
+		if !tp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'uid', got %v", expected, tp)
+		}
+	})
+
+	t.Run("partial-set head key — type should be inferred as Int from array index", func(t *testing.T) {
+		t.Parallel()
+		// Here uid is the head key of a partial set rule AND appears as a
+		// ref-index variable in the body.  OPA preserves the name uid in the
+		// compiled form (it does not rename head-key variables that appear in
+		// the body as ref indices).  The type should be Int because uid indexes
+		// into input.users which is an array.
+		src := `package test
+allowed[uid] if { input.users[uid].age > 18 }`
+		mod, err := ast.ParseModuleWithOpts("test.rego", src, ast.ParserOptions{RegoVersion: ast.RegoV1})
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		// Compile so head.Key is properly set by OPA.
+		compiler := ast.NewCompiler()
+		compiler.Compile(map[string]*ast.Module{mod.Package.Path.String(): mod})
+		if compiler.Failed() {
+			t.Fatalf("compile: %v", compiler.Errors)
+		}
+		compiledMod := compiler.Modules[mod.Package.Path.String()]
+
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(compiledMod)
+
+		// uid is the head key (quantified) and a ref-index in input.users[uid].
+		// Its type must be Int (array index).
+		tp, exists := analyzer.Types["uid"]
+		if !exists {
+			t.Fatalf("issue #40: head-key variable 'uid' absent from Types map; ErrTypeNotFound would fire during SMT translation")
+		}
+		expected := NewAtomicType(AtomicInt)
+		if !tp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'uid', got %v", expected, tp)
+		}
+	})
+}
+
 // TestResolveFunctionTypeArityMismatch verifies that calling a user-defined function
 // with the wrong number of arguments does not panic and silently falls back to
 // unknown return and parameter types. This is the documented behaviour of the

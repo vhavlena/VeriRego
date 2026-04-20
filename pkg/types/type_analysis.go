@@ -572,6 +572,239 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 	for _, rule := range mod.Rules {
 		ta.VarClassification.Merge(ClassifyVars(rule))
 	}
+
+	// Infer types for quantified and unclassified ref-index variables.
+	ta.inferQuantifiedVarTypes(mod)
+}
+
+// inferQuantifiedVarTypes walks every rule in the module and infers types for
+// variables that appear as non-ground index segments inside ast.Ref nodes but
+// have no concrete type yet (i.e. they are quantified / iteration variables or
+// unclassified ref-index variables that were not bound by an equality LHS).
+//
+// For each such variable the index type is determined from the collection that
+// the ref indexes into:
+//   - array collection → AtomicInt (integer index)
+//   - object collection → AtomicString (string key)
+func (ta *TypeAnalyzer) inferQuantifiedVarTypes(mod *ast.Module) {
+	for _, rule := range mod.Rules {
+		ta.inferQuantifiedVarTypesRule(rule)
+	}
+}
+
+// inferQuantifiedVarTypesRule processes a single rule (and any else branches)
+// to infer types for quantified ref-index variables.
+func (ta *TypeAnalyzer) inferQuantifiedVarTypesRule(rule *ast.Rule) {
+	for _, expr := range rule.Body {
+		ta.inferQuantifiedVarTypesInTerms(expr.Terms)
+	}
+	if rule.Head.Key != nil {
+		ta.inferQuantifiedVarTypesInTerm(rule.Head.Key)
+	}
+	if rule.Else != nil {
+		ta.inferQuantifiedVarTypesRule(rule.Else)
+	}
+}
+
+// inferQuantifiedVarTypesInTerms dispatches on the term-list shapes used
+// by ast.Expr.Terms: a single *ast.Term, a slice []*ast.Term, or *ast.SomeDecl
+// (produced by `some k in collection` range-iteration syntax).
+func (ta *TypeAnalyzer) inferQuantifiedVarTypesInTerms(terms interface{}) {
+	switch t := terms.(type) {
+	case *ast.Term:
+		ta.inferQuantifiedVarTypesInTerm(t)
+	case []*ast.Term:
+		for _, term := range t {
+			ta.inferQuantifiedVarTypesInTerm(term)
+		}
+	case *ast.SomeDecl:
+		ta.inferQuantifiedVarTypesInSomeDecl(t)
+	}
+}
+
+// inferQuantifiedVarTypesInSomeDecl handles range-iteration declarations of
+// the form `some k in collection` (OPA v1 syntax).  These are stored in the
+// parsed AST as *ast.SomeDecl whose Symbols contain ast.Call nodes:
+//
+//   - internal.member_2(val, coll)       — value-only iteration
+//   - internal.member_3(key, val, coll)  — key-value iteration
+//
+// For member_2, the value variable is inferred to have the value type of the
+// collection.  For member_3, the key variable gets the index type (Int for
+// arrays, String for objects) and the value variable gets the value type.
+func (ta *TypeAnalyzer) inferQuantifiedVarTypesInSomeDecl(sd *ast.SomeDecl) {
+	for _, sym := range sd.Symbols {
+		call, ok := sym.Value.(ast.Call)
+		if !ok || len(call) == 0 {
+			continue
+		}
+		op := call[0].String()
+		args := call[1:]
+		switch op {
+		case "internal.member_2":
+			// member_2(val, coll)
+			if len(args) == 2 {
+				ta.inferMemberValueVarType(args[0], args[1])
+			}
+		case "internal.member_3":
+			// member_3(key, val, coll)
+			if len(args) == 3 {
+				ta.inferMemberKeyVarType(args[0], args[2])
+				ta.inferMemberValueVarType(args[1], args[2])
+			}
+		}
+	}
+}
+
+// inferMemberValueVarType infers the type for a value variable in a membership
+// expression. The value variable should take the element type of the collection
+// (array element type, or union of object field values).
+func (ta *TypeAnalyzer) inferMemberValueVarType(varTerm *ast.Term, collTerm *ast.Term) {
+	v, ok := varTerm.Value.(ast.Var)
+	if !ok {
+		return
+	}
+	name := string(v)
+	if isExcluded(name) {
+		return
+	}
+	if ta.VarClassification.IsParameter(name) || ta.VarClassification.IsLocal(name) {
+		return
+	}
+	if existing, ok := ta.Types[name]; ok && !existing.IsUnknown() {
+		return
+	}
+	collType := ta.inferAstType(collTerm.Value, nil)
+	// Value type = element type (array) or union of values (object).
+	nonGroundPath := []PathNode{{Key: "_", IsGround: false}}
+	if valType, found := collType.GetTypeFromPath(nonGroundPath); found && valType != nil {
+		ta.addToType(v, *valType)
+	}
+}
+
+// inferMemberKeyVarType infers the type for a key variable in a membership
+// expression (Int for array index, String for object key).
+func (ta *TypeAnalyzer) inferMemberKeyVarType(varTerm *ast.Term, collTerm *ast.Term) {
+	v, ok := varTerm.Value.(ast.Var)
+	if !ok {
+		return
+	}
+	name := string(v)
+	if isExcluded(name) {
+		return
+	}
+	if ta.VarClassification.IsParameter(name) || ta.VarClassification.IsLocal(name) {
+		return
+	}
+	if existing, ok := ta.Types[name]; ok && !existing.IsUnknown() {
+		return
+	}
+	collType := ta.inferAstType(collTerm.Value, nil)
+	if t := ta.indexTypeFromCollection(collType); t != nil {
+		ta.addToType(v, *t)
+	}
+}
+
+// inferQuantifiedVarTypesInTerm recursively walks a term, visiting every
+// ast.Ref it contains and delegating to inferQuantifiedVarTypesInRef.
+func (ta *TypeAnalyzer) inferQuantifiedVarTypesInTerm(term *ast.Term) {
+	if term == nil {
+		return
+	}
+	switch v := term.Value.(type) {
+	case ast.Ref:
+		ta.inferQuantifiedVarTypesInRef(v)
+	case *ast.Array:
+		for i := 0; i < v.Len(); i++ {
+			ta.inferQuantifiedVarTypesInTerm(v.Elem(i))
+		}
+	case ast.Object:
+		v.Foreach(func(k, val *ast.Term) {
+			ta.inferQuantifiedVarTypesInTerm(k)
+			ta.inferQuantifiedVarTypesInTerm(val)
+		})
+	case ast.Set:
+		v.Foreach(func(elem *ast.Term) {
+			ta.inferQuantifiedVarTypesInTerm(elem)
+		})
+	case ast.Call:
+		for _, t := range v {
+			ta.inferQuantifiedVarTypesInTerm(t)
+		}
+	}
+}
+
+// inferQuantifiedVarTypesInRef inspects every non-head segment of ref. For
+// segments whose value is a variable that:
+//   - is not a rule/function parameter,
+//   - is not a local variable (bound by an equality LHS), and
+//   - does not already have a concrete (non-unknown) type,
+//
+// the function infers the index type from the collection type of the prefix ref
+// that precedes this segment:
+//
+//   - array collection → AtomicInt
+//   - object collection → AtomicString
+//
+// The inferred type is recorded via addToType so the variable gets a proper
+// entry in Types (and Refs) and downstream SMT translation can declare it.
+func (ta *TypeAnalyzer) inferQuantifiedVarTypesInRef(ref ast.Ref) {
+	for i := 1; i < len(ref); i++ {
+		seg := ref[i]
+		v, ok := seg.Value.(ast.Var)
+		if !ok {
+			continue
+		}
+		name := string(v)
+		if isExcluded(name) {
+			continue
+		}
+		// Skip parameters (typed from function signature) and locals (typed
+		// via equality assignment). Quantified and unclassified ref-index
+		// variables both need inference here.
+		if ta.VarClassification.IsParameter(name) || ta.VarClassification.IsLocal(name) {
+			continue
+		}
+		// Skip if already has a concrete type.
+		if existing, ok := ta.Types[name]; ok && !existing.IsUnknown() {
+			continue
+		}
+
+		// Determine the collection type from the prefix ref.
+		prefixRef := ref[:i]
+		collectionType := ta.inferRefType(prefixRef)
+
+		indexType := ta.indexTypeFromCollection(collectionType)
+		if indexType == nil {
+			continue
+		}
+		ta.addToType(v, *indexType)
+	}
+}
+
+// indexTypeFromCollection returns the expected type for a variable used as an
+// index into collectionType:
+//   - array  → *AtomicInt
+//   - object → *AtomicString
+//   - union  → first array or object member wins
+//
+// Returns nil when the collection type does not determine an index type.
+func (ta *TypeAnalyzer) indexTypeFromCollection(collectionType RegoTypeDef) *RegoTypeDef {
+	switch {
+	case collectionType.IsArray():
+		t := NewAtomicType(AtomicInt)
+		return &t
+	case collectionType.IsObject():
+		t := NewAtomicType(AtomicString)
+		return &t
+	case collectionType.IsUnion():
+		for _, member := range collectionType.Union {
+			if t := ta.indexTypeFromCollection(member); t != nil {
+				return t
+			}
+		}
+	}
+	return nil
 }
 
 // GetVarClassification returns the flat VarClassification across all analysed rules.
@@ -649,5 +882,6 @@ func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI) *TypeAnalyzer {
 	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema)
 	analyzer.AnalyzeRule(rule)
 	analyzer.VarClassification.Merge(ClassifyVars(rule))
+	analyzer.inferQuantifiedVarTypesRule(rule)
 	return analyzer
 }
