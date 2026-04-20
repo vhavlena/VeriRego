@@ -550,7 +550,6 @@ test if { [1, "two", true] }`,
 	}
 }
 
-
 func TestRuleHeadTypeInference(t *testing.T) {
 	t.Parallel()
 	schema := NewInputSchema()
@@ -1430,6 +1429,73 @@ allowed[uid] if { input.users[uid].age > 18 }`
 		expected := NewAtomicType(AtomicInt)
 		if !tp.IsEqual(&expected) {
 			t.Errorf("expected type %v for 'uid', got %v", expected, tp)
+		}
+	})
+
+	// member_3: some k, v in object — k gets String (key), v gets String (value).
+	t.Run("some k, v in object — key and value types should be inferred", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+allow if { some k, v in input.roles; k == "admin"; v == "granted" }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		ktp, kexists := analyzer.Types["k"]
+		if !kexists {
+			t.Fatalf("member_3 key variable 'k' absent from Types map")
+		}
+		if expected := NewAtomicType(AtomicString); !ktp.IsEqual(&expected) {
+			t.Errorf("expected type %v for key 'k', got %v", expected, ktp)
+		}
+
+		vtp, vexists := analyzer.Types["v"]
+		if !vexists {
+			t.Fatalf("member_3 value variable 'v' absent from Types map")
+		}
+		if expected := NewAtomicType(AtomicString); !vtp.IsEqual(&expected) {
+			t.Errorf("expected type %v for value 'v', got %v", expected, vtp)
+		}
+	})
+
+	// member_3: some idx, v in array — idx gets Int (index), v gets element type.
+	t.Run("some idx, v in array — index and value types should be inferred", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+allow if { some idx, v in input.users; v.age > 18 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		idxtp, idxexists := analyzer.Types["idx"]
+		if !idxexists {
+			t.Fatalf("member_3 index variable 'idx' absent from Types map")
+		}
+		if expected := NewAtomicType(AtomicInt); !idxtp.IsEqual(&expected) {
+			t.Errorf("expected type %v for index 'idx', got %v", expected, idxtp)
+		}
+
+		vtp, vexists := analyzer.Types["v"]
+		if !vexists {
+			t.Fatalf("member_3 value variable 'v' absent from Types map")
+		}
+		// JSON Schema processor sets AllowAdditional=false when additionalProperties
+		// is not explicitly set; match that here.
+		expectedV := RegoTypeDef{
+			Kind: KindObject,
+			ObjectFields: NewObjectFieldSet(map[string]RegoTypeDef{
+				"age":  NewAtomicType(AtomicInt),
+				"name": NewAtomicType(AtomicString),
+			}, false),
+		}
+		if !vtp.IsEqual(&expectedV) {
+			t.Errorf("expected type %v for value 'v', got %v", expectedV, vtp)
 		}
 	})
 
