@@ -142,7 +142,17 @@ func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
 		def := NewSmtValue("OUndef", 0) 
 		return def.WrapToDepth(depth),nil
 	}
-	return nil,verr.ErrTypeNotFound
+	return nil,verr.ErrTypeNotFound(varName)
+}
+
+// IntoExprTranslator creates an ExprTranslator populated with values from given Translator
+func (t *Translator) IntoExprTranslator() *ExprTranslator {
+	return &ExprTranslator{
+		TypeTrans:   t.TypeTrans,
+		funcMap:     t.funcMap,
+		context:     NewTransContextWithVarMap(t.VarMap),
+		packagePath: &t.mod.Package.Path,
+	}
 }
 
 // InputParameterVars returns the string names of variables occurring as rule input parameters.

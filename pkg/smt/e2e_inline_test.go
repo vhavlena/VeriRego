@@ -126,3 +126,225 @@ func varKeys(m map[string]modelPkg.Value) []string {
 	}
 	return keys
 }
+
+// TestRef_E2E tests the full pipeline — parse → compile → inline → type-infer →
+// SMT-translate → Z3 solve — for policies that access input and data fields
+// through ast.Ref terms.  Each sub-test uses RunPolicyToModel so that Z3
+// validates the generated SMT, exercising the complete ast.Ref code path.
+func TestRef_E2E(t *testing.T) {
+	t.Parallel()
+
+	// allow if input.role == "admin": Z3 must satisfy the constraint with a
+	// model where allow is present in the result.
+	t.Run("InputStringRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.role == "admin"
+}
+`
+		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"}},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// allow if input.count > 5: integer field comparison.
+	t.Run("InputIntRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.count > 5
+}
+`
+		schema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// allow if input.active == true: boolean field.
+	t.Run("InputBooleanRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.active == true
+}
+`
+		schema := []byte(`{"type":"object","properties":{"active":{"type":"boolean"}},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// Two input fields in one rule body.
+	t.Run("MultipleInputRefs", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.role == "admin"
+    input.level > 0
+}
+`
+		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"},"level":{"type":"integer"}},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// data.threshold: integer data-schema field compared with an input field.
+	t.Run("DataRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    input.count > data.threshold
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{"threshold":{"type":"integer"}},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// Test the referencing of rule variables in other rules
+	t.Run("VarRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+minimumAge := 18
+allow if {
+    input.age > minimumAge
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{"age":{"type":"integer"}},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// allow if { input.user.number == 42 } with no default.
+	// Without a default, the only satisfying model has allow=true and number=42.
+	// Schema: user.number is an integer with no additionalProperties.
+	// The model must assign 42 to input.user.number.
+	t.Run("DefaultAllowNestedInputLiteral", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+
+allow if {
+    input.user.number == 42
+}
+`
+		schema := []byte(`{
+			"type": "object",
+			"properties": {
+				"user": {
+					"type": "object",
+					"properties": {
+						"number": {"type": "integer"}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+		inputVal, ok := result.Vars["input"]
+		if !ok {
+			t.Fatalf("expected 'input' in model vars, got: %v", varKeys(result.Vars))
+		}
+		inputMap, ok := inputVal.Map()
+		if !ok {
+			t.Fatalf("expected input to be a map, got kind: %s", inputVal.Kind())
+		}
+		userVal, ok := inputMap["user"]
+		if !ok {
+			t.Fatalf("expected 'user' field in input map, got: %v", inputVal.AsInterface())
+		}
+		userMap, ok := userVal.Map()
+		if !ok {
+			t.Fatalf("expected input.user to be a map, got kind: %s", userVal.Kind())
+		}
+		numberVal, ok := userMap["number"]
+		if !ok {
+			t.Fatalf("expected 'number' field in input.user, got: %v", userVal.AsInterface())
+		}
+		num, ok := numberVal.Int64()
+		if !ok || num != 42 {
+			t.Fatalf("expected input.user.number == 42, got: %v (ok=%v)", num, ok)
+		}
+	})
+
+	// Local variable assigned a literal integer, then compared with a nested
+	// input field (input.user.number). The schema has no additionalProperties.
+	t.Run("DefaultAllowLocalVarNestedInput", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+
+default allow := false
+
+allow if {
+    nombr := 42
+    input.user.number == nombr
+}
+`
+		schema := []byte(`{
+			"type": "object",
+			"properties": {
+				"user": {
+					"type": "object",
+					"properties": {
+						"number": {"type": "integer"}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+}

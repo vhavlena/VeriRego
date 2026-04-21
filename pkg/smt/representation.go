@@ -30,10 +30,10 @@ func NewSmtType(depth uint) *SmtType {
 
 // Representation of values assignable to Rego variables
 type SmtValue struct {
-	value     string
-	depth     int
-	atomics   []types.AtomicType
-	isConst   bool	// true if value is int / string / boolean ...
+	value   string
+	depth   int
+	atomics []types.AtomicType
+	isConst bool // true if value is int / string / boolean ...
 }
 
 func NewSmtValue(value string, depth int) *SmtValue {
@@ -42,17 +42,17 @@ func NewSmtValue(value string, depth int) *SmtValue {
 
 func NewSmtValueFromString(str string) *SmtValue {
 	value := fmt.Sprintf("\"%s\"", str)
-	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicString}, isConst: true }
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicString}, isConst: true}
 }
 
 func NewSmtValueFromInt(i int) *SmtValue {
 	value := fmt.Sprintf("%d", i)
-	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicInt}, isConst: true }
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicInt}, isConst: true}
 }
 
 func NewSmtValueFromBoolean(b bool) *SmtValue {
 	value := fmt.Sprintf("%v", b)
-	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicBoolean}, isConst: true }
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicBoolean}, isConst: true}
 }
 
 func getAtomicTypes(tp types.RegoTypeDef) []types.AtomicType {
@@ -72,7 +72,7 @@ func NewSmtValueFromVar(v ast.Var, exprTrans *ExprTranslator) (*SmtValue, error)
 	name := removeQuotes(v.String())
 	tp, ok := exprTrans.TypeTrans.TypeInfo.Types[name]
 	if !ok {
-		return nil, verr.ErrTypeNotFound
+		return nil, verr.ErrTypeNotFound(name)
 	}
 	types := getAtomicTypes(tp)
 	return &SmtValue{
@@ -110,19 +110,19 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 	// handle constant types
 	if sv.depth == -1 {
 		if len(sv.atomics) != 1 {
-			return nil	// TODO: maybe return err, but it would make it inconvenient
+			return nil // TODO: maybe return err, but it would make it inconvenient
 		}
 		wrapper := ""
 		switch sv.atomics[0] {
 		case types.AtomicBoolean:
-			wrapper = "OBool"
+			wrapper = "OBoolean"
 		case types.AtomicInt:
 			wrapper = "ONumber"
 		case types.AtomicString:
 			wrapper = "OString"
-		case types.AtomicNull:	// maybe not necessary
+		case types.AtomicNull: // maybe not necessary
 			wrapper = "ONull"
-		case types.AtomicUndef:	// maybe not necessary
+		case types.AtomicUndef: // maybe not necessary
 			wrapper = "OUndef"
 		default:
 			return nil
@@ -253,7 +253,7 @@ func (sv *SmtValue) getBool() *SmtProposition {
 	if err != nil {
 		return RawProposition("false")
 	}
-	return RawProposition(v.value)	// v is unwrapped
+	return RawProposition(v.value) // v is unwrapped
 }
 
 func (sv *SmtValue) TypeIs(t types.AtomicType) bool {
@@ -281,23 +281,23 @@ func (sv *SmtValue) Holds() *SmtProposition {
 	return And(propositions)
 }
 
-func findConstString(sv *SmtValue) (string,error) {
+func findConstString(sv *SmtValue) (string, error) {
 	s := sv.value
 	start := strings.Index(s, "\"")
 	if start == -1 {
-		return "", verr.ErrUnsupportedAtomic
+		return "", fmt.Errorf("smt value %s does not contain a string literal", sv.String())
 	}
 	s = s[start:]
-	end := strings.Index(s, "\"")
+	end := strings.Index(s[1:], "\"")
 	if end == -1 {
-		return "", verr.ErrUnsupportedAtomic
+		return "", fmt.Errorf("smt value %s does not contain a string literal", sv.String())
 	}
-	return s[start:end+1], nil
+	return s[:end+2], nil
 }
 
-func (sv *SmtValue) AsString() (*SmtValue,error) {
+func (sv *SmtValue) AsString() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicString) {
-		return nil, verr.ErrUnsupportedType	// FIXME: better error type
+		return nil, verr.ErrUnexpectedValueType(sv.String(), "string")
 	}
 
 	if sv.isConst {
@@ -309,12 +309,12 @@ func (sv *SmtValue) AsString() (*SmtValue,error) {
 	}
 
 	value := fmt.Sprintf("(str %s)", sv.UnwrapToDepth(0))
-	return NewSmtValueFromString(value), nil
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicString}, isConst: true}, nil
 }
 
-func (sv *SmtValue) AsInt() (*SmtValue,error) {
+func (sv *SmtValue) AsInt() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicInt) {
-		return nil, verr.ErrUnsupportedType	// FIXME: better error type
+		return nil, verr.ErrUnexpectedValueType(sv.String(), "int")
 	}
 
 	if sv.isConst {
@@ -327,12 +327,12 @@ func (sv *SmtValue) AsInt() (*SmtValue,error) {
 	}
 
 	value := fmt.Sprintf("(num %s)", sv.UnwrapToDepth(0))
-	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicInt}, isConst: true }, nil
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicInt}, isConst: true}, nil
 }
 
-func (sv *SmtValue) AsBool() (*SmtValue,error) {
+func (sv *SmtValue) AsBool() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicBoolean) {
-		return nil, verr.ErrUnsupportedType	// FIXME: better error type
+		return nil, verr.ErrUnexpectedValueType(sv.String(), "bool")
 	}
 
 	if sv.isConst {
@@ -346,13 +346,13 @@ func (sv *SmtValue) AsBool() (*SmtValue,error) {
 	}
 
 	value := fmt.Sprintf("(bool %s)", sv.UnwrapToDepth(0))
-	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicBoolean}, isConst: true }, nil
+	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicBoolean}, isConst: true}, nil
 }
 
-func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue,error) {
+func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue, error) {
 	if t.depth == -1 {
 		if !sv.TypeIs(t.atomic) {
-			return nil, verr.ErrUnsupportedType	// FIXME: Incorrect type
+			panic("unreachable")
 		}
 		if sv.depth == -1 {
 			return sv, nil
@@ -506,7 +506,10 @@ func DeclareFun(name string, paramSorts []string, retSort string) *SmtCommand {
 	return &SmtCommand{value: value}
 }
 
-type Arg struct { string; int }
+type Arg struct {
+	string
+	int
+}
 
 func DefineFun(name string, args []Arg, body *SmtValue) *SmtCommand {
 	argStr := "("

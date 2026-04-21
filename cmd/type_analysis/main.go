@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -59,6 +60,10 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, data
 
 	compiledModule := compiler.Modules[mod.Package.Path.String()]
 
+	// Rename local variables to unique names before any simplification.
+	renamer := simplify.NewLocalVarRenamer()
+	compiledModule = renamer.SimplifyModule(compiledModule)
+
 	if inline {
 		inliner := simplify.NewInliner()
 		inliner.GatherInlinePredicates(compiledModule)
@@ -86,10 +91,51 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, data
 	typeMap := typeAnalyzer.GetAllTypes()
 	if len(typeMap) > 0 {
 		fmt.Printf("\nInferred Types (all rules):\n")
-		for varName, varType := range typeMap {
-			fmt.Printf("  %s: %s\n", varName, varType.PrettyPrintShort())
+		typeNames := make([]string, 0, len(typeMap))
+		for name := range typeMap {
+			typeNames = append(typeNames, name)
+		}
+		sort.Strings(typeNames)
+		for _, varName := range typeNames {
+			tp := typeMap[varName]
+			fmt.Printf("  %s: %s\n", varName, tp.PrettyPrintShort())
 		}
 	}
+
+	if len(compiledModule.Rules) > 0 {
+		vc := typeAnalyzer.GetVarClassification()
+
+		localVars := make([]string, 0, len(vc.Local))
+		for v := range vc.Local {
+			localVars = append(localVars, v)
+		}
+		sort.Strings(localVars)
+
+		quantifiedVars := make([]string, 0, len(vc.Quantified))
+		for v := range vc.Quantified {
+			quantifiedVars = append(quantifiedVars, v)
+		}
+		sort.Strings(quantifiedVars)
+
+		paramVars := make([]string, 0, len(vc.Parameter))
+		for v := range vc.Parameter {
+			paramVars = append(paramVars, v)
+		}
+		sort.Strings(paramVars)
+
+		fmt.Printf("\nVariable Classification:\n")
+		fmt.Printf("  parameters: %s\n", formatVarList(paramVars))
+		fmt.Printf("  local:      %s\n", formatVarList(localVars))
+		fmt.Printf("  quantified: %s\n", formatVarList(quantifiedVars))
+	}
+}
+
+// formatVarList formats a sorted variable name slice for display.
+func formatVarList(vars []string) string {
+	if len(vars) == 0 {
+		return "(none)"
+	}
+	return strings.Join(vars, ", ")
 }
 
 // parseRegoFile parses the provided Rego policy using the specified language version constraints.

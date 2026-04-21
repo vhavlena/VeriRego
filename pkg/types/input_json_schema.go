@@ -3,10 +3,19 @@ package types
 
 import (
 	"encoding/json"
+	"sync"
 
 	jptr "github.com/qri-io/jsonpointer"
 	qjsonschema "github.com/qri-io/jsonschema"
 )
+
+// jsonschemaInitOnce ensures LoadDraft2019_09 is called exactly once before any
+// concurrent JSON Schema unmarshalling, avoiding data races on global keyword maps.
+var jsonschemaInitOnce sync.Once
+
+func initJSONSchema() {
+	jsonschemaInitOnce.Do(qjsonschema.LoadDraft2019_09)
+}
 
 // InputJsonSchema stores type information derived from a JSON Schema document.
 // It mirrors the semantics of InputSchema but derives the RegoTypeDef from a JSON Schema
@@ -50,6 +59,8 @@ func NewInputJsonSchema() *InputJsonSchema {
 //
 //	error: An error if the schema cannot be parsed; otherwise nil.
 func (s *InputJsonSchema) ProcessJSONSchema(schemaJSON []byte) error {
+	// Ensure jsonschema global keyword maps are initialized before any concurrent Unmarshal.
+	initJSONSchema()
 	// Parse with qri-io/jsonschema to respect JSON Schema structure & keywords
 	rs := &qjsonschema.Schema{}
 	if err := json.Unmarshal(schemaJSON, rs); err != nil {

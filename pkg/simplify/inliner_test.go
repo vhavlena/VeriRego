@@ -6,6 +6,35 @@ import (
 	"github.com/open-policy-agent/opa/v1/ast"
 )
 
+// TestInlineModule_PreservesTopLevelRule checks that a top-level policy rule
+// (e.g. "allow if { ... }") that matches the inlineable shape but is never
+// called as a helper by any other rule is NOT dropped by InlineModule.
+func TestInlineModule_PreservesTopLevelRule(t *testing.T) {
+	re := `package test
+
+allow if {
+  input.role == "admin"
+}`
+	module, err := ast.ParseModule("test.rego", re)
+	if err != nil {
+		t.Fatalf("failed to parse module: %v", err)
+	}
+	inliner := NewInliner()
+	inliner.GatherInlinePredicates(module)
+	inlinedModule := inliner.InlineModule(module)
+
+	foundAllow := false
+	for _, rule := range inlinedModule.Rules {
+		if rule.Head.Name.String() == "allow" {
+			foundAllow = true
+			break
+		}
+	}
+	if !foundAllow {
+		t.Errorf("expected top-level 'allow' rule to be preserved, but it was dropped")
+	}
+}
+
 func TestInlineModule_RemovesInlinedRules(t *testing.T) {
 	re := `package test
 

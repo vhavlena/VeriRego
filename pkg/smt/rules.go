@@ -38,7 +38,7 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 //  *SmtValue: assignment - value, which is conditional to the rule body
 //  error
 func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error) {
-	exprTrans := NewExprTranslatorWithVarMap(t.TypeTrans, t.VarMap, t.funcMap)
+	exprTrans := t.IntoExprTranslator()
 	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
 	if err != nil {
 		return nil, nil, err
@@ -77,7 +77,7 @@ func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 		name := removeQuotes(arg.String())
 		tp, ok := t.TypeTrans.TypeInfo.Types[name]
 		if !ok {
-			return nil, verr.ErrTypeNotFound
+			return nil, verr.ErrTypeNotFound(name)
 		}
 		depth := tp.TypeDepth()
 		args = append(args, Arg{name, depth})

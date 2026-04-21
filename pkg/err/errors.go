@@ -5,26 +5,61 @@ import (
 	"fmt"
 )
 
+func ErrNotObjectType(term string) error {
+	return fmt.Errorf("expected object type for term %s", term)
+}
+
+func ErrInvalidInt(orig string) error {
+	return fmt.Errorf(`failed to get number from "%s"`, orig)
+}
+
+func ErrUnsupportedType(term, tp string) error {
+	return fmt.Errorf("unsupported type (%s) for term %s", tp, term)
+}
+
+func ErrUnsupportedAtomic(tp string) error {
+	return fmt.Errorf(`unsupported atomic type "%s"`, tp)
+}
+
+func ErrUnexpectedValueType(val, expected string) error {
+	return fmt.Errorf(`value "%s" does not have expected type "%s"`, val, expected)
+}
+
 var (
-	ErrNotObjectType     = errors.New("expected object type")
-	ErrUnsupportedType   = errors.New("unsupported type")
-	ErrUnsupportedAtomic = errors.New("unsupported atomic type")
 	ErrMissingSpecField  = errors.New("missing 'spec' field in YAML")
 	ErrInvalidParameters = errors.New("missing or invalid 'spec.parameters' field in YAML")
 )
 
+// error signs
+var (
+	ErrUnsupportedTypeSign = errors.New("ErrUnsupportedTypeSign")
+	ErrNotObjectTypeSign = errors.New("ErrNotObjectTypeSign")
+)
+
+func ErrNotImplemented(msg string) error {
+	return fmt.Errorf("not implemented: %s", msg)
+}
+
+func ErrUnsupportedFunction(name string) error {
+	return fmt.Errorf(`unsupported function: "%s"`, name)
+}
+
+func ErrTypeNotFound(term string) error {
+	return fmt.Errorf(`type not found for term "%s"`, term)
+}
+
+func ErrFunctionNotFound(name string) error {
+	return fmt.Errorf(`function "%s" not found`, name)
+}
+
+func ErrMissingObjectKey(obj, key string) error {
+	return fmt.Errorf(`object "%s" is missing key "%s"`, obj, key)
+}
+
 // SMT-LIB/term conversion errors
 var (
-	ErrExplicitArraysNotSupported   = errors.New("explicit arrays are not supported")
-	ErrObjectConversionNotSupported = errors.New("object conversion not supported")
-	ErrSetConversionNotSupported    = errors.New("set conversion not supported")
 	ErrUnsupportedTermType          = errors.New("unsupported term type")
-	ErrUnsupportedFunction          = errors.New("unsupported function")
-	ErrSchemaVarTypeNotFound        = errors.New("type for schema variable not found")
-	ErrEmptyReferenceConv           = errors.New("Cannot convert empty reference")
-	ErrInvalidEmptyTerm             = errors.New("invalid or empty expression terms")
-	ErrTypeNotFound                 = errors.New("type not found")
-	ErrNotImplemented               = errors.New("not implemented")
+	ErrUnexpected                   = errors.New("unexpected error") // for states which should be unreachable
 )
 
 // ErrSmtConstraints returns an error for SMT constraint generation failure.
