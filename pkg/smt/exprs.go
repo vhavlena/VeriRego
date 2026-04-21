@@ -360,15 +360,36 @@ func (et *ExprTranslator) GetVarValue(v ast.Var) (*SmtValue, error) {
 	return NewSmtValueFromVar(v, et)
 }
 
+// arrayToSmt converts a Rego array to an SmtValue representing the corresponding SMT-LIB expression.
+// it works for arrays with explicit elements (e.g. arr := [1,2,3])
+// now experimenting with the sequence based approach 
+//
+// Parameters:
+//
+//	arr *ast.Array: The Rego array to convert.
+//
+// Returns:
+//
+//	*SmtValue: An SmtValue representing the SMT-LIB expression for the array.
+//	error: An error if type information is missing or conversion fails.
 func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 	tp, ok := et.TypeTrans.TypeInfo.Types[arr.String()]
 	if !ok {
 		return nil, verr.ErrTypeNotFound(arr.String())
 	}
-	// TODO: change the logic to the sequence based approach
-	depth := tp.TypeDepth()
-	arrSmt := createConstArray("Int", depth)
 
+	if arr.Len() == 0 {
+		depth := tp.TypeDepth()
+        return &SmtValue {
+			// TODO: can we return depth-1 here?
+			value: fmt.Sprintf("(OArray%d (as seq.empty (Seq OTypeD%d)))", depth, depth-1),
+			depth: depth,
+		}, nil
+	}
+
+	depth := tp.TypeDepth()
+	// arrSmt := createConstArray("Int", depth)
+	elements := make([]string, arr.Len())
 	for index := range arr.Len() {
 		val := arr.Elem(index)
 		valSmt, err := et.termToSmtValue(val)
@@ -376,11 +397,23 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 			return nil, err
 		}
 		valSmt = valSmt.WrapToDepth(depth - 1)
-		arrSmt = fmt.Sprintf("(store %s %d %s)", arrSmt, index, valSmt.String())
+		// arrSmt = fmt.Sprintf("(store %s %d %s)", arrSmt, index, valSmt.String())
+		elements[index] = fmt.Sprintf("(seq.unit %s)", valSmt.String())
 	}
 
+	// seq.++ requires 2+ arguments, so we handle the single element case separately
+	if len(elements) == 1 {
+		return &SmtValue{
+			value: fmt.Sprintf("(OArray%d %s)", depth, elements[0]),
+			depth: depth,
+		}, nil
+	}
+
+	joinedArr := strings.Join(elements, " ")
+
+	// joined elements are wrapped in the OArray constructor of the appropriate depth
 	return &SmtValue{
-		value: fmt.Sprintf("(OArray%d %s)", depth, arrSmt),
+		value: fmt.Sprintf("(OArray%d (seq.++ %s))", depth, joinedArr),
 		depth: depth,
 	}, nil
 }
@@ -415,8 +448,7 @@ func createConstArray(keyType string, depth int) string {
 	for d := range depth - 1 {
 		undefChild = fmt.Sprintf("(Atom%d %s)", d+1, undefChild)
 	}
-	// TODO: change to the new array sequence logic
-	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)",keyType ,depth-1, undefChild)
+	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)", keyType, depth-1, undefChild)
 }
 
 // regoFuncToSmt converts a Rego function/operator name and its arguments to an SMT-LIB function application string.
@@ -508,6 +540,7 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 	if !ok {
 		return nil, verr.ErrTypeNotFound(name)
 	}
+	// TODO: input.data.arr[0] fails on array MAREK
 	smtRef, actType, err := getSmtRef(name, path, &tp)
 	if err != nil {
 		return nil, err
@@ -614,8 +647,10 @@ func (et *ExprTranslator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 			return "", err
 		}
 		depth := max(tp.TypeDepth(), 0)
-		// TODO: change to the new array sequence logic
-		eq := RawProposition(fmt.Sprintf("(= (select (arr%d %s) %d) %s)", depth, varName, i, elemSmt))
+		// TODO: change to the new array sequence logic (should be done)
+		// TODO: must make sure the sequencing logic, what can occur, because of possible adding of guardrails
+		// for the array access (quite possibly add it to the referencing part of the code...)
+		eq := RawProposition(fmt.Sprintf("(= (seq.nth (arr%d %s) %d) %s)", depth, varName, i, elemSmt))
 		et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, Assert(eq))
 	}
 
