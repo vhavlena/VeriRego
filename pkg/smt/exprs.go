@@ -437,7 +437,7 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 	if !ok {
 		return nil, verr.ErrTypeNotFound
 	}
-
+	// TODO: change the logic to the sequence based approach
 	depth := tp.TypeDepth()
 	arrSmt := createConstArray("Int", depth)
 
@@ -487,6 +487,7 @@ func createConstArray(keyType string, depth int) string {
 	for d := range depth-1 {
 		undefChild = fmt.Sprintf("(Atom%d %s)",d+1,undefChild)
 	}
+	// TODO: change to the new array sequence logic
 	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)",keyType ,depth-1, undefChild)
 }
 
@@ -638,6 +639,7 @@ func (et *ExprTranslator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 			return "", err
 		}
 		depth := max(tp.TypeDepth(), 0)
+		// TODO: change to the new array sequence logic
 		eq := RawProposition(fmt.Sprintf("(= (select (arr%d %s) %d) %s)", depth, varName, i, elemSmt))
 		et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, Assert(eq))
 	}

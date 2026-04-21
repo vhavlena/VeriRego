@@ -3,8 +3,8 @@ package smt
 import (
 	"github.com/open-policy-agent/opa/v1/ast"
 	ast_types "github.com/open-policy-agent/opa/v1/types"
-	types "github.com/vhavlena/verirego/pkg/types"
 	verr "github.com/vhavlena/verirego/pkg/err"
+	types "github.com/vhavlena/verirego/pkg/types"
 )
 
 // ArgType is a structure holding information about function arguments
