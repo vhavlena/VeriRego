@@ -56,6 +56,10 @@ func ErrMissingObjectKey(obj, key string) error {
 	return fmt.Errorf(`object "%s" is missing key "%s"`, obj, key)
 }
 
+func ErrAccessingEmptyObject(obj string) error {
+	return fmt.Errorf(`trying to access empty object "%s"`, obj)
+}
+
 // SMT-LIB/term conversion errors
 var (
 	ErrUnsupportedTermType = errors.New("unsupported term type")

@@ -738,6 +738,7 @@ func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *ty
 	return smtref, actType, nil
 }
 
+
 // refToPath converts a Rego AST ref into a string path.
 //
 // Parameters:

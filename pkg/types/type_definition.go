@@ -131,6 +131,13 @@ func (of *ObjectFieldSet) HasSetAdditionalProperties() bool {
 	return of.AllowAdditional && has
 }
 
+// UnionizeFields returns a union of all field types in given object field set
+func (of *ObjectFieldSet) UnionizeFields() RegoTypeDef {
+	unionType := NewUnionType(of.GetValues())
+	unionType.CanonizeUnion()
+	return unionType
+}
+
 //----------------------------------------------------------------
 
 type PathNode struct {

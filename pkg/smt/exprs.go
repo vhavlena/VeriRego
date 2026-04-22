@@ -250,11 +250,8 @@ func (et *ExprTranslator) objectToSmt(obj ast.Object) (*SmtValue, error) {
 // keyType "Int" is used for arrays
 // keyType "String" is used for objects
 func createConstArray(keyType string, depth int) string {
-	undefChild := "OUndef"
-	for d := range depth - 1 {
-		undefChild = fmt.Sprintf("(Atom%d %s)", d+1, undefChild)
-	}
-	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)", keyType, depth-1, undefChild)
+	constElem := NewSmtValue("OUndef", 0).WrapToDepth(depth-1)
+	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)", keyType, depth-1, constElem)
 }
 
 // refToSmtValue converts a Rego reference (ast.Ref) to an SmtValue.
@@ -268,15 +265,15 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 
 	head := ref[0].Value.String()
 	var name string
-	var path []string
+	var rest ast.Ref
 	prefix := *et.packagePath
 	if ref.HasPrefix(prefix) && len(prefix) != 0 {
 		// Rule variable: <module-prefix>.<variable> ... e.g. data.test.foo
 		name = removeQuotes(ref[len(prefix)].String())
-		path = refToPath(ref[len(prefix)+1:])
+		rest = ref[len(prefix)+1:]
 	} else if len(ref) >= 2 && head == "input" {
 		name = "input"
-		path = refToPath(ref[1:])
+		rest = ref[1:]
 	} else if len(ref) >= 2 && head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
 		dataPath := refToPath(ref[1:])
 		// Only treat as a data schema reference if the path actually resolves through
@@ -285,7 +282,7 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 		if dataTp, ok := et.TypeTrans.TypeInfo.Types["data"]; ok {
 			if _, exists := dataTp.GetTypeFromPath(types.FromGroundPath(dataPath)); exists {
 				name = "data"
-				path = dataPath
+				rest = ref[1:]
 			} else {
 				return nil, verr.ErrTypeNotFound(ref.String())
 			}
@@ -296,7 +293,7 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 	if !ok {
 		return nil, verr.ErrTypeNotFound(name)
 	}
-	smtRef, actType, err := getSmtRef(name, path, &tp)
+	smtRef, actType, err := et.GetSmtRef(name, &tp, &rest)
 	if err != nil {
 		return nil, err
 	}
@@ -304,8 +301,145 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 	// Extraction (num/str/bool) is deferred to the point of use (e.g. refToSmt
 	// for operation arguments, or getVarValue for let-bound variable lookups).
 	return &SmtValue{
-		value:   smtRef,
-		depth:   actType.TypeDepth(),
+		value:   smtRef.value,
+		depth:   smtRef.depth,
 		atomics: getAtomicTypes(*actType),
 	}, nil
+}
+
+func (et *ExprTranslator) GetSmtRef(base string, tp *types.RegoTypeDef, rest *ast.Ref) (*SmtValue, *types.RegoTypeDef, error) {
+	smtref := NewSmtValue(base, tp.TypeDepth())
+	actType := tp
+	for _, term := range *rest {
+		switch actType.Kind {
+		case types.KindObject:
+			_, err := et.GetObjSelect(smtref, actType, term) // TODO: treat expects
+			if err != nil {
+				return nil, nil, err
+			}
+		case types.KindArray:
+			_, err := et.GetArrSelect(smtref, actType, term) // TODO: treat expects
+			if err != nil {
+				return nil, nil, err
+			}
+		case types.KindUnion:
+			panic("TODO")
+		default:
+			return nil, nil, fmt.Errorf("only object types can be used in references")
+		}
+	}
+	return smtref, actType, nil
+	// TODO: also support sets
+	// TODO: also support unions
+}
+
+type expect struct {
+	value string
+	tp    *types.RegoTypeDef
+}
+
+func (et *ExprTranslator) GetObjSelect(val *SmtValue, actType *types.RegoTypeDef, term *ast.Term) (*expect, error) {
+	if len(actType.ObjectFields.Fields) == 0 {
+		// FIXME: this is not actually an error, but it should evaulate to undef
+		return nil, verr.ErrAccessingEmptyObject(val.String())
+	}
+
+	var exp expect
+	strType := types.NewAtomicType(types.AtomicString)
+	switch v := term.Value.(type) {
+	case ast.String:
+		key := removeQuotes(v.String())
+		tp, found := actType.ObjectFields.Get(key)
+		if !found {
+			return nil, verr.ErrMissingObjectKey(val.String(), key)
+		}
+		*val = *val.SelectObj(`"`+key+`"`)
+		*val = *val.UnwrapToDepth(tp.TypeDepth())
+		*actType = *tp;
+	case ast.Var:
+		name := removeQuotes(v.String())
+		varTp := et.TypeTrans.TypeInfo.Types[name]
+		if varTp.IsAtomic() {
+			if varTp.AtomicType != types.AtomicString {
+				return nil, verr.ErrUnexpectedValueType(name, "string")
+			}
+			tp := actType.ObjectFields.UnionizeFields()
+			key := fmt.Sprintf("(str %s)", name)
+			*val = *val.SelectObj(key)
+			*val = *val.UnwrapToDepth(tp.TypeDepth())
+			*actType = tp;
+			exp = expect{ key, &strType }
+		} else {
+			// TODO: it can be union
+			return nil, verr.ErrUnexpectedValueType(name, "string")
+		}
+	case ast.Ref:
+		keyVal, err := et.refToSmtValue(v)
+		if err != nil {
+			return nil, err
+		}
+		key, err := keyVal.AsString()
+		if err != nil {
+			return nil, err
+		}
+		tp := actType.ObjectFields.UnionizeFields()
+		*val = *val.SelectObj(key.String())
+		*val = *val.UnwrapToDepth(tp.TypeDepth())
+		*actType = tp;
+		exp = expect{ key.String(), &strType }
+	default:
+		panic("todo: implement")
+	}
+
+	return &exp, nil
+}
+
+// TODO: only homogenous arrays
+// TODO: treat index overflow
+func (et *ExprTranslator) GetArrSelect(val *SmtValue, actType *types.RegoTypeDef, term *ast.Term) (*expect, error) {
+	var exp expect
+	intType := types.NewAtomicType(types.AtomicInt)
+	switch v := term.Value.(type) {
+	case ast.Number:
+		key := v.String()
+		tp := actType.ArrayType
+		*val = *val.SelectArr(key)
+		*val = *val.UnwrapToDepth(tp.TypeDepth())
+		*actType = *tp;
+	case ast.Var:
+		name := removeQuotes(v.String())
+		varTp := et.TypeTrans.TypeInfo.Types[name]
+		if varTp.IsAtomic() {
+			if varTp.AtomicType != types.AtomicInt {
+				return nil, verr.ErrUnexpectedValueType(name, "int")
+			}
+			tp := actType.ArrayType // TODO: change for heterogenous arrays
+			key := fmt.Sprintf("(num %s)", name)
+			*val = *val.SelectArr(key)
+			*val = *val.UnwrapToDepth(tp.TypeDepth())
+			*actType = *tp;
+			exp = expect{ key, &intType }
+		} else {
+			// TODO: it can be union
+			return nil, verr.ErrUnexpectedValueType(name, "string")
+		}
+	case ast.Ref:
+		keyVal, err := et.refToSmtValue(v)
+		if err != nil {
+			return nil, err
+		}
+		key, err := keyVal.AsInt()
+		if err != nil {
+			return nil, err
+		}
+		tp := actType.ArrayType
+		*val = *val.SelectArr(key.String())
+		*val = *val.UnwrapToDepth(tp.TypeDepth())
+		*actType = *tp;
+		exp = expect{ key.String(), &intType }
+	default:
+		panic("todo: implement")
+	}
+
+	return &exp, nil
 }
