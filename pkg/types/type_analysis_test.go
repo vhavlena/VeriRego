@@ -1461,7 +1461,7 @@ allow if { some k, v in input.roles; k == "admin"; v == "granted" }`
 		}
 	})
 
-	// member_3: some idx, v in array — idx gets Int (index), v gets element type.
+	// some idx, v in array — idx gets Int (index), v gets element type.
 	t.Run("some idx, v in array — index and value types should be inferred", func(t *testing.T) {
 		t.Parallel()
 		src := `package test
@@ -1475,7 +1475,7 @@ allow if { some idx, v in input.users; v.age > 18 }`
 
 		idxtp, idxexists := analyzer.Types["idx"]
 		if !idxexists {
-			t.Fatalf("member_3 index variable 'idx' absent from Types map")
+			t.Fatalf("some index variable 'idx' absent from Types map")
 		}
 		if expected := NewAtomicType(AtomicInt); !idxtp.IsEqual(&expected) {
 			t.Errorf("expected type %v for index 'idx', got %v", expected, idxtp)
@@ -1483,7 +1483,7 @@ allow if { some idx, v in input.users; v.age > 18 }`
 
 		vtp, vexists := analyzer.Types["v"]
 		if !vexists {
-			t.Fatalf("member_3 value variable 'v' absent from Types map")
+			t.Fatalf("some value variable 'v' absent from Types map")
 		}
 		// JSON Schema processor sets AllowAdditional=false when additionalProperties
 		// is not explicitly set; match that here.
@@ -1521,6 +1521,89 @@ f(x) if { input.users[x].age > 18 }`
 		expected := NewAtomicType(AtomicInt)
 		if !tp.IsEqual(&expected) {
 			t.Errorf("expected type %v for parameter 'x', got %v", expected, tp)
+		}
+	})
+}
+
+// TestQuantifiedVarAssignedFromRefIndex checks that when an unbound variable x
+// is used both as a ref index (input.bar[x]) and as the head value (foo := x),
+// x gets the correct index type from the collection and foo is assigned x's type.
+func TestQuantifiedVarAssignedFromRefIndex(t *testing.T) {
+	t.Parallel()
+
+	jsonSchema := []byte(`{
+		"type": "object",
+		"properties": {
+			"bar": {
+				"type": "array",
+				"items": {"type": "integer"}
+			},
+			"scores": {
+				"type": "object",
+				"additionalProperties": {"type": "integer"}
+			}
+		}
+	}`)
+	schema := NewInputJsonSchema()
+	if err := schema.ProcessJSONSchema(jsonSchema); err != nil {
+		t.Fatalf("failed to process JSON Schema: %v", err)
+	}
+
+	t.Run("array — x inferred as Int, foo propagated from x", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+foo := x if { input.bar[x] == 1 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		xtp, xexists := analyzer.Types["x"]
+		if !xexists {
+			t.Fatalf("quantified variable 'x' absent from Types map")
+		}
+		expected := NewAtomicType(AtomicInt)
+		if !xtp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'x', got %v", expected, xtp)
+		}
+
+		footp, fooexists := analyzer.Types["foo"]
+		if !fooexists {
+			t.Fatalf("rule head 'foo' absent from Types map")
+		}
+		if !footp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'foo', got %v", expected, footp)
+		}
+	})
+
+	t.Run("object — x inferred as String, foo propagated from x", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+foo := x if { input.scores[x] == 1 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		xtp, xexists := analyzer.Types["x"]
+		if !xexists {
+			t.Fatalf("quantified variable 'x' absent from Types map")
+		}
+		expected := NewAtomicType(AtomicString)
+		if !xtp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'x', got %v", expected, xtp)
+		}
+
+		footp, fooexists := analyzer.Types["foo"]
+		if !fooexists {
+			t.Fatalf("rule head 'foo' absent from Types map")
+		}
+		if !footp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'foo', got %v", expected, footp)
 		}
 	})
 }
