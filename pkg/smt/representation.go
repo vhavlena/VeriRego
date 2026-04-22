@@ -154,19 +154,19 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 // UnwrapToDepth(valD3, 0) is (wrap1 (wrap2 (wrap3 valD3)))
 func (sv *SmtValue) UnwrapToDepth(depth int) *SmtValue {
 	value := sv.value
-	for d := sv.depth - 1; d > depth; d-- {
+	for d := sv.depth; d > depth; d-- {
 		value = fmt.Sprintf("(wrap%d %s)", d, value)
 	}
 	return &SmtValue{value: value, depth: depth, atomics: sv.atomics}
 }
 
 func (sv *SmtValue) SelectObj(at string) *SmtValue {
-	value := fmt.Sprintf("(select (obj%d %s) \"%s\")", sv.depth, sv.value, at)
+	value := fmt.Sprintf("(select (obj%d %s) %s)", sv.depth, sv.value, at)
 	return NewSmtValue(value, sv.depth-1)
 }
 
-func (sv *SmtValue) SelectArr(at int) *SmtValue {
-	value := fmt.Sprintf("(select (arr%d %s) %d)", sv.depth, sv.value, at)
+func (sv *SmtValue) SelectArr(at string) *SmtValue {
+	value := fmt.Sprintf("(select (arr%d %s) %s)", sv.depth, sv.value, at)
 	return NewSmtValue(value, sv.depth-1)
 }
 
@@ -398,6 +398,11 @@ func Lets(localVars []varDef, value *SmtValue) *SmtValue {
 		val += fmt.Sprintf(" (%s %s)", v.string, v.SmtValue.String())
 	}
 	return NewSmtValue(fmt.Sprintf("(let (%s) %s)", val[1:], value.String()), value.depth)
+}
+
+func ExistQuantif(name string, depth int, value *SmtValue) *SmtValue {
+	val := fmt.Sprintf("(exists ((%s %s)) %s)", name, NewSmtType(uint(depth)), value.value)
+	return NewSmtValue(val, value.depth)
 }
 
 // SmtProposition represents a boolean value
