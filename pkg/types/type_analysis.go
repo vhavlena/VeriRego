@@ -690,7 +690,7 @@ func (ta *TypeAnalyzer) inferQuantifiedVarTypesInRef(ref ast.Ref) {
 // index into collectionType:
 //   - array  → *AtomicInt
 //   - object → *AtomicString
-//   - union  → first array or object member wins
+//   - union  → union of all member index types
 //
 // Returns nil when the collection type does not determine an index type.
 func (ta *TypeAnalyzer) indexTypeFromCollection(collectionType RegoTypeDef) *RegoTypeDef {
@@ -702,11 +702,14 @@ func (ta *TypeAnalyzer) indexTypeFromCollection(collectionType RegoTypeDef) *Reg
 		t := NewAtomicType(AtomicString)
 		return &t
 	case collectionType.IsUnion():
+		typeList := []RegoTypeDef{}
 		for _, member := range collectionType.Union {
 			if t := ta.indexTypeFromCollection(member); t != nil {
-				return t
+				typeList = append(typeList, *t)
 			}
 		}
+		tmp := NewUnionType(typeList)
+		return &tmp
 	}
 	return nil
 }
