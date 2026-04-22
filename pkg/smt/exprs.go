@@ -302,6 +302,7 @@ func (et *ExprTranslator) termToSmt(term *ast.Term) (string, error) {
 	case ast.Ref:
 		return et.refToSmt(v)
 	case ast.Call:
+		// TODO: comparison to constant "== 3" gives (= x 3), 3 should be wrapped
 		// Handle string functions and other builtins
 		op := removeQuotes(v[0].String())
 		args := make([]string, len(v)-1)
@@ -536,11 +537,13 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 		}
 	}
 
+	// TODO: direct arr comparison val := [1,2,3] input.user.numero[0] == val[0] fails
+	// on val[0] here;; val is considered without name, but head is "__lv0" (the generated identifier)
 	tp, ok := et.TypeTrans.TypeInfo.Types[name]
 	if !ok {
 		return nil, verr.ErrTypeNotFound(name)
 	}
-	// TODO: input.data.arr[0] fails on array MAREK
+	// TODO: input.data.arr[0] fails on array 
 	smtRef, actType, err := getSmtRef(name, path, &tp)
 	if err != nil {
 		return nil, err
@@ -650,6 +653,7 @@ func (et *ExprTranslator) explicitArrayToSmt(arr *ast.Array) (string, error) {
 		// TODO: change to the new array sequence logic (should be done)
 		// TODO: must make sure the sequencing logic, what can occur, because of possible adding of guardrails
 		// for the array access (quite possibly add it to the referencing part of the code...)
+		// TODO: elemSmt must be wrapped i presume (now it gives like (OBoolean (= (seq.nth (arr1 (select (obj2 (select (obj3 input) "user")) "numero")) 0) 3)))
 		eq := RawProposition(fmt.Sprintf("(= (seq.nth (arr%d %s) %d) %s)", depth, varName, i, elemSmt))
 		et.context.Bucket.Asserts = append(et.context.Bucket.Asserts, Assert(eq))
 	}

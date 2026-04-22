@@ -739,23 +739,52 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 // - `string`: SMT expression selecting the nested value.
 // - `*types.RegoTypeDef`: Type definition of the selected value.
 // - `error`: Non-nil if a non-object is traversed or a field is missing.
+// func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *types.RegoTypeDef, error) {
+// 	smtref := smtvar
+// 	actType := tp
+// 	for _, p := range path {
+// 		if !actType.IsObject() && !actType.IsArray() {
+// 			return "", nil, fmt.Errorf("only object types (and array indexing) can be used in references")
+// 		}
+// 		val, found := actType.ObjectFields.Get(p)
+// 		if !found {
+// 			return "", nil, verr.ErrMissingObjectKey(smtvar, p)
+// 		}
+// 		depth := max(actType.TypeDepth(), 0)
+// 		actType = val
+// 		smtref = fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtref, p)
+// 	}
+// 	return smtref, actType, nil
+// }
 func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *types.RegoTypeDef, error) {
-	smtref := smtvar
-	actType := tp
-	for _, p := range path {
-		if !actType.IsObject() {
-			return "", nil, fmt.Errorf("only object types can be used in references")
-		}
-		val, found := actType.ObjectFields.Get(p)
-		if !found {
-			return "", nil, verr.ErrMissingObjectKey(smtvar, p)
-		}
-		depth := max(actType.TypeDepth(), 0)
-		actType = val
-		smtref = fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtref, p)
-	}
-	return smtref, actType, nil
+    smtref := smtvar
+    actType := tp
+    for _, p := range path {
+        depth := max(actType.TypeDepth(), 0)
+
+        if actType.IsObject() {
+            val, found := actType.ObjectFields.Get(p)
+            if !found {
+                return "", nil, verr.ErrMissingObjectKey(smtvar, p)
+            }
+            actType = val
+            smtref = fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtref, p)
+        } else if actType.IsArray() {
+            val := actType.ArrayType
+            if val == nil {
+                return "", nil, fmt.Errorf("array type is missing element type for %s", smtvar)
+            }
+            actType = val
+            // p is the index (e.g., "0"). We inject it directly into the SMT-LIB output
+            // since SMT-LIB treats "0" as an integer natively.
+            smtref = fmt.Sprintf("(seq.nth (arr%d %s) %s)", depth, smtref, p)
+        } else {
+            return "", nil, fmt.Errorf("only object and array types can be traversed, trying to traverse %s with key %s", actType.Kind, p)
+        }
+    }
+    return smtref, actType, nil
 }
+
 
 // refToPath converts a Rego AST ref into a string path.
 //
