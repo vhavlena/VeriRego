@@ -9,12 +9,12 @@ import (
 
 // TypeAnalyzer performs type analysis on Rego AST
 type TypeAnalyzer struct {
-	packagePath         ast.Ref
-	Types               map[string]RegoTypeDef          // Store types by string key
-	Refs                map[string]ast.Value            // Map string keys back to original values
-	Schema              InputSchemaAPI                  // Schema for input.* references
-	DataSchema          InputSchemaAPI                  // Schema for data.* references
-	VarClassification VarClassification // Variable classification (local vs. quantified vs. parameter) across all rules
+	packagePath       ast.Ref
+	Types             map[string]RegoTypeDef // Store types by string key
+	Refs              map[string]ast.Value   // Map string keys back to original values
+	Schema            InputSchemaAPI         // Schema for input.* references
+	DataSchema        InputSchemaAPI         // Schema for data.* references
+	VarClassification VarClassification      // Variable classification (local vs. quantified vs. parameter) across all rules
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -28,9 +28,9 @@ type TypeAnalyzer struct {
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		Types:                  make(map[string]RegoTypeDef),
-		Refs:                   make(map[string]ast.Value),
-		Schema:                 schema,
+		Types:  make(map[string]RegoTypeDef),
+		Refs:   make(map[string]ast.Value),
+		Schema: schema,
 		VarClassification: VarClassification{
 			Local:      make(map[string]bool),
 			Quantified: make(map[string]bool),
@@ -51,10 +51,10 @@ func NewTypeAnalyzer(schema InputSchemaAPI) *TypeAnalyzer {
 //	*TypeAnalyzer: A new instance of TypeAnalyzer.
 func NewTypeAnalyzerWithParams(packagePath ast.Ref, schema InputSchemaAPI) *TypeAnalyzer {
 	return &TypeAnalyzer{
-		packagePath:            packagePath,
-		Types:                  make(map[string]RegoTypeDef),
-		Refs:                   make(map[string]ast.Value),
-		Schema:                 schema,
+		packagePath: packagePath,
+		Types:       make(map[string]RegoTypeDef),
+		Refs:        make(map[string]ast.Value),
+		Schema:      schema,
 		VarClassification: VarClassification{
 			Local:      make(map[string]bool),
 			Quantified: make(map[string]bool),
@@ -182,6 +182,12 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 		return NewUnknownType()
 	}
 
+	// Handle `some k in collection` / `some k, v in collection` declarations.
+	if sd, ok := expr.Terms.(*ast.SomeDecl); ok {
+		ta.inferQuantifiedVarTypesInSomeDecl(sd)
+		return NewAtomicType(AtomicBoolean)
+	}
+
 	term, ok := expr.Terms.(*ast.Term)
 	if ok {
 		// If the expression is a single term, infer its type directly
@@ -287,6 +293,7 @@ func (ta *TypeAnalyzer) inferAstType(val ast.Value, inherType *RegoTypeDef) Rego
 		typ = NewAtomicType(AtomicSet)
 	case ast.Ref:
 		typ = ta.inferRefType(v)
+		ta.inferQuantifiedVarTypesInRef(v)
 	case ast.Var:
 		if t, exists := ta.Types[ta.getValueKey(v)]; exists {
 			typ = t
@@ -557,6 +564,10 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 	if ta.DataSchema != nil {
 		ta.setType(ast.MustParseRef("data"), ta.DataSchema.GetTypes())
 	}
+	// Classify variables upfront — the AST is static so this only needs to run once.
+	for _, rule := range mod.Rules {
+		ta.VarClassification.Merge(ClassifyVars(rule))
+	}
 	for {
 		for _, rule := range mod.Rules {
 			ta.AnalyzeRule(rule)
@@ -567,11 +578,140 @@ func (ta *TypeAnalyzer) AnalyzeModule(mod *ast.Module) {
 		}
 		prevTypeMap = CopyTypeMap(typeMap)
 	}
+}
 
-	// Classify variables for each rule once types have converged.
-	for _, rule := range mod.Rules {
-		ta.VarClassification.Merge(ClassifyVars(rule))
+// inferQuantifiedVarTypesInSomeDecl handles range-iteration declarations of
+// the form `some k in collection` (OPA v1 syntax).  These are stored in the
+// parsed AST as *ast.SomeDecl whose Symbols contain ast.Call nodes:
+//
+//   - internal.member_2(val, coll)       — value-only iteration
+//   - internal.member_3(key, val, coll)  — key-value iteration
+//
+// For member_2, the value variable is inferred to have the value type of the
+// collection.  For member_3, the key variable gets the index type (Int for
+// arrays, String for objects) and the value variable gets the value type.
+func (ta *TypeAnalyzer) inferQuantifiedVarTypesInSomeDecl(sd *ast.SomeDecl) {
+	for _, sym := range sd.Symbols {
+		call, ok := sym.Value.(ast.Call)
+		if !ok || len(call) == 0 {
+			continue
+		}
+		op := call[0].String()
+		args := call[1:]
+		switch op {
+		case "internal.member_2":
+			// member_2(val, coll)
+			if len(args) == 2 {
+				ta.inferMemberValueVarType(args[0], args[1])
+			}
+		case "internal.member_3":
+			// member_3(key, val, coll)
+			if len(args) == 3 {
+				ta.inferMemberKeyVarType(args[0], args[2])
+				ta.inferMemberValueVarType(args[1], args[2])
+			}
+		}
 	}
+}
+
+// inferMemberValueVarType infers the type for a value variable in a membership
+// expression. The value variable should take the element type of the collection
+// (array element type, or union of object field values).
+func (ta *TypeAnalyzer) inferMemberValueVarType(varTerm *ast.Term, collTerm *ast.Term) {
+	v, ok := varTerm.Value.(ast.Var)
+	if !ok {
+		return
+	}
+	name := string(v)
+	if isExcluded(name) {
+		return
+	}
+	collType := ta.inferAstType(collTerm.Value, nil)
+	// Value type = element type (array) or union of values (object).
+	nonGroundPath := []PathNode{{Key: "_", IsGround: false}}
+	if valType, found := collType.GetTypeFromPath(nonGroundPath); found && valType != nil {
+		ta.addToType(v, *valType)
+	}
+}
+
+// inferMemberKeyVarType infers the type for a key variable in a membership
+// expression (Int for array index, String for object key).
+func (ta *TypeAnalyzer) inferMemberKeyVarType(varTerm *ast.Term, collTerm *ast.Term) {
+	v, ok := varTerm.Value.(ast.Var)
+	if !ok {
+		return
+	}
+	name := string(v)
+	if isExcluded(name) {
+		return
+	}
+	collType := ta.inferAstType(collTerm.Value, nil)
+	if t := ta.indexTypeFromCollection(collType); t != nil {
+		ta.addToType(v, *t)
+	}
+}
+
+// inferQuantifiedVarTypesInRef inspects every non-head segment of ref. For
+// each segment whose value is a variable (and whose name is not excluded), the
+// function infers the index type from the collection type of the prefix ref
+// that precedes this segment and records it via addToType — creating a union
+// with any previously inferred type when appropriate:
+//
+//   - array collection → AtomicInt
+//   - object collection → AtomicString
+//
+// The inferred type is recorded via addToType so the variable gets a proper
+// entry in Types (and Refs) and downstream SMT translation can declare it.
+func (ta *TypeAnalyzer) inferQuantifiedVarTypesInRef(ref ast.Ref) {
+	for i := 1; i < len(ref); i++ {
+		seg := ref[i]
+		v, ok := seg.Value.(ast.Var)
+		if !ok {
+			continue
+		}
+		name := string(v)
+		if isExcluded(name) {
+			continue
+		}
+
+		// Determine the collection type from the prefix ref.
+		prefixRef := ref[:i]
+		collectionType := ta.inferRefType(prefixRef)
+
+		indexType := ta.indexTypeFromCollection(collectionType)
+		if indexType == nil {
+			continue
+		}
+		ta.addToType(v, *indexType)
+	}
+}
+
+// indexTypeFromCollection returns the expected type for a variable used as an
+// index into collectionType:
+//   - array  → *AtomicInt
+//   - object → *AtomicString
+//   - union  → union of all member index types
+//
+// Returns nil when the collection type does not determine an index type.
+func (ta *TypeAnalyzer) indexTypeFromCollection(collectionType RegoTypeDef) *RegoTypeDef {
+	switch {
+	case collectionType.IsArray():
+		t := NewAtomicType(AtomicInt)
+		return &t
+	case collectionType.IsObject():
+		t := NewAtomicType(AtomicString)
+		return &t
+	case collectionType.IsUnion():
+		typeList := []RegoTypeDef{}
+		for _, member := range collectionType.Union {
+			if t := ta.indexTypeFromCollection(member); t != nil {
+				typeList = append(typeList, *t)
+			}
+		}
+		tmp := NewUnionType(typeList)
+		return &tmp
+	}
+	return nil
 }
 
 // GetVarClassification returns the flat VarClassification across all analysed rules.
@@ -647,7 +787,7 @@ func isEquality(name string) bool {
 //	*TypeAnalyzer: The type analyzer with inferred types.
 func AnalyzeTypes(rule *ast.Rule, schema InputSchemaAPI) *TypeAnalyzer {
 	analyzer := NewTypeAnalyzerWithParams(rule.Module.Package.Path, schema)
-	analyzer.AnalyzeRule(rule)
 	analyzer.VarClassification.Merge(ClassifyVars(rule))
+	analyzer.AnalyzeRule(rule)
 	return analyzer
 }

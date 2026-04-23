@@ -550,7 +550,6 @@ test if { [1, "two", true] }`,
 	}
 }
 
-
 func TestRuleHeadTypeInference(t *testing.T) {
 	t.Parallel()
 	schema := NewInputSchema()
@@ -1302,6 +1301,311 @@ test if { x := data.config.enabled }`,
 			}
 		})
 	}
+}
+
+// TestQuantifiedVarTypeInference checks that type inference records a type for
+// variables classified as VarKindQuantified by ClassifyVars.  These are
+// variables that appear as iteration indices, ref-index variables, or head keys
+// of partial rules — not on the LHS of an assignment.
+//
+// Issue #40: AnalyzeModule / AnalyzeRuleBody never calls any logic that sets a
+// type for quantified variables.  Downstream consumers such as NewSmtValueFromVar
+// look up the variable name in TypeInfo.Types and receive ErrTypeNotFound,
+// breaking the entire SMT translation for any rule that uses quantified vars.
+//
+// The test verifies three concrete broken cases from the issue description:
+//  1. some k in input.roles — iteration index k should get the key type (String
+//     for an object, Int for an array).
+//  2. input.users[uid].age > 18 — ref-index variable uid should get a type.
+//  3. allow contains role { role := input.role } — head-key variable role
+//     should be present in Types (as quantified).
+//
+// Until the feature is implemented each sub-test will fail because the variable
+// is absent from the Types map.
+func TestQuantifiedVarTypeInference(t *testing.T) {
+	t.Parallel()
+
+	// JSON Schema: roles is an object with string values; users is an array of
+	// objects with an age (int) field; role is a string.
+	jsonSchema := []byte(`{
+		"type": "object",
+		"properties": {
+			"roles": {
+				"type": "object",
+				"additionalProperties": {"type": "string"}
+			},
+			"users": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"age":  {"type": "integer"},
+						"name": {"type": "string"}
+					}
+				}
+			},
+			"role": {"type": "string"}
+		}
+	}`)
+	schema := NewInputJsonSchema()
+	if err := schema.ProcessJSONSchema(jsonSchema); err != nil {
+		t.Fatalf("failed to process JSON Schema: %v", err)
+	}
+
+	t.Run("some k in object — key type should be inferred", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+allow if { some k in input.roles; k == "admin" }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		// k is quantified; after inference it must be present in Types.
+		tp, exists := analyzer.Types["k"]
+		if !exists {
+			t.Fatalf("issue #40: quantified variable 'k' absent from Types map; ErrTypeNotFound would fire during SMT translation")
+		}
+		expected := NewAtomicType(AtomicString)
+		if !tp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'k', got %v", expected, tp)
+		}
+	})
+
+	t.Run("ref-index variable uid — type should be inferred", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+allow if { input.users[uid].age > 18 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		// uid indexes into an array, so its type should be Int.
+		tp, exists := analyzer.Types["uid"]
+		if !exists {
+			t.Fatalf("issue #40: quantified ref-index variable 'uid' absent from Types map; ErrTypeNotFound would fire during SMT translation")
+		}
+		expected := NewAtomicType(AtomicInt)
+		if !tp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'uid', got %v", expected, tp)
+		}
+	})
+
+	t.Run("partial-set head key — type should be inferred as Int from array index", func(t *testing.T) {
+		t.Parallel()
+		// Here uid is the head key of a partial set rule AND appears as a
+		// ref-index variable in the body.  OPA preserves the name uid in the
+		// compiled form (it does not rename head-key variables that appear in
+		// the body as ref indices).  The type should be Int because uid indexes
+		// into input.users which is an array.
+		src := `package test
+allowed[uid] if { input.users[uid].age > 18 }`
+		mod, err := ast.ParseModuleWithOpts("test.rego", src, ast.ParserOptions{RegoVersion: ast.RegoV1})
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		// Compile so head.Key is properly set by OPA.
+		compiler := ast.NewCompiler()
+		compiler.Compile(map[string]*ast.Module{mod.Package.Path.String(): mod})
+		if compiler.Failed() {
+			t.Fatalf("compile: %v", compiler.Errors)
+		}
+		compiledMod := compiler.Modules[mod.Package.Path.String()]
+
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(compiledMod)
+
+		// uid is the head key (quantified) and a ref-index in input.users[uid].
+		// Its type must be Int (array index).
+		tp, exists := analyzer.Types["uid"]
+		if !exists {
+			t.Fatalf("issue #40: head-key variable 'uid' absent from Types map; ErrTypeNotFound would fire during SMT translation")
+		}
+		expected := NewAtomicType(AtomicInt)
+		if !tp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'uid', got %v", expected, tp)
+		}
+	})
+
+	// member_3: some k, v in object — k gets String (key), v gets String (value).
+	t.Run("some k, v in object — key and value types should be inferred", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+allow if { some k, v in input.roles; k == "admin"; v == "granted" }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		ktp, kexists := analyzer.Types["k"]
+		if !kexists {
+			t.Fatalf("member_3 key variable 'k' absent from Types map")
+		}
+		if expected := NewAtomicType(AtomicString); !ktp.IsEqual(&expected) {
+			t.Errorf("expected type %v for key 'k', got %v", expected, ktp)
+		}
+
+		vtp, vexists := analyzer.Types["v"]
+		if !vexists {
+			t.Fatalf("member_3 value variable 'v' absent from Types map")
+		}
+		if expected := NewAtomicType(AtomicString); !vtp.IsEqual(&expected) {
+			t.Errorf("expected type %v for value 'v', got %v", expected, vtp)
+		}
+	})
+
+	// some idx, v in array — idx gets Int (index), v gets element type.
+	t.Run("some idx, v in array — index and value types should be inferred", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+allow if { some idx, v in input.users; v.age > 18 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		idxtp, idxexists := analyzer.Types["idx"]
+		if !idxexists {
+			t.Fatalf("some index variable 'idx' absent from Types map")
+		}
+		if expected := NewAtomicType(AtomicInt); !idxtp.IsEqual(&expected) {
+			t.Errorf("expected type %v for index 'idx', got %v", expected, idxtp)
+		}
+
+		vtp, vexists := analyzer.Types["v"]
+		if !vexists {
+			t.Fatalf("some value variable 'v' absent from Types map")
+		}
+		// JSON Schema processor sets AllowAdditional=false when additionalProperties
+		// is not explicitly set; match that here.
+		expectedV := RegoTypeDef{
+			Kind: KindObject,
+			ObjectFields: NewObjectFieldSet(map[string]RegoTypeDef{
+				"age":  NewAtomicType(AtomicInt),
+				"name": NewAtomicType(AtomicString),
+			}, false),
+		}
+		if !vtp.IsEqual(&expectedV) {
+			t.Errorf("expected type %v for value 'v', got %v", expectedV, vtp)
+		}
+	})
+
+	t.Run("function parameter used as ref-index — index type added to parameter", func(t *testing.T) {
+		t.Parallel()
+		// x is a declared function parameter, initially unknown, but also used
+		// as an index into input.users (an array).  After analysis the index-
+		// type inference should add AtomicInt to x via addToType, yielding
+		// AtomicInt (unknown is dropped by CanonizeUnion).
+		src := `package test
+f(x) if { input.users[x].age > 18 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		tp, exists := analyzer.Types["x"]
+		if !exists {
+			t.Fatalf("function parameter 'x' absent from Types map after ref-index inference")
+		}
+		expected := NewAtomicType(AtomicInt)
+		if !tp.IsEqual(&expected) {
+			t.Errorf("expected type %v for parameter 'x', got %v", expected, tp)
+		}
+	})
+}
+
+// TestQuantifiedVarAssignedFromRefIndex checks that when an unbound variable x
+// is used both as a ref index (input.bar[x]) and as the head value (foo := x),
+// x gets the correct index type from the collection and foo is assigned x's type.
+func TestQuantifiedVarAssignedFromRefIndex(t *testing.T) {
+	t.Parallel()
+
+	jsonSchema := []byte(`{
+		"type": "object",
+		"properties": {
+			"bar": {
+				"type": "array",
+				"items": {"type": "integer"}
+			},
+			"scores": {
+				"type": "object",
+				"additionalProperties": {"type": "integer"}
+			}
+		}
+	}`)
+	schema := NewInputJsonSchema()
+	if err := schema.ProcessJSONSchema(jsonSchema); err != nil {
+		t.Fatalf("failed to process JSON Schema: %v", err)
+	}
+
+	t.Run("array — x inferred as Int, foo propagated from x", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+foo := x if { input.bar[x] == 1 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		xtp, xexists := analyzer.Types["x"]
+		if !xexists {
+			t.Fatalf("quantified variable 'x' absent from Types map")
+		}
+		expected := NewAtomicType(AtomicInt)
+		if !xtp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'x', got %v", expected, xtp)
+		}
+
+		footp, fooexists := analyzer.Types["foo"]
+		if !fooexists {
+			t.Fatalf("rule head 'foo' absent from Types map")
+		}
+		if !footp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'foo', got %v", expected, footp)
+		}
+	})
+
+	t.Run("object — x inferred as String, foo propagated from x", func(t *testing.T) {
+		t.Parallel()
+		src := `package test
+foo := x if { input.scores[x] == 1 }`
+		mod, err := ast.ParseModule("test.rego", src)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, schema)
+		analyzer.AnalyzeModule(mod)
+
+		xtp, xexists := analyzer.Types["x"]
+		if !xexists {
+			t.Fatalf("quantified variable 'x' absent from Types map")
+		}
+		expected := NewAtomicType(AtomicString)
+		if !xtp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'x', got %v", expected, xtp)
+		}
+
+		footp, fooexists := analyzer.Types["foo"]
+		if !fooexists {
+			t.Fatalf("rule head 'foo' absent from Types map")
+		}
+		if !footp.IsEqual(&expected) {
+			t.Errorf("expected type %v for 'foo', got %v", expected, footp)
+		}
+	})
 }
 
 // TestResolveFunctionTypeArityMismatch verifies that calling a user-defined function
