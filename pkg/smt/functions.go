@@ -94,19 +94,21 @@ func mkSmtFunction(smtName string) functionCall {
 	}
 }
 
-func EqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue,error) {
-	if len(params) != 2 {
-		return nil, verr.ErrUnexpectedParamCount("=", 2, len(params))
-	}
+func mkCompareFunction(op string) functionCall {
+	return func(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue,error) {
+		if len(params) != 2 {
+			return nil, verr.ErrUnexpectedParamCount("=", 2, len(params))
+		}
 
-	depth := max(params[0].GetDepth(), params[1].GetDepth())
-	// TODO: check for undefined
-	callVal := fmt.Sprintf("(= %s %s)", params[0].WrapToDepth(depth).String(), params[1].WrapToDepth(depth).String())
-	return &SmtValue{
-		value: callVal,
-		depth: -1,
-		atomics: []types.AtomicType{types.AtomicBoolean},
-	}, nil
+		depth := max(params[0].GetDepth(), params[1].GetDepth())
+		// TODO: check for undefined
+		callVal := fmt.Sprintf("(%s %s %s)", op, params[0].WrapToDepth(depth).String(), params[1].WrapToDepth(depth).String())
+		return &SmtValue{
+			value: callVal,
+			depth: -1,
+			atomics: []types.AtomicType{types.AtomicBoolean},
+		}, nil
+	}
 }
 
 // SmtCall generates a SMT representation of call of given function
@@ -150,8 +152,9 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.EndsWith,      mkSmtFunction("str.suffixof"))
 	addBuiltin(funcMap, *ast.IndexOf,       mkSmtFunction("str.indexof"))
 	addBuiltin(funcMap, *ast.Substring,     mkSmtFunction("str.substr"))
-	addBuiltin(funcMap, *ast.Equal,         EqFunction)
-	addBuiltin(funcMap, *ast.Equality,      EqFunction)
+	addBuiltin(funcMap, *ast.Equal,         mkCompareFunction("="))
+	addBuiltin(funcMap, *ast.Equality,      mkCompareFunction("="))
+	addBuiltin(funcMap, *ast.NotEqual,      mkCompareFunction("!="))
 	return funcMap
 }
 

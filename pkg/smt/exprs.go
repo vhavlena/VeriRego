@@ -165,7 +165,6 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	case ast.Ref:
 		return et.refToSmtValue(v)
 	case ast.Call:
-		println("he")
 		// Handle string functions and other builtins
 		op, err := et.termToOperation(v[0])
 		if err != nil {

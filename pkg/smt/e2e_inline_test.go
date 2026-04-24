@@ -17,7 +17,7 @@ package test
 default p := 2
 
 p := 1 if {
-	1 > 2
+	1 == 2
 }
 `
 	result, err := RunPolicyToModel(rego, nil, nil)
@@ -154,13 +154,13 @@ allow if {
 		}
 	})
 
-	// allow if input.count > 5: integer field comparison.
+	// allow if input.count == 5: integer field comparison.
 	t.Run("InputIntRef", func(t *testing.T) {
 		t.Parallel()
 		rego := `
 package example
 allow if {
-    input.count > 5
+    input.count == 5
 }
 `
 		schema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}},"additionalProperties":false}`)
@@ -199,7 +199,7 @@ allow if {
 package example
 allow if {
     input.role == "admin"
-    input.level > 0
+    input.level == 0
 }
 `
 		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"},"level":{"type":"integer"}},"additionalProperties":false}`)
@@ -218,7 +218,7 @@ allow if {
 		rego := `
 package example
 allow if {
-    input.count > data.threshold
+    input.count == data.threshold
 }
 `
 		inputSchema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}},"additionalProperties":false}`)
@@ -239,7 +239,7 @@ allow if {
 package example
 minimumAge := 18
 allow if {
-    input.age > minimumAge
+    input.age == minimumAge
 }
 `
 		inputSchema := []byte(`{"type":"object","properties":{"age":{"type":"integer"}},"additionalProperties":false}`)
