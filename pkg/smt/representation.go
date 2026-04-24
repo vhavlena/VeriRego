@@ -399,8 +399,10 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 
 // Ite creates a SMT "let" statement, introducing a local variable to the given clause.
 func Let(localVar varDef, value *SmtValue) *SmtValue {
-	val := fmt.Sprintf("(let ((%s %s)) %s)", localVar.name, localVar.value.String(), value.String())
-	return NewSmtValue(val, value.depth)
+	lName := localVar.name
+	lVal  := localVar.value
+	val := fmt.Sprintf("(let ((%s %s)) %s)", lName, lVal.String(), value.String())
+	return &SmtValue{value: val, depth: value.depth, atomics: value.atomics}
 }
 
 func ExistQuantif(name string, depth int, value *SmtValue) *SmtValue {
