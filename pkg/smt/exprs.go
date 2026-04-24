@@ -45,6 +45,47 @@ type varDef struct {
 	value SmtValue
 }
 
+func (et *ExprTranslator) gatherQuantFromExpr(expr *ast.Expr, out map[string]bool) {
+	if term, ok := expr.Terms.(*ast.Term); ok {
+		et.gatherQuantFromTerm(term, out)
+		return
+	}
+
+	terms, ok := expr.Terms.([]*ast.Term)
+	if !ok { return }
+
+	et.gatherQuantFromTerms(terms[1:], out)
+}
+
+func (et *ExprTranslator) gatherQuantFromTerms(terms []*ast.Term, out map[string]bool) {
+	for _, term := range terms {
+		et.gatherQuantFromTerm(term, out)
+	}
+}
+
+func (et *ExprTranslator) gatherQuantFromTerm(term *ast.Term, out map[string]bool) {
+		switch v := term.Value.(type) {
+		case ast.Var:
+			name := removeQuotes(v.String())
+			if et.TypeTrans.TypeInfo.VarClassification.Quantified[name] {
+				out[name] = true
+			}
+		case ast.Ref:
+			et.gatherQuantFromTerms(v[1:], out)
+		case ast.Call:
+			et.gatherQuantFromTerms(v[1:], out)
+		}
+}
+
+// GatherQuant returns a set of all quantifiers present in giver body
+func (et *ExprTranslator) GatherQuant(ruleBody *ast.Body) map[string]bool {
+	out := make(map[string]bool)
+	for _, expr := range *ruleBody {
+		et.gatherQuantFromExpr(expr, out)
+	}
+	return out
+}
+
 // BodyToSmt parses a rule body for transformation into SMT
 //
 // Returns:

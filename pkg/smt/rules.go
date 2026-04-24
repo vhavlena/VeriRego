@@ -67,6 +67,14 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, erro
 	for i := len(localVarDefs) - 1; i >= 0; i-- {
 		smt = Let(localVarDefs[i], smt)
 	}
+	quantifiers := exprTrans.GatherQuant(&rule.Body)
+	for q := range quantifiers {
+		tp, ok := exprTrans.TypeTrans.TypeInfo.Types[q]
+		if !ok {
+			return nil, nil, verr.ErrTypeNotFound(q)
+		}
+		smt = ExistQuantif(q, tp.TypeDepth(), smt)
+	}
 	return smtHead, smt, nil
 }
 
