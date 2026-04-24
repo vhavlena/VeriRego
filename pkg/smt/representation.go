@@ -362,13 +362,15 @@ func (sv *SmtValue) AsBool() (*SmtValue, error) {
 }
 
 func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue, error) {
-	switch t.atomic {
-	case types.AtomicBoolean:
-		return sv.AsBool()
-	case types.AtomicString:
-		return sv.AsString()
-	case types.AtomicInt:
-		return sv.AsInt()
+	if t.depth == -1 {
+		switch t.atomic {
+		case types.AtomicBoolean:
+			return sv.AsBool()
+		case types.AtomicString:
+			return sv.AsString()
+		case types.AtomicInt:
+			return sv.AsInt()
+		}
 	}
 
 	return sv.WrapToDepth(t.depth), nil

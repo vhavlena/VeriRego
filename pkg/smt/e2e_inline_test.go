@@ -90,7 +90,7 @@ p := foo(2,-10)
 
 foo(x,y) := x if {
 	z := x*y
-	z < x
+	z != x
 } else := y
 `
 	result, err := RunPolicyToModel(rego, nil, nil)
