@@ -18,7 +18,7 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 	if rule == nil || rule.Head == nil {
 		return nil, nil, fmt.Errorf("invalid rule: nil head")
 	}
-	ruleVar, err := exprTrans.GetVarValue(rule.Head.Name)
+	ruleVar, err := NewSmtValueFromVar(rule.Head.Name, exprTrans)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
 	}
@@ -107,7 +107,6 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		return t.SetDefaultValue(name.String(), value)
 	}
 
-	// TODO get args
 	args, err := t.getArgs(rule)
 	if err != nil {
 		return err

@@ -62,6 +62,10 @@ var (
 	ErrUnexpected                   = errors.New("unexpected error") // for states which should be unreachable
 )
 
+func ErrUnexpectedParamCount(function string, expected, got int) error {
+	return fmt.Errorf("function \"%s\" expected %d params, got %d", function, expected, got)
+}
+
 // ErrSmtConstraints returns an error for SMT constraint generation failure.
 //
 // Parameters:

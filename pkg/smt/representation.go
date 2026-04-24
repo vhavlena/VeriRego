@@ -300,6 +300,10 @@ func (sv *SmtValue) AsString() (*SmtValue, error) {
 		return nil, verr.ErrUnexpectedValueType(sv.String(), "string")
 	}
 
+	if sv.depth == -1 {
+		return sv, nil
+	}
+
 	if sv.isConst {
 		v, err := findConstString(sv)
 		if err != nil {
@@ -315,6 +319,10 @@ func (sv *SmtValue) AsString() (*SmtValue, error) {
 func (sv *SmtValue) AsInt() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicInt) {
 		return nil, verr.ErrUnexpectedValueType(sv.String(), "int")
+	}
+
+	if sv.depth == -1 {
+		return sv, nil
 	}
 
 	if sv.isConst {
@@ -335,6 +343,10 @@ func (sv *SmtValue) AsBool() (*SmtValue, error) {
 		return nil, verr.ErrUnexpectedValueType(sv.String(), "bool")
 	}
 
+	if sv.depth == -1 {
+		return sv, nil
+	}
+
 	if sv.isConst {
 		v := sv.findAtomicValue()
 		if v == "true" {
@@ -350,23 +362,13 @@ func (sv *SmtValue) AsBool() (*SmtValue, error) {
 }
 
 func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue, error) {
-	if t.depth == -1 {
-		if !sv.TypeIs(t.atomic) {
-			panic("unreachable")
-		}
-		if sv.depth == -1 {
-			return sv, nil
-		}
-		sv = sv.UnwrapToDepth(0)
-		switch t.atomic {
-		case types.AtomicBoolean:
-			return sv.AsBool()
-		case types.AtomicString:
-			return sv.AsString()
-		case types.AtomicInt:
-			return sv.AsInt()
-		}
-		panic("Unreachable")
+	switch t.atomic {
+	case types.AtomicBoolean:
+		return sv.AsBool()
+	case types.AtomicString:
+		return sv.AsString()
+	case types.AtomicInt:
+		return sv.AsInt()
 	}
 
 	return sv.WrapToDepth(t.depth), nil
