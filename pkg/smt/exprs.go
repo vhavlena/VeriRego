@@ -265,7 +265,7 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 
 	head := ref[0].Value.String()
 	var name string
-	var rest ast.Ref
+	rest := ref[1:]
 	prefix := *et.packagePath
 	if ref.HasPrefix(prefix) && len(prefix) != 0 {
 		// Rule variable: <module-prefix>.<variable> ... e.g. data.test.foo
@@ -273,7 +273,6 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 		rest = ref[len(prefix)+1:]
 	} else if len(ref) >= 2 && head == "input" {
 		name = "input"
-		rest = ref[1:]
 	} else if len(ref) >= 2 && head == "data" && et.TypeTrans.TypeInfo.DataSchema != nil {
 		dataPath := refToPath(ref[1:])
 		// Only treat as a data schema reference if the path actually resolves through
@@ -282,11 +281,12 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 		if dataTp, ok := et.TypeTrans.TypeInfo.Types["data"]; ok {
 			if _, exists := dataTp.GetTypeFromPath(types.FromGroundPath(dataPath)); exists {
 				name = "data"
-				rest = ref[1:]
 			} else {
 				return nil, verr.ErrTypeNotFound(ref.String())
 			}
 		}
+	} else {
+		name = ref[0].String()
 	}
 
 	tp, ok := et.TypeTrans.TypeInfo.Types[name]
