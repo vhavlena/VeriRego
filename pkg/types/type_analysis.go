@@ -15,6 +15,7 @@ type TypeAnalyzer struct {
 	Schema            InputSchemaAPI         // Schema for input.* references
 	DataSchema        InputSchemaAPI         // Schema for data.* references
 	VarClassification VarClassification      // Variable classification (local vs. quantified vs. parameter) across all rules
+	EqualityCheckLocs map[string]bool        // Source locations of == expressions collected from the parsed module
 }
 
 // NewTypeAnalyzer creates a new type analyzer.
@@ -213,12 +214,16 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 			tleft := ta.InferTermType(terms[1], nil)
 			tright := ta.InferTermType(terms[2], nil)
 
-			// Update types only for variables involved in equality
-			if isVar(terms[1]) {
-				ta.addToType(terms[1].Value, tright)
-			}
-			if isVar(terms[2]) {
-				ta.addToType(terms[2].Value, tleft)
+			// In compiled OPA, = == := all become "eq". We distinguish pure
+			// equality checks (==) via source locations collected from the parsed
+			// module before compilation. Only propagate types for = and :=.
+			if !ta.isEqualityCheck(expr) {
+				if isVar(terms[1]) {
+					ta.addToType(terms[1].Value, tright)
+				}
+				if isVar(terms[2]) {
+					ta.addToType(terms[2].Value, tleft)
+				}
 			}
 
 			return NewAtomicType(AtomicBoolean)
@@ -375,6 +380,17 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 	}
 
 	return NewUnknownType()
+}
+
+// isEqualityCheck reports whether expr is a == (pure equality check) rather
+// than a = or := (assignment/unification). OPA compilation collapses all three
+// into "eq", so we identify == by its source location, which was collected from
+// the parsed module via CollectEqualityLocs before compilation.
+func (ta *TypeAnalyzer) isEqualityCheck(expr *ast.Expr) bool {
+	if len(ta.EqualityCheckLocs) == 0 || expr.Location == nil {
+		return false
+	}
+	return ta.EqualityCheckLocs[exprLocKey(expr)]
 }
 
 func (ta *TypeAnalyzer) GetPackagePath() *ast.Ref {

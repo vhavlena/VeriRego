@@ -100,6 +100,7 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	// 6. Run type inference.
 	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema)
 	typeAnalyzer.DataSchema = dataSchema
+	typeAnalyzer.EqualityCheckLocs = types.CollectEqualityLocs(mod)
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
 	// 7. Generate SMT-LIB content.
