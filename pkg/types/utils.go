@@ -1,8 +1,6 @@
 package types
 
 import (
-	"fmt"
-
 	"github.com/open-policy-agent/opa/v1/ast"
 )
 
@@ -56,28 +54,3 @@ func IsNumericCompOp(op string) bool {
 	return false
 }
 
-// exprLocKey returns a unique string key for an expression's source location.
-func exprLocKey(expr *ast.Expr) string {
-	if expr.Location == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s:%d:%d", expr.Location.File, expr.Location.Row, expr.Location.Col)
-}
-
-// CollectEqualityLocs scans a parsed (pre-compilation) module and returns the
-// source locations of all == expressions. OPA compilation collapses =, ==, and
-// := into the same "eq" operator, so these locations are the only way to
-// distinguish pure equality checks from assignments in the compiled AST.
-func CollectEqualityLocs(mod *ast.Module) map[string]bool {
-	locs := make(map[string]bool)
-	for _, rule := range mod.Rules {
-		ast.WalkExprs(rule, func(e *ast.Expr) bool {
-			if terms, ok := e.Terms.([]*ast.Term); ok && len(terms) > 0 &&
-				terms[0].String() == "equal" && e.Location != nil {
-				locs[exprLocKey(e)] = true
-			}
-			return false
-		})
-	}
-	return locs
-}

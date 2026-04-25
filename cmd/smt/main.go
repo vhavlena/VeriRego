@@ -68,6 +68,10 @@ func analyzeAndWriteSMT(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile,
 	inliner.GatherInlinePredicates(compiledModule)
 	compiledModule = inliner.InlineModule(compiledModule)
 
+	// Restore == operator in compiled module so type inference can distinguish
+	// pure equality checks from assignments without a separate location map.
+	compiledModule = simplify.RestoreEqualityOperators(mod, compiledModule)
+
 	// Prepare input and data schemas (example-based or JSON Schema)
 	inputSchema, err := newInputSchemaFromFlags(yamlFile, jsonSchemaFile)
 	if err != nil {

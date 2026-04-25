@@ -74,6 +74,9 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	inliner.GatherInlinePredicates(compiledModule)
 	compiledModule = inliner.InlineModule(compiledModule)
 
+	// 4b. Restore == operator so type inference distinguishes equality from assignment.
+	compiledModule = simplify.RestoreEqualityOperators(mod, compiledModule)
+
 	// 5. Build input schema from the JSON Schema document.
 	// GenerateSmtContent always declares input, which requires a
 	// typed schema to generate constraints. Fall back to an empty object schema
@@ -100,7 +103,6 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	// 6. Run type inference.
 	typeAnalyzer := types.NewTypeAnalyzerWithParams(mod.Package.Path, inputSchema)
 	typeAnalyzer.DataSchema = dataSchema
-	typeAnalyzer.EqualityCheckLocs = types.CollectEqualityLocs(mod)
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
 	// 7. Generate SMT-LIB content.
