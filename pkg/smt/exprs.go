@@ -129,18 +129,18 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 	return bodySmt, localVarDefs, nil
 }
 
-func (et *ExprTranslator) termToOperation(opTerm *ast.Term) (*Function,error) {
-		opStr := removeQuotes(opTerm.String())
-		op, ok := et.funcMap[opStr]
+func (et *ExprTranslator) termToOperation(opTerm *ast.Term) (*Function, error) {
+	opStr := removeQuotes(opTerm.String())
+	op, ok := et.funcMap[opStr]
+	if !ok {
+		opParts := strings.Split(opStr, ".") // TODO: handle references properly (data.<module>.funcName)
+		opStr = opParts[len(opParts)-1]
+		op, ok = et.funcMap[opStr]
 		if !ok {
-			opParts := strings.Split(opStr, ".") // TODO: handle references properly (data.<module>.funcName)
-			opStr = opParts[len(opParts)-1]
-			op, ok = et.funcMap[opStr]
-			if !ok {
-				return nil, verr.ErrFunctionNotFound(opStr)
-			}
+			return nil, verr.ErrFunctionNotFound(opStr)
 		}
-		return &op, nil
+	}
+	return &op, nil
 }
 
 func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
@@ -151,7 +151,7 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 		if val, ok := v.Int(); ok {
 			return NewSmtValueFromInt(val), nil
 		}
-		return nil,verr.ErrInvalidInt(v.String())
+		return nil, verr.ErrInvalidInt(v.String())
 	case ast.Boolean:
 		return NewSmtValueFromBoolean(bool(v)), nil
 	case *ast.Array:

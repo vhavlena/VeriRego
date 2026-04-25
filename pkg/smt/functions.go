@@ -49,22 +49,22 @@ func transformType(t ast_types.Type) types.AtomicType {
 func NewArgType(t ast_types.Type) ArgType {
 	at := transformType(t)
 	return ArgType{
-		depth: -1,
+		depth:  -1,
 		atomic: at,
 	}
 }
 
 type Function struct {
-	name    string    // e.g., eq, plus
-	args    []ArgType
-	result  ArgType
-	call    functionCall
+	name   string // e.g., eq, plus
+	args   []ArgType
+	result ArgType
+	call   functionCall
 }
 
-type functionCall func(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue,error)
+type functionCall func(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error)
 
 func mkSmtFunction(smtName string) functionCall {
-	return func(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue,error) {
+	return func(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error) {
 		if len(args) != len(params) {
 			return nil, verr.ErrUnexpected
 		}
@@ -86,15 +86,15 @@ func mkSmtFunction(smtName string) functionCall {
 			atomics = append(atomics, result.atomic)
 		}
 		return &SmtValue{
-			value: callVal,
-			depth: result.depth,
+			value:   callVal,
+			depth:   result.depth,
 			atomics: atomics,
 			isConst: false,
 		}, nil
 	}
 }
 
-func EqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue,error) {
+func EqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) {
 	if len(params) != 2 {
 		return nil, verr.ErrUnexpectedParamCount("=", 2, len(params))
 	}
@@ -103,13 +103,13 @@ func EqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue,error) {
 	// TODO: check for undefined
 	callVal := fmt.Sprintf("(= %s %s)", params[0].WrapToDepth(depth).String(), params[1].WrapToDepth(depth).String())
 	return &SmtValue{
-		value: callVal,
-		depth: -1,
+		value:   callVal,
+		depth:   -1,
 		atomics: []types.AtomicType{types.AtomicBoolean},
 	}, nil
 }
 
-func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue,error) {
+func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) {
 	if len(params) != 2 {
 		return nil, verr.ErrUnexpectedParamCount("!=", 2, len(params))
 	}
@@ -118,14 +118,14 @@ func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue,error) {
 	// TODO: check for undefined
 	callVal := fmt.Sprintf("(not (= %s %s))", params[0].WrapToDepth(depth).String(), params[1].WrapToDepth(depth).String())
 	return &SmtValue{
-		value: callVal,
-		depth: -1,
+		value:   callVal,
+		depth:   -1,
 		atomics: []types.AtomicType{types.AtomicBoolean},
 	}, nil
 }
 
 // SmtCall generates a SMT representation of call of given function
-func (f *Function) SmtCall(params []*SmtValue) (*SmtValue,error) {
+func (f *Function) SmtCall(params []*SmtValue) (*SmtValue, error) {
 	return f.call(params, f.args, f.result)
 }
 
@@ -137,10 +137,10 @@ func NewFunctionFromBuiltin(b *ast.Builtin, call functionCall) Function {
 	}
 	result := NewArgType(b.Decl.Result())
 	return Function{
-		args: args,
+		args:   args,
 		result: result,
-		name: b.Name,
-		call: call,
+		name:   b.Name,
+		call:   call,
 	}
 }
 
@@ -151,40 +151,39 @@ func addBuiltin(funcMap map[string]Function, b ast.Builtin, call functionCall) {
 
 func GetBuiltinFuncMap() map[string]Function {
 	funcMap := make(map[string]Function, 3)
-	addBuiltin(funcMap, *ast.Plus,          mkSmtFunction("+"))
-	addBuiltin(funcMap, *ast.Minus,         mkSmtFunction("-"))
-	addBuiltin(funcMap, *ast.Multiply,      mkSmtFunction("*"))
-	addBuiltin(funcMap, *ast.Divide,        mkSmtFunction("/"))
-	addBuiltin(funcMap, *ast.GreaterThan,   mkSmtFunction(">"))
+	addBuiltin(funcMap, *ast.Plus, mkSmtFunction("+"))
+	addBuiltin(funcMap, *ast.Minus, mkSmtFunction("-"))
+	addBuiltin(funcMap, *ast.Multiply, mkSmtFunction("*"))
+	addBuiltin(funcMap, *ast.Divide, mkSmtFunction("/"))
+	addBuiltin(funcMap, *ast.GreaterThan, mkSmtFunction(">"))
 	addBuiltin(funcMap, *ast.GreaterThanEq, mkSmtFunction(">="))
-	addBuiltin(funcMap, *ast.LessThan,      mkSmtFunction("<"))
-	addBuiltin(funcMap, *ast.LessThanEq,    mkSmtFunction("<="))
-	addBuiltin(funcMap, *ast.Concat,        mkSmtFunction("str.++"))
-	addBuiltin(funcMap, *ast.Contains,      mkSmtFunction("str.contains"))
-	addBuiltin(funcMap, *ast.StartsWith,    mkSmtFunction("str.prefixof"))
-	addBuiltin(funcMap, *ast.EndsWith,      mkSmtFunction("str.suffixof"))
-	addBuiltin(funcMap, *ast.IndexOf,       mkSmtFunction("str.indexof"))
-	addBuiltin(funcMap, *ast.Substring,     mkSmtFunction("str.substr"))
-	addBuiltin(funcMap, *ast.Equal,         EqFunction)
-	addBuiltin(funcMap, *ast.Equality,      EqFunction)
-	addBuiltin(funcMap, *ast.NotEqual,      NeqFunction)
+	addBuiltin(funcMap, *ast.LessThan, mkSmtFunction("<"))
+	addBuiltin(funcMap, *ast.LessThanEq, mkSmtFunction("<="))
+	addBuiltin(funcMap, *ast.Concat, mkSmtFunction("str.++"))
+	addBuiltin(funcMap, *ast.Contains, mkSmtFunction("str.contains"))
+	addBuiltin(funcMap, *ast.StartsWith, mkSmtFunction("str.prefixof"))
+	addBuiltin(funcMap, *ast.EndsWith, mkSmtFunction("str.suffixof"))
+	addBuiltin(funcMap, *ast.IndexOf, mkSmtFunction("str.indexof"))
+	addBuiltin(funcMap, *ast.Substring, mkSmtFunction("str.substr"))
+	addBuiltin(funcMap, *ast.Equal, EqFunction)
+	addBuiltin(funcMap, *ast.Equality, EqFunction)
+	addBuiltin(funcMap, *ast.NotEqual, NeqFunction)
 	return funcMap
 }
 
 func typeToArg(t types.RegoTypeDef) ArgType {
 	return ArgType{
-		depth: t.TypeDepth(),
+		depth:  t.TypeDepth(),
 		atomic: t.AtomicType,
 	}
 }
 
 func NewFunction(name string, tp types.RegoTypeDef) Function {
 	args := make([]ArgType, len(tp.FunctionDef.ParamTypes))
-	for i,p := range tp.FunctionDef.ParamTypes {
+	for i, p := range tp.FunctionDef.ParamTypes {
 		args[i] = typeToArg(p)
 	}
 	res := typeToArg(tp.FunctionDef.ReturnType)
 	call := mkSmtFunction(name)
-	return Function{ name: name, args: args, result: res, call: call }
+	return Function{name: name, args: args, result: res, call: call}
 }
-
