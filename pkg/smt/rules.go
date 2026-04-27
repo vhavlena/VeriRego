@@ -11,14 +11,14 @@ import (
 //
 // Returns:
 //
-//  *SmtValue: variable
-//  *SmtValue: value
-//  error
-func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator) (*SmtValue,*SmtValue,error) {
+//	*SmtValue: variable
+//	*SmtValue: value
+//	error
+func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator) (*SmtValue, *SmtValue, error) {
 	if rule == nil || rule.Head == nil {
 		return nil, nil, fmt.Errorf("invalid rule: nil head")
 	}
-	ruleVar, err := exprTrans.GetVarValue(rule.Head.Name)
+	ruleVar, err := NewSmtValueFromVar(rule.Head.Name, exprTrans)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
 	}
@@ -34,10 +34,10 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 //
 // Returns:
 //
-//  *SmtValue: variable
-//  *SmtValue: assignment - value, which is conditional to the rule body
-//  error
-func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error) {
+//	*SmtValue: variable
+//	*SmtValue: assignment - value, which is conditional to the rule body
+//	error
+func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, error) {
 	exprTrans := t.IntoExprTranslator()
 	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
 	if err != nil {
@@ -57,14 +57,14 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error)
 	}
 	elseSmt := elseVal
 	if rule.Else != nil {
-		_,elseSmt, err = t.ruleToSmtString(rule.Else)
+		_, elseSmt, err = t.ruleToSmtString(rule.Else)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
 	smt := Ite(bodySmt, smtVal, elseSmt)
-	for i := len(localVarDefs)-1; i >= 0; i-- {
+	for i := len(localVarDefs) - 1; i >= 0; i-- {
 		smt = Let(localVarDefs[i], smt)
 	}
 	return smtHead, smt, nil
@@ -73,14 +73,13 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue,*SmtValue,error)
 func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 	args := make([]Arg, 0)
 
-	for _,arg := range rule.Head.Args {
+	for _, arg := range rule.Head.Args {
 		name := removeQuotes(arg.String())
 		tp, ok := t.TypeTrans.TypeInfo.Types[name]
 		if !ok {
 			return nil, verr.ErrTypeNotFound(name)
 		}
-		depth := tp.TypeDepth()
-		args = append(args, Arg{name, depth})
+		args = append(args, NewArg(name, tp))
 	}
 	return args, nil
 }
@@ -107,7 +106,6 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		return t.SetDefaultValue(name.String(), value)
 	}
 
-	// TODO get args
 	args, err := t.getArgs(rule)
 	if err != nil {
 		return err

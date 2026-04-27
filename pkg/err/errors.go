@@ -33,7 +33,7 @@ var (
 // error signs
 var (
 	ErrUnsupportedTypeSign = errors.New("ErrUnsupportedTypeSign")
-	ErrNotObjectTypeSign = errors.New("ErrNotObjectTypeSign")
+	ErrNotObjectTypeSign   = errors.New("ErrNotObjectTypeSign")
 )
 
 func ErrNotImplemented(msg string) error {
@@ -58,9 +58,13 @@ func ErrMissingObjectKey(obj, key string) error {
 
 // SMT-LIB/term conversion errors
 var (
-	ErrUnsupportedTermType          = errors.New("unsupported term type")
-	ErrUnexpected                   = errors.New("unexpected error") // for states which should be unreachable
+	ErrUnsupportedTermType = errors.New("unsupported term type")
+	ErrUnexpected          = errors.New("unexpected error") // for states which should be unreachable
 )
+
+func ErrUnexpectedParamCount(function string, expected, got int) error {
+	return fmt.Errorf("function \"%s\" expected %d params, got %d", function, expected, got)
+}
 
 // ErrSmtConstraints returns an error for SMT constraint generation failure.
 //
