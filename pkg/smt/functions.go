@@ -1,8 +1,6 @@
 package smt
 
 import (
-	"fmt"
-
 	"github.com/open-policy-agent/opa/v1/ast"
 	ast_types "github.com/open-policy-agent/opa/v1/types"
 	verr "github.com/vhavlena/verirego/pkg/err"
@@ -15,6 +13,12 @@ import (
 type ArgType struct {
 	depth  int
 	atomic types.AtomicType
+}
+
+// Arg represents a named argument, which is used for function definitions.
+type Arg struct {
+	name string
+	typ  ArgType
 }
 
 // transformType maps Rego ast Type into intermediate AtomicType
@@ -54,16 +58,20 @@ func NewArgType(t ast_types.Type) ArgType {
 	}
 }
 
+// Function is a structure for handling the conversion of Rego functions into SMT.
 type Function struct {
-	name   string // e.g., eq, plus
+	name   string // for example: eq, plus, ...
 	args   []ArgType
-	result ArgType
-	call   functionCall
+	result ArgType // the return type
+	call   callFn  // function for creating the SMT representation of call, w.r.t. the given arguments
 }
 
-type functionCall func(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error)
+type callFn func(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error)
 
-func mkSmtFunction(smtName string) functionCall {
+// mkSmtFunction creates a callFn function,
+// which checks the expected parameter types and creates a SMT value
+// of the form "(smtName par1 par2 ...)"
+func mkSmtFunction(smtName string) callFn {
 	return func(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error) {
 		if len(args) != len(params) {
 			return nil, verr.ErrUnexpected
@@ -94,34 +102,28 @@ func mkSmtFunction(smtName string) functionCall {
 	}
 }
 
+// EqFunction checks the equality of its two parameters.
 func EqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) {
 	if len(params) != 2 {
 		return nil, verr.ErrUnexpectedParamCount("=", 2, len(params))
 	}
 
-	depth := max(params[0].GetDepth(), params[1].GetDepth())
-	// TODO: check for undefined
-	callVal := fmt.Sprintf("(= %s %s)", params[0].WrapToDepth(depth).String(), params[1].WrapToDepth(depth).String())
-	return &SmtValue{
-		value:   callVal,
-		depth:   -1,
-		atomics: []types.AtomicType{types.AtomicBoolean},
-	}, nil
+	p1 := params[0]
+	p2 := params[1]
+	eq := p1.Equals(p2)
+	return eq.IntoValue(), nil
 }
 
+// NeqFunction checks the inequality of its two parameters.
 func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) {
 	if len(params) != 2 {
 		return nil, verr.ErrUnexpectedParamCount("!=", 2, len(params))
 	}
 
-	depth := max(params[0].GetDepth(), params[1].GetDepth())
-	// TODO: check for undefined
-	callVal := fmt.Sprintf("(not (= %s %s))", params[0].WrapToDepth(depth).String(), params[1].WrapToDepth(depth).String())
-	return &SmtValue{
-		value:   callVal,
-		depth:   -1,
-		atomics: []types.AtomicType{types.AtomicBoolean},
-	}, nil
+	p1 := params[0]
+	p2 := params[1]
+	eq := p1.Equals(p2)
+	return eq.Not().IntoValue(), nil
 }
 
 // SmtCall generates a SMT representation of call of given function
@@ -129,7 +131,7 @@ func (f *Function) SmtCall(params []*SmtValue) (*SmtValue, error) {
 	return f.call(params, f.args, f.result)
 }
 
-func NewFunctionFromBuiltin(b *ast.Builtin, call functionCall) Function {
+func NewFunctionFromBuiltin(b *ast.Builtin, call callFn) Function {
 	bArgs := b.Decl.Args()
 	args := make([]ArgType, 0)
 	for _, arg := range bArgs {
@@ -144,13 +146,16 @@ func NewFunctionFromBuiltin(b *ast.Builtin, call functionCall) Function {
 	}
 }
 
-func addBuiltin(funcMap map[string]Function, b ast.Builtin, call functionCall) {
+// addBuiltin converts given Builtin into Function and puts it in the funcMap.
+func addBuiltin(funcMap map[string]Function, b ast.Builtin, call callFn) {
 	f := NewFunctionFromBuiltin(&b, call)
 	funcMap[f.name] = f
 }
 
+// GetBuiltinFuncMap constructs and returns a map of Rego function converters into SMT.
+// This map is accessed via the names of functions, e.g., "plus", "eq".
 func GetBuiltinFuncMap() map[string]Function {
-	funcMap := make(map[string]Function, 3)
+	funcMap := make(map[string]Function, 17)
 	addBuiltin(funcMap, *ast.Plus, mkSmtFunction("+"))
 	addBuiltin(funcMap, *ast.Minus, mkSmtFunction("-"))
 	addBuiltin(funcMap, *ast.Multiply, mkSmtFunction("*"))
@@ -171,6 +176,7 @@ func GetBuiltinFuncMap() map[string]Function {
 	return funcMap
 }
 
+// typeToArg transforms RegoTypeDef into ArgType.
 func typeToArg(t types.RegoTypeDef) ArgType {
 	return ArgType{
 		depth:  t.TypeDepth(),
@@ -178,7 +184,11 @@ func typeToArg(t types.RegoTypeDef) ArgType {
 	}
 }
 
+// NewFunction notes a user-defined function name of type tp.
 func NewFunction(name string, tp types.RegoTypeDef) Function {
+	if tp.FunctionDef == nil {
+		panic("function type expected")
+	}
 	args := make([]ArgType, len(tp.FunctionDef.ParamTypes))
 	for i, p := range tp.FunctionDef.ParamTypes {
 		args[i] = typeToArg(p)

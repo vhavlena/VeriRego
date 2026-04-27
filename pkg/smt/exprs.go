@@ -39,11 +39,19 @@ func (et *ExprTranslator) GetTransContext() *TransContext {
 	return et.context
 }
 
+// varDef represents definition of a local variable
 type varDef struct {
-	string
-	SmtValue
+	name  string
+	value SmtValue
 }
 
+// BodyToSmt parses a rule body for transformation into SMT
+//
+// Returns:
+//
+//	*SmtProposition: Proposition encoding the constraints present in the body
+//	[]varDef: List of definitions for local variables
+//	error
 func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varDef, error) {
 	bodySmts := make([]SmtProposition, 0, len(*ruleBody))
 	definedVars := make(map[string]bool, 0)
@@ -87,7 +95,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 			}
 			def := varDef{params[len(params)-1].String(), *val.WrapToDepth(op.result.depth)}
 			localVarDefs = append(localVarDefs, def)
-			definedVars[def.string] = true
+			definedVars[def.name] = true
 			continue
 		}
 
@@ -129,6 +137,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 	return bodySmt, localVarDefs, nil
 }
 
+// termToOperation tries to get a Function represented by the input opTerm.
 func (et *ExprTranslator) termToOperation(opTerm *ast.Term) (*Function, error) {
 	opStr := removeQuotes(opTerm.String())
 	op, ok := et.funcMap[opStr]
@@ -143,6 +152,7 @@ func (et *ExprTranslator) termToOperation(opTerm *ast.Term) (*Function, error) {
 	return &op, nil
 }
 
+// termToSmtValue transforms given term into SmtValue
 func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	switch v := term.Value.(type) {
 	case ast.String:
@@ -184,6 +194,7 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	}
 }
 
+// arrayToSmt transforms a constant Rego array into SMT representation.
 func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 	tp, ok := et.TypeTrans.TypeInfo.Types[arr.String()]
 	if !ok {
@@ -209,6 +220,7 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 	}, nil
 }
 
+// objectToSmt transforms a constant Rego object into SMT representation.
 func (et *ExprTranslator) objectToSmt(obj ast.Object) (*SmtValue, error) {
 	tp, ok := et.TypeTrans.TypeInfo.Types[obj.String()]
 	if !ok {
@@ -234,6 +246,9 @@ func (et *ExprTranslator) objectToSmt(obj ast.Object) (*SmtValue, error) {
 	}, nil
 }
 
+// createConstArray is a helper function for creating an empty SMT array for values of specified depth.
+// keyType "Int" is used for arrays
+// keyType "String" is used for objects
 func createConstArray(keyType string, depth int) string {
 	undefChild := "OUndef"
 	for d := range depth - 1 {
