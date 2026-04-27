@@ -21,6 +21,13 @@ type Arg struct {
 	typ  ArgType
 }
 
+func NewArg(name string, tp types.RegoTypeDef) Arg {
+	return Arg{
+		name: name,
+		typ:  newArgTypeFromTypeDef(tp),
+	}
+}
+
 // transformType maps Rego ast Type into intermediate AtomicType
 func transformType(t ast_types.Type) types.AtomicType {
 	switch x := t.(type) {
@@ -176,8 +183,8 @@ func GetBuiltinFuncMap() map[string]Function {
 	return funcMap
 }
 
-// typeToArg transforms RegoTypeDef into ArgType.
-func typeToArg(t types.RegoTypeDef) ArgType {
+// newArgTypeFromTypeDef transforms RegoTypeDef into ArgType.
+func newArgTypeFromTypeDef(t types.RegoTypeDef) ArgType {
 	return ArgType{
 		depth:  t.TypeDepth(),
 		atomic: t.AtomicType,
@@ -191,9 +198,9 @@ func NewFunction(name string, tp types.RegoTypeDef) Function {
 	}
 	args := make([]ArgType, len(tp.FunctionDef.ParamTypes))
 	for i, p := range tp.FunctionDef.ParamTypes {
-		args[i] = typeToArg(p)
+		args[i] = newArgTypeFromTypeDef(p)
 	}
-	res := typeToArg(tp.FunctionDef.ReturnType)
+	res := newArgTypeFromTypeDef(tp.FunctionDef.ReturnType)
 	call := mkSmtFunction(name)
 	return Function{name: name, args: args, result: res, call: call}
 }

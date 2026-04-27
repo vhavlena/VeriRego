@@ -79,8 +79,7 @@ func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 		if !ok {
 			return nil, verr.ErrTypeNotFound(name)
 		}
-		depth := tp.TypeDepth()
-		args = append(args, Arg{name, depth})
+		args = append(args, NewArg(name, tp))
 	}
 	return args, nil
 }
