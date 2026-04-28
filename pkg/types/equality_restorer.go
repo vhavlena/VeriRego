@@ -1,4 +1,4 @@
-package simplify
+package types
 
 import (
 	"fmt"

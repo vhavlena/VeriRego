@@ -75,7 +75,7 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	compiledModule = inliner.InlineModule(compiledModule)
 
 	// 4b. Restore == operator so type inference distinguishes equality from assignment.
-	compiledModule = simplify.RestoreEqualityOperators(mod, compiledModule)
+	compiledModule = types.RestoreEqualityOperators(mod, compiledModule)
 
 	// 5. Build input schema from the JSON Schema document.
 	// GenerateSmtContent always declares input, which requires a

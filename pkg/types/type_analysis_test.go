@@ -1646,3 +1646,78 @@ func TestResolveFunctionTypeArityMismatch(t *testing.T) {
 		}
 	}
 }
+
+// TestCompiledModuleEqualityDoesNotPropagateType is a regression test for issue #48.
+// OPA compilation collapses == into the "eq" builtin, losing the distinction from
+// assignment. RestoreEqualityOperators must be applied after compilation so that the
+// type analyser does not treat equality comparison as assignment and overwrite the
+// already-inferred type of the left-hand variable.
+func TestCompiledModuleEqualityDoesNotPropagateType(t *testing.T) {
+	t.Parallel()
+
+	// Build schemas so that input fields have known types and the analyser would
+	// propagate them into x if == were treated as assignment.
+	schemaWithLabel := NewInputSchema()
+	if err := schemaWithLabel.ProcessYAMLInput([]byte("label: \"hello\"\n")); err != nil {
+		t.Fatalf("failed to build input schema: %v", err)
+	}
+	schemaWithN := NewInputSchema()
+	if err := schemaWithN.ProcessYAMLInput([]byte("n: 42\n")); err != nil {
+		t.Fatalf("failed to build input schema: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		src      string
+		schema   *InputSchema
+		varName  string
+		wantType RegoTypeDef
+	}{
+		{
+			// Exact scenario from issue #48: x is assigned an int literal, then
+			// compared with input.label (string) via ==. OPA compilation turns ==
+			// into the eq builtin; without the fix the analyser propagates string
+			// back into x, corrupting __local0__ from int to string.
+			name: "x := int; x == input.label(string) must not corrupt x type",
+			src: `package test
+import rego.v1
+check if { x := 5; x == input.label }`,
+			schema:   schemaWithLabel,
+			varName:  "__local0__",
+			wantType: NewAtomicType(AtomicInt),
+		},
+		{
+			name: "x := string; x == input.n(int) must not corrupt x type",
+			src: `package test
+import rego.v1
+check if { x := "world"; x == input.n }`,
+			schema:   schemaWithN,
+			varName:  "__local0__",
+			wantType: NewAtomicType(AtomicString),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mod, err := ast.ParseModule("test.rego", tt.src)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			compiled := compileModule(t, mod)
+			compiled = RestoreEqualityOperators(mod, compiled)
+
+			analyzer := NewTypeAnalyzerWithParams(mod.Package.Path, tt.schema)
+			analyzer.AnalyzeModule(compiled)
+
+			got, exists := analyzer.Types[tt.varName]
+			if !exists {
+				t.Fatalf("variable %q not found in Types map", tt.varName)
+			}
+			if !got.IsEqual(&tt.wantType) {
+				t.Errorf("variable %q: want type %v, got %v (== must not propagate types)",
+					tt.varName, tt.wantType.PrettyPrint(), got.PrettyPrint())
+			}
+		})
+	}
+}

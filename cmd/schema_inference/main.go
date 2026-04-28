@@ -21,6 +21,7 @@ import (
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/vhavlena/verirego/pkg/infer"
 	"github.com/vhavlena/verirego/pkg/simplify"
+	"github.com/vhavlena/verirego/pkg/types"
 )
 
 func main() {
@@ -65,6 +66,8 @@ func main() {
 		inliner.GatherInlinePredicates(compiled)
 		compiled = inliner.InlineModule(compiled)
 	}
+
+	compiled = types.RestoreEqualityOperators(mod, compiled)
 
 	// Run schema inference.
 	inferrer := infer.New()
