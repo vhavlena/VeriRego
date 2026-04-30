@@ -161,6 +161,68 @@ func TestTermToSmtValue_Ref(t *testing.T) {
 			t.Errorf("expected select expression over 'data' accessing 'token', got %q", s)
 		}
 	})
+
+	t.Run("VarRefObj", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"input": types.NewObjectType(map[string]types.RegoTypeDef{
+				"count": types.NewAtomicType(types.AtomicInt),
+			}),
+			"str": types.NewAtomicType(types.AtomicString),
+			"int": types.NewAtomicType(types.AtomicInt),
+		}
+		et := newTestExprTranslatorWithTypes(typeMap)
+		term := ast.MustParseTerm("input[str]")
+		val, err := et.termToSmtValue(term)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		s := val.String()
+		if !(strings.Contains(s, "select") && strings.Contains(s, "input") && strings.Contains(s, "obj") && strings.Contains(s, "str")) {
+			t.Errorf("expected select expression over object 'input', got %q", s)
+		}
+		if val.GetDepth() != 0 {
+			t.Errorf("expected \"%s\" to have depth 0, got %d", s, val.GetDepth())
+		}
+		if !val.TypeIs(types.AtomicInt) {
+			t.Errorf("expected \"%s\" to have type Int", s)
+		}
+		term = ast.MustParseTerm("input[int]")
+		val, err = et.termToSmtValue(term)
+		if err == nil {
+			t.Errorf("accessing object with integer key should fail, got %q", val.String())
+		}
+	})
+
+	t.Run("VarRefInt", func(t *testing.T) {
+		t.Parallel()
+		typeMap := map[string]types.RegoTypeDef{
+			"input": types.NewArrayType(types.NewAtomicType(types.AtomicInt)),
+			"str": types.NewAtomicType(types.AtomicString),
+			"int": types.NewAtomicType(types.AtomicInt),
+		}
+		et := newTestExprTranslatorWithTypes(typeMap)
+		term := ast.MustParseTerm("input[int]")
+		val, err := et.termToSmtValue(term)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		s := val.String()
+		if !(strings.Contains(s, "select") && strings.Contains(s, "input") && strings.Contains(s, "arr") && strings.Contains(s, "int")) {
+			t.Errorf("expected select expression over array 'input', got %q", s)
+		}
+		if val.GetDepth() != 0 {
+			t.Errorf("expected \"%s\" to have depth 0, got %d", s, val.GetDepth())
+		}
+		if !val.TypeIs(types.AtomicInt) {
+			t.Errorf("expected \"%s\" to have type Int", s)
+		}
+		term = ast.MustParseTerm("input[str]")
+		val, err = et.termToSmtValue(term)
+		if err == nil {
+			t.Errorf("accessing array with string key should fail, got %q", val.String())
+		}
+	})
 }
 
 // generateSMT is a test helper that runs the compile → inline → type-infer →

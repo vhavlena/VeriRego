@@ -154,7 +154,7 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 // UnwrapToDepth(valD3, 0) is (wrap1 (wrap2 (wrap3 valD3)))
 func (sv *SmtValue) UnwrapToDepth(depth int) *SmtValue {
 	value := sv.value
-	for d := sv.depth - 1; d > depth; d-- {
+	for d := sv.depth; d > depth; d-- {
 		value = fmt.Sprintf("(wrap%d %s)", d, value)
 	}
 	return &SmtValue{value: value, depth: depth, atomics: sv.atomics}
@@ -162,13 +162,13 @@ func (sv *SmtValue) UnwrapToDepth(depth int) *SmtValue {
 
 // SelectObj performs a selection of SmtValue sv (representing an object) at specified key.
 func (sv *SmtValue) SelectObj(at string) *SmtValue {
-	value := fmt.Sprintf("(select (obj%d %s) \"%s\")", sv.depth, sv.value, at)
+	value := fmt.Sprintf("(select (obj%d %s) %s)", sv.depth, sv.value, at)
 	return NewSmtValue(value, sv.depth-1)
 }
 
-// SelectObj performs a selection of SmtValue sv (representing an array) at specified key.
-func (sv *SmtValue) SelectArr(at int) *SmtValue {
-	value := fmt.Sprintf("(select (arr%d %s) %d)", sv.depth, sv.value, at)
+// SelectArr performs a selection of SmtValue sv (representing an array) at specified key.
+func (sv *SmtValue) SelectArr(at string) *SmtValue {
+	value := fmt.Sprintf("(select (arr%d %s) %s)", sv.depth, sv.value, at)
 	return NewSmtValue(value, sv.depth-1)
 }
 
@@ -399,7 +399,14 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 
 // Ite creates a SMT "let" statement, introducing a local variable to the given clause.
 func Let(localVar varDef, value *SmtValue) *SmtValue {
-	val := fmt.Sprintf("(let ((%s %s)) %s)", localVar.name, localVar.value.String(), value.String())
+	lName := localVar.name
+	lVal  := localVar.value
+	val := fmt.Sprintf("(let ((%s %s)) %s)", lName, lVal.String(), value.String())
+	return &SmtValue{value: val, depth: value.depth, atomics: value.atomics}
+}
+
+func ExistQuantif(name string, depth int, value *SmtValue) *SmtValue {
+	val := fmt.Sprintf("(exists ((%s %s)) %s)", name, NewSmtType(uint(depth)), value.value)
 	return NewSmtValue(val, value.depth)
 }
 
