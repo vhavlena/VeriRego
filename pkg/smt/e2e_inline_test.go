@@ -253,6 +253,93 @@ allow if {
 		}
 	})
 
+	// Test the referencing of rule variables in other rules
+	t.Run("LocalVarRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+	  obj := { "a": 1 }
+    obj.a == 1
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{"age":{"type":"integer"}},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// TODO: uncomment this test after we fix type analysis of arrays
+// 	// Test the referencing of rule variables in other rules
+// 	t.Run("ArrRef", func(t *testing.T) {
+// 		t.Parallel()
+// 		rego := `
+// package example
+// arr := [1,2,3]
+// allow if {
+//     arr[0] != 0
+// }
+// `
+// 		inputSchema := []byte(`{"type":"object","properties":{"age":{"type":"integer"}},"additionalProperties":false}`)
+// 		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+// 		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+// 		if err != nil {
+// 			t.Fatalf("RunPolicyToModel error: %v", err)
+// 		}
+// 		if _, ok := result.Vars["allow"]; !ok {
+// 			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+// 		}
+// 	})
+
+	// Test the referencing with variable keys
+	t.Run("VarKeyRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+key := "age"
+allow if {
+    input[key] != 18
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{"age":{"type":"integer"}},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// TODO: uncomment this test after we fix type analysis of arrays
+// 	// Test the referencing with variable keys
+// 	t.Run("ArrVarKeyRef", func(t *testing.T) {
+// 		t.Parallel()
+// 		rego := `
+// package example
+// key := 0
+// arr := [1,2,3]
+// allow if {
+//     arr[key] != 0
+// }
+// `
+// 		inputSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+// 		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+// 		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+// 		if err != nil {
+// 			t.Fatalf("RunPolicyToModel error: %v", err)
+// 		}
+// 		if _, ok := result.Vars["allow"]; !ok {
+// 			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+// 		}
+// 	})
+
 	// allow if { input.user.number == 42 } with no default.
 	// Without a default, the only satisfying model has allow=true and number=42.
 	// Schema: user.number is an integer with no additionalProperties.
