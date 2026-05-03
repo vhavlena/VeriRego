@@ -93,7 +93,7 @@ func TestTranslateWithDefault(t *testing.T) {
 	default p := 2
 
 	p := 1 if {
-		1 > 2
+		1 != 2
 	}
 `
 

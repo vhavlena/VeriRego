@@ -2,6 +2,7 @@ package smt
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -28,12 +29,12 @@ func NewSmtType(depth uint) *SmtType {
 	return &SmtType{depth: depth}
 }
 
-// Representation of values assignable to Rego variables
+// Representation of SMT values
 type SmtValue struct {
-	value   string
-	depth   int
-	atomics []types.AtomicType
-	isConst bool // true if value is int / string / boolean ...
+	value   string             // corresponding SMT code, such as "(ONumber 1)"
+	depth   int                // depth of the value (same as in RegoTypeDef). depth = -1 is used for literals, e.g., "1", or "true".
+	atomics []types.AtomicType // list of all atomic types
+	isConst bool               // true if value is a Rego literal (used for optimization)
 }
 
 func NewSmtValue(value string, depth int) *SmtValue {
@@ -55,6 +56,7 @@ func NewSmtValueFromBoolean(b bool) *SmtValue {
 	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicBoolean}, isConst: true}
 }
 
+// getAtomicTypes returns a list of all possible atomic types present in the input RegoTypeDef
 func getAtomicTypes(tp types.RegoTypeDef) []types.AtomicType {
 	types := make([]types.AtomicType, 0)
 	if tp.IsAtomic() {
@@ -68,6 +70,8 @@ func getAtomicTypes(tp types.RegoTypeDef) []types.AtomicType {
 	return types
 }
 
+// NewSmtValueFromVar creates SmtValue for given variable.
+// Its depth and atomic types are extracted from the input exprTrans.
 func NewSmtValueFromVar(v ast.Var, exprTrans *ExprTranslator) (*SmtValue, error) {
 	name := removeQuotes(v.String())
 	tp, ok := exprTrans.TypeTrans.TypeInfo.Types[name]
@@ -107,7 +111,7 @@ func (sv *SmtValue) String() string {
 // WrapToDepth(valD0, 3) is (Wrap3 (Wrap2 (Wrap1 valD0)))
 func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 	value := sv.value
-	// handle constant types
+	// handle constant values, such as "1" or "(num foo)"
 	if sv.depth == -1 {
 		if len(sv.atomics) != 1 {
 			return nil // TODO: maybe return err, but it would make it inconvenient
@@ -120,10 +124,6 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 			wrapper = "ONumber"
 		case types.AtomicString:
 			wrapper = "OString"
-		case types.AtomicNull: // maybe not necessary
-			wrapper = "ONull"
-		case types.AtomicUndef: // maybe not necessary
-			wrapper = "OUndef"
 		default:
 			return nil
 		}
@@ -154,22 +154,26 @@ func (sv *SmtValue) WrapToDepth(depth int) *SmtValue {
 // UnwrapToDepth(valD3, 0) is (wrap1 (wrap2 (wrap3 valD3)))
 func (sv *SmtValue) UnwrapToDepth(depth int) *SmtValue {
 	value := sv.value
-	for d := sv.depth - 1; d > depth; d-- {
+	for d := sv.depth; d > depth; d-- {
 		value = fmt.Sprintf("(wrap%d %s)", d, value)
 	}
 	return &SmtValue{value: value, depth: depth, atomics: sv.atomics}
 }
 
+// SelectObj performs a selection of SmtValue sv (representing an object) at specified key.
 func (sv *SmtValue) SelectObj(at string) *SmtValue {
-	value := fmt.Sprintf("(select (obj%d %s) \"%s\")", sv.depth, sv.value, at)
+	value := fmt.Sprintf("(select (obj%d %s) %s)", sv.depth, sv.value, at)
 	return NewSmtValue(value, sv.depth-1)
 }
 
-func (sv *SmtValue) SelectArr(at int) *SmtValue {
-	value := fmt.Sprintf("(select (arr%d %s) %d)", sv.depth, sv.value, at)
+// SelectArr performs a selection of SmtValue sv (representing an array) at specified key.
+func (sv *SmtValue) SelectArr(at string) *SmtValue {
+	value := fmt.Sprintf("(select (arr%d %s) %s)", sv.depth, sv.value, at)
 	return NewSmtValue(value, sv.depth-1)
 }
 
+// Equals returns a proposition corresponding to equality of the two given SmtValues.
+// It automatically aligns the two values to the same depth.
 func (sv *SmtValue) Equals(other *SmtValue) *SmtProposition {
 	d := max(sv.depth, other.depth)
 	value := fmt.Sprintf("(= %s %s)", sv.WrapToDepth(d).String(), other.WrapToDepth(d).String())
@@ -216,38 +220,39 @@ func (sv *SmtValue) IsUndef() *SmtProposition {
 	return &SmtProposition{value: value}
 }
 
-func (sv *SmtValue) findAtomicValue() string {
+// findConstValue gets a constant value from SMT representation.
+// sv is expected to be (potentially Wrapped) constant literal, such as "1", or "(Wrap2 (ONumber 1))"
+// This function should not be used for Strings (for this case, use findConstString).
+func (sv *SmtValue) findConstValue() string {
 	s := sv.value
 	if s[0] != '(' {
 		return sv.value
 	}
 
-	idx := strings.Index(s, ")")
-	if idx == -1 {
+	// Take substring before first ')'
+	before, _, ok := strings.Cut(s, ")")
+	if !ok {
 		return ""
 	}
+	before = strings.TrimSpace(before)
 
-	// Take substring before first ')'
-	sub := s[:idx]
-
-	// Trim trailing spaces
-	sub = strings.TrimSpace(sub)
-
-	if sub == "" {
+	if before == "" {
 		return ""
 	}
 
 	// Walk backwards to find last word
-	end := len(sub)
+	end := len(before)
 	start := end
 
-	for start > 0 && sub[start-1] != ' ' {
+	for start > 0 && before[start-1] != ' ' {
 		start--
 	}
 
-	return sub[start:end]
+	return before[start:end]
 }
 
+// getBool accesses the boolean value of given SmtValue and returns it.
+// If the SmtValue could not be interpreted as a boolean, "false" is returned.
 func (sv *SmtValue) getBool() *SmtProposition {
 	v, err := sv.AsBool()
 	if err != nil {
@@ -257,19 +262,14 @@ func (sv *SmtValue) getBool() *SmtProposition {
 }
 
 func (sv *SmtValue) TypeIs(t types.AtomicType) bool {
-	for _, at := range sv.atomics {
-		if at == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(sv.atomics, t)
 }
 
 // Holds makes a test whether given value satisfies rule body
 //
 // Returns:
 //
-// string: The test SMT representation
+//	string: The test SMT representation
 func (sv *SmtValue) Holds() *SmtProposition {
 	propositions := make([]SmtProposition, 0)
 	if sv.TypeIs(types.AtomicUndef) {
@@ -281,6 +281,7 @@ func (sv *SmtValue) Holds() *SmtProposition {
 	return And(propositions)
 }
 
+// findConstString gets a string from SmtValue, such as (OString "abc")
 func findConstString(sv *SmtValue) (string, error) {
 	s := sv.value
 	start := strings.Index(s, "\"")
@@ -295,9 +296,15 @@ func findConstString(sv *SmtValue) (string, error) {
 	return s[:end+2], nil
 }
 
+// AsString returns the input SmtValue interpreted as a string, e.g., (str x).
 func (sv *SmtValue) AsString() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicString) {
 		return nil, verr.ErrUnexpectedValueType(sv.String(), "string")
+	}
+
+	// In this case, value is already extracted
+	if sv.depth == -1 {
+		return sv, nil
 	}
 
 	if sv.isConst {
@@ -312,13 +319,19 @@ func (sv *SmtValue) AsString() (*SmtValue, error) {
 	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicString}, isConst: true}, nil
 }
 
+// AsInt returns the input SmtValue interpreted as an integer, e.g., (num x).
 func (sv *SmtValue) AsInt() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicInt) {
 		return nil, verr.ErrUnexpectedValueType(sv.String(), "int")
 	}
 
+	// In this case, value is already extracted
+	if sv.depth == -1 {
+		return sv, nil
+	}
+
 	if sv.isConst {
-		v := sv.findAtomicValue()
+		v := sv.findConstValue()
 		i, err := strconv.Atoi(v)
 		if err != nil {
 			return nil, err
@@ -330,13 +343,19 @@ func (sv *SmtValue) AsInt() (*SmtValue, error) {
 	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicInt}, isConst: true}, nil
 }
 
+// AsBool returns the input SmtValue interpreted as a boolean, e.g., (bool x).
 func (sv *SmtValue) AsBool() (*SmtValue, error) {
 	if !sv.TypeIs(types.AtomicBoolean) {
 		return nil, verr.ErrUnexpectedValueType(sv.String(), "bool")
 	}
 
+	// In this case, value is already extracted
+	if sv.depth == -1 {
+		return sv, nil
+	}
+
 	if sv.isConst {
-		v := sv.findAtomicValue()
+		v := sv.findConstValue()
 		if v == "true" {
 			return NewSmtValueFromBoolean(true), nil
 		}
@@ -349,15 +368,9 @@ func (sv *SmtValue) AsBool() (*SmtValue, error) {
 	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicBoolean}, isConst: true}, nil
 }
 
+// AsArgType returns the input SmtValue intepreted as the given ArgType.
 func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue, error) {
 	if t.depth == -1 {
-		if !sv.TypeIs(t.atomic) {
-			panic("unreachable")
-		}
-		if sv.depth == -1 {
-			return sv, nil
-		}
-		sv = sv.UnwrapToDepth(0)
 		switch t.atomic {
 		case types.AtomicBoolean:
 			return sv.AsBool()
@@ -366,12 +379,12 @@ func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue, error) {
 		case types.AtomicInt:
 			return sv.AsInt()
 		}
-		panic("Unreachable")
 	}
 
 	return sv.WrapToDepth(t.depth), nil
 }
 
+// Ite creates a SMT "if-then-else" construct.
 func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) *SmtValue {
 	if condition.isTrue() {
 		return thenClause
@@ -384,20 +397,17 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 	return NewSmtValue(ite, depth)
 }
 
+// Ite creates a SMT "let" statement, introducing a local variable to the given clause.
 func Let(localVar varDef, value *SmtValue) *SmtValue {
-	val := fmt.Sprintf("(let ((%s %s)) %s)", localVar.string, localVar.SmtValue.String(), value.String())
-	return NewSmtValue(val, value.depth)
+	lName := localVar.name
+	lVal  := localVar.value
+	val := fmt.Sprintf("(let ((%s %s)) %s)", lName, lVal.String(), value.String())
+	return &SmtValue{value: val, depth: value.depth, atomics: value.atomics}
 }
 
-func Lets(localVars []varDef, value *SmtValue) *SmtValue {
-	if len(localVars) == 0 {
-		return value
-	}
-	val := ""
-	for _, v := range localVars {
-		val += fmt.Sprintf(" (%s %s)", v.string, v.SmtValue.String())
-	}
-	return NewSmtValue(fmt.Sprintf("(let (%s) %s)", val[1:], value.String()), value.depth)
+func ExistQuantif(name string, depth int, value *SmtValue) *SmtValue {
+	val := fmt.Sprintf("(exists ((%s %s)) %s)", name, NewSmtType(uint(depth)), value.value)
+	return NewSmtValue(val, value.depth)
 }
 
 // SmtProposition represents a boolean value
@@ -420,6 +430,15 @@ func (sp SmtProposition) String() string {
 func (sp SmtProposition) Not() *SmtProposition {
 	value := fmt.Sprintf("(not %s)", sp.value)
 	return &SmtProposition{value: value}
+}
+
+// IntoValue transforms interprets given proposition as a SmtValue
+func (sp *SmtProposition) IntoValue() *SmtValue {
+	return &SmtValue{
+		value:   sp.value,
+		depth:   -1,
+		atomics: []types.AtomicType{types.AtomicBoolean},
+	}
 }
 
 type propositionStringer interface {
@@ -489,6 +508,7 @@ func RawCommand(value string) *SmtCommand {
 	return &SmtCommand{value: value}
 }
 
+// Assert creates a top-level SMT assertion of given proposition.
 func Assert(sp *SmtProposition) *SmtCommand {
 	value := fmt.Sprintf("(assert %s)", sp.String())
 	return &SmtCommand{value: value}
@@ -506,18 +526,15 @@ func DeclareFun(name string, paramSorts []string, retSort string) *SmtCommand {
 	return &SmtCommand{value: value}
 }
 
-type Arg struct {
-	string
-	int
-}
-
+// DefineFun creates a SMT function definition.
+// The return type is derived from the function body.
 func DefineFun(name string, args []Arg, body *SmtValue) *SmtCommand {
 	argStr := "("
 	if len(args) == 0 {
 		argStr += "()"
 	}
 	for _, a := range args {
-		argStr += fmt.Sprintf("(%s %s)", a.string, NewSmtType(uint(a.int)).String())
+		argStr += fmt.Sprintf("(%s %s)", a.name, NewSmtType(uint(a.typ.depth)).String())
 	}
 	argStr += ")"
 
