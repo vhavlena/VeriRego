@@ -168,8 +168,22 @@ func (sv *SmtValue) SelectObj(at string) *SmtValue {
 
 // SelectArr performs a selection of SmtValue sv (representing an array) at specified key.
 func (sv *SmtValue) SelectArr(at string) *SmtValue {
-	value := fmt.Sprintf("(select (arr%d %s) %s)", sv.depth, sv.value, at)
-	return NewSmtValue(value, sv.depth-1)
+
+// 	(ite 
+//   ;; IF: Index 0 je v rámci hranic pole
+//   (< 0 (seq.len (arr1 (select (obj2 (select (obj3 input) "user")) "numero"))))
+  
+//   ;; THEN: Vrať skutečný prvek z pole
+//   (seq.nth (arr1 (select (obj2 (select (obj3 input) "user")) "numero")) 0)
+  
+//   ;; ELSE: Vrať tvůj vlastní OUndef (Simulace JS undefined)
+//   OUndef
+// )
+	preambule := fmt.Sprintf("(ite (< 0 (seq.len (arr%d %s)))", sv.depth, sv.value)
+	undef := fmt.Sprintf("OUndef")
+	value := fmt.Sprintf("(seq.nth (arr%d %s) %s)", sv.depth, sv.value, at)
+	concat := fmt.Sprintf("%s %s %s)", preambule, value, undef)
+	return NewSmtValue(concat, sv.depth-1)
 }
 
 // Equals returns a proposition corresponding to equality of the two given SmtValues.
