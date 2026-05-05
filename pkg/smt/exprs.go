@@ -253,6 +253,8 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 		return nil, verr.ErrTypeNotFound(arr.String())
 	}
 
+	// We cannot use seq.nth and the concatenation seq.++ for empty arrays
+	// If the sequence is empty, we just return a constant empty array
 	if arr.Len() == 0 {
 		depth := tp.TypeDepth()
         return &SmtValue {
@@ -265,6 +267,8 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 	depth := tp.TypeDepth()
 	// arrSmt := createConstArray("Int", depth)
 	elements := make([]string, arr.Len())
+	// We wrap each element and add it as an element of the sequence
+	// using seq.unit
 	for index := range arr.Len() {
 		val := arr.Elem(index)
 		valSmt, err := et.termToSmtValue(val)

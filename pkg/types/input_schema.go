@@ -72,7 +72,8 @@ func (s *InputSchema) processNode(node interface{}) RegoTypeDef {
 			for _, item := range nodeValue {
 				elementTypes = append(elementTypes, s.processNode(item))
 			}
-
+			// If the array has elements, we create a union type of all element types
+			// canonization either simplifies the union or can leave it as is if all elements have the same type
 			unionType := NewUnionType(elementTypes)
 			unionType.CanonizeUnion()
 

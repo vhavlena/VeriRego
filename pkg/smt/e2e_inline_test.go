@@ -295,6 +295,26 @@ allow if {
 		}
 	})
 
+	t.Run("MixArrRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+arr := ["karel",2,true]
+allow if {
+    arr[0] != 0
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{"age":{"type":"integer"}},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
 	// Test the referencing with variable keys
 	t.Run("VarKeyRef", func(t *testing.T) {
 		t.Parallel()
@@ -325,6 +345,30 @@ key := 0
 arr := [1,2,3]
 allow if {
     arr[key] != 0
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// Test the referencing with variable keys and mixed arrays
+	t.Run("MixArrVarKeyRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+key := 0
+key2 := 1
+arr := ["karel",2,true]
+sarr := [0,"karel",3]
+allow if {
+    arr[key] == sarr[key2]
 }
 `
 		inputSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)

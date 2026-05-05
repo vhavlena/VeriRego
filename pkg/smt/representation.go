@@ -169,16 +169,11 @@ func (sv *SmtValue) SelectObj(at string) *SmtValue {
 // SelectArr performs a selection of SmtValue sv (representing an array) at specified key.
 func (sv *SmtValue) SelectArr(at string) *SmtValue {
 
-// 	(ite 
-//   ;; IF: Index 0 je v rámci hranic pole
-//   (< 0 (seq.len (arr1 (select (obj2 (select (obj3 input) "user")) "numero"))))
-  
-//   ;; THEN: Vrať skutečný prvek z pole
-//   (seq.nth (arr1 (select (obj2 (select (obj3 input) "user")) "numero")) 0)
-  
-//   ;; ELSE: Vrať tvůj vlastní OUndef (Simulace JS undefined)
-//   OUndef
-// )
+	// The ite logic is because of the seq.nth_u generation
+	// by saying that the element at index at is in the array (is < length)
+	// we block the generation of seq.nth_u and empty arrays, where seq.nth_u would
+	// contain the possible right value
+	// such models align with the universum generation logic, however not with Rego semantics
 	preambule := fmt.Sprintf("(ite (< %s (seq.len (arr%d %s)))", at, sv.depth, sv.value)
 	undef := fmt.Sprintf("OUndef")
 	value := fmt.Sprintf("(seq.nth (arr%d %s) %s)", sv.depth, sv.value, at)
