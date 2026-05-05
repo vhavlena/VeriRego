@@ -208,8 +208,8 @@ func TestTermToSmtValue_Ref(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		s := val.String()
-		if !(strings.Contains(s, "select") && strings.Contains(s, "input") && strings.Contains(s, "arr") && strings.Contains(s, "int")) {
-			t.Errorf("expected select expression over array 'input', got %q", s)
+		if !(strings.Contains(s, "seq.nth") && strings.Contains(s, "input") && strings.Contains(s, "arr") && strings.Contains(s, "int")) {
+			t.Errorf("expected seq.nth expression over array 'input', got %q", s)
 		}
 		if val.GetDepth() != 0 {
 			t.Errorf("expected \"%s\" to have depth 0, got %d", s, val.GetDepth())

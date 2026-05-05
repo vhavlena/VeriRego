@@ -274,7 +274,6 @@ allow if {
 		}
 	})
 
-	// TODO: uncomment this test after we fix type analysis of arrays
 	// Test the referencing of rule variables in other rules
 	t.Run("ArrRef", func(t *testing.T) {
 		t.Parallel()
@@ -317,7 +316,6 @@ allow if {
 		}
 	})
 
-	// TODO: uncomment this test after we fix type analysis of arrays
 	// Test the referencing with variable keys
 	t.Run("ArrVarKeyRef", func(t *testing.T) {
 		t.Parallel()

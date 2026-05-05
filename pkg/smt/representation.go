@@ -179,7 +179,7 @@ func (sv *SmtValue) SelectArr(at string) *SmtValue {
 //   ;; ELSE: Vrať tvůj vlastní OUndef (Simulace JS undefined)
 //   OUndef
 // )
-	preambule := fmt.Sprintf("(ite (< 0 (seq.len (arr%d %s)))", sv.depth, sv.value)
+	preambule := fmt.Sprintf("(ite (< %s (seq.len (arr%d %s)))", at, sv.depth, sv.value)
 	undef := fmt.Sprintf("OUndef")
 	value := fmt.Sprintf("(seq.nth (arr%d %s) %s)", sv.depth, sv.value, at)
 	concat := fmt.Sprintf("%s %s %s)", preambule, value, undef)
