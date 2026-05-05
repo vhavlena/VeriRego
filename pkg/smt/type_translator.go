@@ -707,20 +707,9 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	}
 	ands := AndPtrs(valAnalysis.Props)
 	andsStr := ands.String()
-	//	 (assert (forall ((i Int)) 
-	//   (let ((numero_seq (arr1 (select (obj2 (select (obj3 input) "user")) "numero"))))
-	//     (=> (and (>= i 0) (< i (seq.len numero_seq)))
-	//         (let ((elem (seq.nth numero_seq i)))
-	//           (or (is-ONumber elem) (is-OString elem)))))))
-
-	// (assert 
-	// (and (is-OObj3 input) (is-OObj2 (select (obj3 input) "user")) 
-	// (is-OArray1 (select (obj2 (select (obj3 input) "user")) "numero")) 
-	// (forall ((cudcu Int))  
-	// (let ((elem (select (arr1 (select (obj2 (select (obj3 input) "user")) "numero")) cudcu))) 
-	// (or (is-ONumber elem) (is-OString elem))))))
-
-	//forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands.String())
+	
+	// the forall ensures that for every valid index, the selected element satisfies the type constraints
+	// using sequences simplifies the boundary checking
 	forall := fmt.Sprintf("(forall ((%s Int)) (let ((%s (arr%d %s))) (=> (and (>= %s 0) (< %s (seq.len %s))) (let ((%s (seq.nth %s %s))) %s))))", qvar, seqvar, depth, smtValue, qvar, qvar, seqvar, elvar, seqvar, qvar, andsStr)
 
 	bucket.Props = append(bucket.Props, RawProposition(forall))
@@ -728,8 +717,9 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	return bucket, nil
 }
 
+// TODO: can we delete this? replaced in exprs.go by getSmtRef, not used anywhere in the codebase anymore.
 // getSmtRef constructs an SMT select-chain by traversing an object-typed path.
-//
+// 
 // Parameters:
 // - `smtvar string`: Base SMT variable/expression.
 // - `path []string`: Field-name path to traverse.
@@ -739,23 +729,6 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 // - `string`: SMT expression selecting the nested value.
 // - `*types.RegoTypeDef`: Type definition of the selected value.
 // - `error`: Non-nil if a non-object is traversed or a field is missing.
-// func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *types.RegoTypeDef, error) {
-// 	smtref := smtvar
-// 	actType := tp
-// 	for _, p := range path {
-// 		if !actType.IsObject() && !actType.IsArray() {
-// 			return "", nil, fmt.Errorf("only object types (and array indexing) can be used in references")
-// 		}
-// 		val, found := actType.ObjectFields.Get(p)
-// 		if !found {
-// 			return "", nil, verr.ErrMissingObjectKey(smtvar, p)
-// 		}
-// 		depth := max(actType.TypeDepth(), 0)
-// 		actType = val
-// 		smtref = fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtref, p)
-// 	}
-// 	return smtref, actType, nil
-// }
 func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *types.RegoTypeDef, error) {
     smtref := smtvar
     actType := tp
