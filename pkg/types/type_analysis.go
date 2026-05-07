@@ -219,7 +219,7 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 		}
 
 		if IsEqualityOp(opStr) {
-			// Assignment/unification (= or :=): propagate types bidirectionally.
+			// Assignment/unification (:= or =): propagate types bidirectionally.
 			tleft := ta.InferTermType(terms[1], nil)
 			tright := ta.InferTermType(terms[2], nil)
 			if isVar(terms[1]) {
@@ -385,7 +385,6 @@ func (ta *TypeAnalyzer) inferRefType(ref ast.Ref) RegoTypeDef {
 
 	return NewUnknownType()
 }
-
 
 func (ta *TypeAnalyzer) GetPackagePath() *ast.Ref {
 	return &ta.packagePath
