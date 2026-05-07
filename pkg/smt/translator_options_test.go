@@ -1,109 +1,100 @@
-// Package smt — failing tests for issue #35:
+// Package smt — integration tests for TranslatorOptions (issue #35):
 // "Support configurable entry point and SMT symbol prefix in Translator"
 //
-// These tests document the EXPECTED behavior once the feature is implemented.
-// They currently fail because TranslatorOptions, NewTranslatorWithOptions, and
-// GenerateEntryPointPredicate do not yet exist.
+// All tests run the complete pipeline (parse → compile → type-infer → SMT →
+// Z3) via RunPolicyToModelWithOptions so that the prefix and entry-point
+// features are validated end-to-end, not just as string checks.
 package smt
 
 import (
 	"strings"
 	"testing"
-
-	"github.com/open-policy-agent/opa/v1/ast"
-	"github.com/vhavlena/verirego/pkg/types"
 )
 
-// buildTranslatorWithOptions is a helper that parses a Rego module, creates a
-// minimal TypeAnalyzer, and returns a Translator constructed with the given options.
-func buildTranslatorWithOptions(t *testing.T, rego string, typeMap map[string]types.RegoTypeDef, opts TranslatorOptions) *Translator {
-	t.Helper()
-	mod, err := ast.ParseModule("test.rego", rego)
+// inputSchemaXY is a JSON Schema for {x: integer, y: integer}.
+var inputSchemaXY = []byte(`{
+	"type": "object",
+	"properties": {
+		"x": {"type": "integer"},
+		"y": {"type": "integer"}
+	},
+	"additionalProperties": false
+}`)
+
+// inputSchemaX is a JSON Schema for {x: integer}.
+var inputSchemaX = []byte(`{
+	"type": "object",
+	"properties": {
+		"x": {"type": "integer"}
+	},
+	"additionalProperties": false
+}`)
+
+// inputSchemaY is a JSON Schema for {y: integer}.
+var inputSchemaY = []byte(`{
+	"type": "object",
+	"properties": {
+		"y": {"type": "integer"}
+	},
+	"additionalProperties": false
+}`)
+
+// TestTranslatorOptions_NoOptions verifies that NewTranslatorWithOptions with
+// zero-value options produces the same result as the standard pipeline.
+func TestTranslatorOptions_NoOptions(t *testing.T) {
+	t.Parallel()
+	rego := `
+package test
+default allow := false
+allow if { input.x == 1 }
+`
+	result, err := RunPolicyToModelWithOptions(rego, inputSchemaX, nil, TranslatorOptions{})
 	if err != nil {
-		t.Fatalf("failed to parse rego: %v", err)
+		t.Fatalf("RunPolicyToModelWithOptions error: %v", err)
 	}
-	ta := &types.TypeAnalyzer{
-		Types: typeMap,
-		Refs:  map[string]ast.Value{},
+	if _, ok := result.Vars["allow"]; !ok {
+		t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
 	}
-	return NewTranslatorWithOptions(ta, mod, opts)
 }
 
-// TestNewTranslatorWithOptions_Exists verifies that TranslatorOptions and
-// NewTranslatorWithOptions are defined and that the returned Translator is non-nil.
-func TestNewTranslatorWithOptions_Exists(t *testing.T) {
+// TestTranslatorOptions_PrefixInSmtContent verifies that every occurrence of
+// the rule-head symbol in the SMT output carries the configured prefix, and
+// that the formula is accepted by Z3 (SAT).
+func TestTranslatorOptions_PrefixInSmtContent(t *testing.T) {
 	t.Parallel()
 	rego := `
 package test
 default allow := false
 allow if { input.x == 1 }
 `
-	typeMap := map[string]types.RegoTypeDef{
-		"allow": types.NewAtomicType(types.AtomicBoolean),
-		"input": types.NewObjectType(map[string]types.RegoTypeDef{
-			"x": types.NewAtomicType(types.AtomicInt),
-		}),
-	}
-	opts := TranslatorOptions{
-		Prefix:     "policy1__",
-		EntryPoint: "allow",
-	}
-	tr := buildTranslatorWithOptions(t, rego, typeMap, opts)
-	if tr == nil {
-		t.Fatal("NewTranslatorWithOptions returned nil")
-	}
-}
-
-// TestPrefix_AppliedToAssertions verifies that every SMT assertion emitted for a
-// rule whose head name is "allow" uses the prefixed symbol "policy1__allow" when
-// the Prefix option is set.
-func TestPrefix_AppliedToAssertions(t *testing.T) {
-	t.Parallel()
-	rego := `
-package test
-default allow := false
-allow if { input.x == 1 }
-`
-	typeMap := map[string]types.RegoTypeDef{
-		"allow": types.NewAtomicType(types.AtomicBoolean),
-		"input": types.NewObjectType(map[string]types.RegoTypeDef{
-			"x": types.NewAtomicType(types.AtomicInt),
-		}),
-	}
 	opts := TranslatorOptions{Prefix: "policy1__"}
-	tr := buildTranslatorWithOptions(t, rego, typeMap, opts)
-
-	if err := tr.TranslateModuleToSmt(); err != nil {
-		t.Fatalf("TranslateModuleToSmt error: %v", err)
+	result, err := RunPolicyToModelWithOptions(rego, inputSchemaX, nil, opts)
+	if err != nil {
+		t.Fatalf("RunPolicyToModelWithOptions error: %v", err)
 	}
 
-	lines := tr.SmtLines()
-	if len(lines) == 0 {
-		t.Fatal("no SMT lines generated")
-	}
-
-	for _, line := range lines {
+	// Every line that mentions "allow" must use the prefixed form.
+	for _, line := range strings.Split(result.SmtContent, "\n") {
 		if strings.Contains(line, "allow") && !strings.Contains(line, "policy1__allow") {
-			t.Errorf("SMT line contains unprefixed symbol 'allow': %q", line)
+			t.Errorf("SMT line references unprefixed 'allow': %q", line)
 		}
 	}
 
-	found := false
-	for _, line := range lines {
-		if strings.Contains(line, "policy1__allow") {
-			found = true
-			break
-		}
+	// The prefixed symbol must actually appear in the output.
+	if !strings.Contains(result.SmtContent, "policy1__allow") {
+		t.Error("SMT content does not contain prefixed symbol 'policy1__allow'")
 	}
-	if !found {
-		t.Error("no SMT line contains the prefixed symbol 'policy1__allow'")
+
+	// Model value is still accessible under the original name.
+	if _, ok := result.Vars["allow"]; !ok {
+		t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
 	}
 }
 
-// TestPrefix_NoDuplicateSymbols demonstrates the concrete problem described in
-// the issue: two modules that both define "allow" must produce distinct SMT symbols
-// when each is translated with a unique prefix.
-func TestPrefix_NoDuplicateSymbols(t *testing.T) {
+// TestTranslatorOptions_NoDuplicateSymbols demonstrates the core problem from
+// issue #35: two modules that both define "allow" must produce distinct SMT
+// symbols when translated with different prefixes.
+func TestTranslatorOptions_NoDuplicateSymbols(t *testing.T) {
 	t.Parallel()
 	regoA := `
 package a
@@ -115,66 +106,37 @@ package b
 default allow := false
 allow if { input.y == 2 }
 `
-	typeMap := map[string]types.RegoTypeDef{
-		"allow": types.NewAtomicType(types.AtomicBoolean),
-		"input": types.NewObjectType(map[string]types.RegoTypeDef{
-			"x": types.NewAtomicType(types.AtomicInt),
-			"y": types.NewAtomicType(types.AtomicInt),
-		}),
-	}
-
-	modA, err := ast.ParseModule("a.rego", regoA)
+	resultA, err := RunPolicyToModelWithOptions(regoA, inputSchemaX, nil, TranslatorOptions{Prefix: "policyA__"})
 	if err != nil {
-		t.Fatalf("failed to parse module A: %v", err)
+		t.Fatalf("module A pipeline error: %v", err)
 	}
-	modB, err := ast.ParseModule("b.rego", regoB)
+	resultB, err := RunPolicyToModelWithOptions(regoB, inputSchemaY, nil, TranslatorOptions{Prefix: "policyB__"})
 	if err != nil {
-		t.Fatalf("failed to parse module B: %v", err)
+		t.Fatalf("module B pipeline error: %v", err)
 	}
 
-	taA := &types.TypeAnalyzer{Types: typeMap, Refs: map[string]ast.Value{}}
-	taB := &types.TypeAnalyzer{Types: typeMap, Refs: map[string]ast.Value{}}
-
-	trA := NewTranslatorWithOptions(taA, modA, TranslatorOptions{Prefix: "policyA__"})
-	trB := NewTranslatorWithOptions(taB, modB, TranslatorOptions{Prefix: "policyB__"})
-
-	if err := trA.TranslateModuleToSmt(); err != nil {
-		t.Fatalf("TranslateModuleToSmt A error: %v", err)
+	for _, line := range strings.Split(resultA.SmtContent, "\n") {
+		if strings.Contains(line, " allow ") || strings.HasSuffix(strings.TrimSpace(line), " allow)") {
+			t.Errorf("module A SMT contains unprefixed 'allow': %q", line)
+		}
 	}
-	if err := trB.TranslateModuleToSmt(); err != nil {
-		t.Fatalf("TranslateModuleToSmt B error: %v", err)
-	}
-
-	combined := append(trA.SmtLines(), trB.SmtLines()...)
-
-	// Ensure neither raw "allow" nor duplicate define-fun symbols appear.
-	for _, line := range combined {
-		if strings.Contains(line, " allow ") || strings.HasSuffix(line, " allow)") {
-			t.Errorf("combined SMT contains unprefixed 'allow' symbol: %q", line)
+	for _, line := range strings.Split(resultB.SmtContent, "\n") {
+		if strings.Contains(line, " allow ") || strings.HasSuffix(strings.TrimSpace(line), " allow)") {
+			t.Errorf("module B SMT contains unprefixed 'allow': %q", line)
 		}
 	}
 
-	// Both prefixed symbols must be present.
-	hasA, hasB := false, false
-	for _, line := range combined {
-		if strings.Contains(line, "policyA__allow") {
-			hasA = true
-		}
-		if strings.Contains(line, "policyB__allow") {
-			hasB = true
-		}
+	if !strings.Contains(resultA.SmtContent, "policyA__allow") {
+		t.Error("module A SMT does not contain 'policyA__allow'")
 	}
-	if !hasA {
-		t.Error("combined SMT does not contain 'policyA__allow'")
-	}
-	if !hasB {
-		t.Error("combined SMT does not contain 'policyB__allow'")
+	if !strings.Contains(resultB.SmtContent, "policyB__allow") {
+		t.Error("module B SMT does not contain 'policyB__allow'")
 	}
 }
 
-// TestGenerateEntryPointPredicate_Exists verifies that GenerateEntryPointPredicate
-// is callable and does not return an error when the entry point is a known rule.
-func TestGenerateEntryPointPredicate_Exists(t *testing.T) {
+// TestTranslatorOptions_EntryPointExists verifies that setting EntryPoint does
+// not break the pipeline and that the formula remains satisfiable.
+func TestTranslatorOptions_EntryPointExists(t *testing.T) {
 	t.Parallel()
 	rego := `
 package test
@@ -182,126 +144,70 @@ default allow := false
 allow if { input.x == 1 }
 allow if { input.y == 2 }
 `
-	typeMap := map[string]types.RegoTypeDef{
-		"allow": types.NewAtomicType(types.AtomicBoolean),
-		"input": types.NewObjectType(map[string]types.RegoTypeDef{
-			"x": types.NewAtomicType(types.AtomicInt),
-			"y": types.NewAtomicType(types.AtomicInt),
-		}),
-	}
-	opts := TranslatorOptions{EntryPoint: "allow"}
-	tr := buildTranslatorWithOptions(t, rego, typeMap, opts)
-
-	if err := tr.TranslateModuleToSmt(); err != nil {
-		t.Fatalf("TranslateModuleToSmt error: %v", err)
-	}
-	if err := tr.GenerateEntryPointPredicate(); err != nil {
-		t.Fatalf("GenerateEntryPointPredicate error: %v", err)
-	}
-}
-
-// TestGenerateEntryPointPredicate_EmitsAggregateFun verifies that
-// GenerateEntryPointPredicate emits a define-fun whose name equals EntryPointOutput
-// (with prefix) and whose body aggregates the individual rule predicates with an
-// "(or ...)" expression, using a fresh name that does not clash with per-rule assertions.
-func TestGenerateEntryPointPredicate_EmitsAggregateFun(t *testing.T) {
-	t.Parallel()
-	rego := `
-package test
-default allow := false
-allow if { input.x == 1 }
-allow if { input.y == 2 }
-`
-	typeMap := map[string]types.RegoTypeDef{
-		"allow": types.NewAtomicType(types.AtomicBoolean),
-		"input": types.NewObjectType(map[string]types.RegoTypeDef{
-			"x": types.NewAtomicType(types.AtomicInt),
-			"y": types.NewAtomicType(types.AtomicInt),
-		}),
-	}
 	opts := TranslatorOptions{
 		Prefix:           "ns__",
 		EntryPoint:       "allow",
 		EntryPointOutput: "allow_combined",
 	}
-	tr := buildTranslatorWithOptions(t, rego, typeMap, opts)
-
-	if err := tr.TranslateModuleToSmt(); err != nil {
-		t.Fatalf("TranslateModuleToSmt error: %v", err)
+	result, err := RunPolicyToModelWithOptions(rego, inputSchemaXY, nil, opts)
+	if err != nil {
+		t.Fatalf("RunPolicyToModelWithOptions error: %v", err)
 	}
-	if err := tr.GenerateEntryPointPredicate(); err != nil {
-		t.Fatalf("GenerateEntryPointPredicate error: %v", err)
+	if result == nil {
+		t.Fatal("nil result")
+	}
+}
+
+// TestTranslatorOptions_EntryPointAggregates verifies that GenerateEntryPointPredicate
+// emits exactly one aggregating define-fun named prefix+EntryPointOutput whose body
+// contains an "(or ...)" combining the individual rule bodies.
+// The per-rule assertions must still reference the prefixed entry-point symbol.
+func TestTranslatorOptions_EntryPointAggregates(t *testing.T) {
+	t.Parallel()
+	rego := `
+package test
+default allow := false
+allow if { input.x == 1 }
+allow if { input.y == 2 }
+`
+	opts := TranslatorOptions{
+		Prefix:           "ns__",
+		EntryPoint:       "allow",
+		EntryPointOutput: "allow_combined",
+	}
+	result, err := RunPolicyToModelWithOptions(rego, inputSchemaXY, nil, opts)
+	if err != nil {
+		t.Fatalf("RunPolicyToModelWithOptions error: %v", err)
 	}
 
-	lines := tr.SmtLines()
-
-	// The aggregate define-fun must use the fresh output name, not the per-rule name.
+	// Exactly one define-fun for the output name.
 	count := 0
 	var aggregateLine string
-	for _, line := range lines {
+	for _, line := range strings.Split(result.SmtContent, "\n") {
 		if strings.Contains(line, "(define-fun ns__allow_combined") {
 			count++
 			aggregateLine = line
 		}
 	}
 	if count == 0 {
-		t.Error("GenerateEntryPointPredicate did not emit '(define-fun ns__allow_combined ...'")
+		t.Error("SMT does not contain '(define-fun ns__allow_combined ...'")
 	}
 	if count > 1 {
-		t.Errorf("GenerateEntryPointPredicate emitted %d define-fun lines for 'ns__allow_combined', expected 1", count)
+		t.Errorf("expected exactly 1 define-fun for 'ns__allow_combined', got %d", count)
 	}
 	if aggregateLine != "" && !strings.Contains(aggregateLine, "or") {
-		t.Errorf("aggregate define-fun does not contain 'or' aggregation: %q", aggregateLine)
+		t.Errorf("aggregate define-fun lacks 'or' aggregation: %q", aggregateLine)
 	}
 
-	// Per-rule assertions must still use the prefixed entry-point name, not the output name.
-	hasPerRuleAssert := false
-	for _, line := range lines {
+	// Per-rule assertions still reference the prefixed entry-point symbol.
+	hasPerRule := false
+	for _, line := range strings.Split(result.SmtContent, "\n") {
 		if strings.Contains(line, "(assert") && strings.Contains(line, "ns__allow") {
-			hasPerRuleAssert = true
+			hasPerRule = true
 			break
 		}
 	}
-	if !hasPerRuleAssert {
+	if !hasPerRule {
 		t.Error("no per-rule assertion found for 'ns__allow'")
-	}
-}
-
-// TestGenerateSmtContent_WithOptions verifies that GenerateSmtContent respects the
-// prefix and entry-point options and completes without error.
-func TestGenerateSmtContent_WithOptions(t *testing.T) {
-	t.Parallel()
-	rego := `
-package test
-default allow := false
-allow if { true }
-`
-	mod, err := ast.ParseModule("test.rego", rego)
-	if err != nil {
-		t.Fatalf("failed to parse rego: %v", err)
-	}
-
-	ta := types.NewTypeAnalyzerWithParams(mod.Package.Path, types.NewInputSchema())
-	ta.AnalyzeModule(mod)
-
-	opts := TranslatorOptions{
-		Prefix:     "pfx__",
-		EntryPoint: "allow",
-	}
-	tr := NewTranslatorWithOptions(ta, mod, opts)
-	if err := tr.GenerateSmtContent(); err != nil {
-		t.Fatalf("GenerateSmtContent error: %v", err)
-	}
-
-	lines := tr.SmtLines()
-	found := false
-	for _, line := range lines {
-		if strings.Contains(line, "pfx__allow") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("GenerateSmtContent output does not contain prefixed symbol 'pfx__allow'")
 	}
 }

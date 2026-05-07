@@ -176,6 +176,35 @@ func (td *TypeTranslator) GenerateVarDecl(varName string) (*Bucket, error) {
 	return bucket, nil
 }
 
+// GenerateVarDeclAs generates the SMT-LIB declaration and constraint for the variable
+// whose type is looked up by `lookupName` but whose SMT symbol is `smtName`.
+// Use this when a prefix transforms the declared symbol name without changing the type.
+func (td *TypeTranslator) GenerateVarDeclAs(lookupName, smtName string) (*Bucket, error) {
+	bucket := NewBucket()
+	tp := td.TypeInfo.Types[lookupName]
+	varDeclBucket, er := td.getVarDeclaration(smtName, &tp)
+	if er != nil {
+		return nil, er
+	}
+	bucket.Append(varDeclBucket)
+
+	var constrBucket *Bucket
+	if tp.IsObject() && tp.HasNoAdditionalPropertiesDeep() {
+		constrBucket, er = td.GetSmtObjectConstrStore(smtName, &tp)
+		if er != nil {
+			constrBucket, er = td.getSmtConstrAssert(smtName, &tp)
+		}
+	} else {
+		constrBucket, er = td.getSmtConstrAssert(smtName, &tp)
+	}
+	if er != nil {
+		return nil, er
+	}
+	bucket.Append(constrBucket)
+
+	return bucket, nil
+}
+
 // GenerateVarDecls generates declarations and constraints for every variable in `usedVars`.
 //
 // Parameters:

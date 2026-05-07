@@ -47,6 +47,14 @@ type PolicyModel struct {
 //	*PolicyModel - Satisfying model with variable values and SMT content (only when SAT).
 //	error        - Non-nil on any pipeline failure or when the formula is UNSAT.
 func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byte) (*PolicyModel, error) {
+	return RunPolicyToModelWithOptions(regoPolicy, jsonSchema, dataJsonSchema, TranslatorOptions{})
+}
+
+// RunPolicyToModelWithOptions runs the same pipeline as RunPolicyToModel but
+// constructs the Translator with the supplied TranslatorOptions (prefix, entry
+// point, etc.).  Model variables are stored under their original names even
+// when a prefix is set.
+func RunPolicyToModelWithOptions(regoPolicy string, jsonSchema []byte, dataJsonSchema []byte, opts TranslatorOptions) (*PolicyModel, error) {
 	// 1. Parse the Rego policy (Rego v1).
 	mod, err := ast.ParseModuleWithOpts("policy.rego", regoPolicy, ast.ParserOptions{
 		RegoVersion: ast.RegoV1,
@@ -106,14 +114,13 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
 	// 7. Generate SMT-LIB content.
-	translator := NewTranslator(typeAnalyzer, compiledModule)
+	translator := NewTranslatorWithOptions(typeAnalyzer, compiledModule, opts)
 	if err := translator.GenerateSmtContent(); err != nil {
 		return nil, fmt.Errorf("smt generation: %w", err)
 	}
 	smtContent := strings.Join(translator.SmtLines(), "\n")
 
 	// 8. Assert the SMT-LIB in Z3 and check satisfiability.
-	// smtContent is also stored in the returned PolicyModel for debugging.
 	ctx := z3.NewContext(nil)
 	defer ctx.Close()
 	solver := ctx.NewSolver()
@@ -131,18 +138,21 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	}
 
 	// 9. Extract model values for all declared global variables.
+	// GetDeclaredSmtVars maps original name → SMT symbol (prefixed for rule heads
+	// when opts.Prefix is set). Values are stored under the original name so
+	// callers use result.Vars["allow"] regardless of prefix.
 	z3Model := solver.Model()
 	defer z3Model.Close()
 
-	declaredVars := translator.getSmtVarsDeclare()
+	declaredVars := translator.GetDeclaredSmtVars()
 	vars := make(map[string]modelPkg.Value, len(declaredVars))
-	for varName := range declaredVars {
-		val, err := modelPkg.ValueFromModelVar(ctx, z3Model, varName)
+	for origName, smtName := range declaredVars {
+		val, err := modelPkg.ValueFromModelVar(ctx, z3Model, smtName)
 		if err != nil {
 			// The variable may be unconstrained or unavailable in the model; skip it.
 			continue
 		}
-		vars[varName] = val
+		vars[origName] = val
 	}
 
 	return &PolicyModel{Vars: vars, SmtContent: smtContent}, nil

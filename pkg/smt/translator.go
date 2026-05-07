@@ -238,6 +238,56 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 	return globalVars
 }
 
+// ruleHeadNames returns the set of rule-head names present in the module.
+func (t *Translator) ruleHeadNames() map[string]bool {
+	names := make(map[string]bool)
+	if t.mod == nil {
+		return names
+	}
+	for _, rule := range t.mod.Rules {
+		if rule != nil && rule.Head != nil {
+			names[rule.Head.Name.String()] = true
+		}
+	}
+	return names
+}
+
+// smtVarName returns the SMT symbol name for a global variable.
+// Rule-head names are prefixed with t.prefix; all other names are returned unchanged.
+func (t *Translator) smtVarName(name string, ruleHeads map[string]bool) string {
+	if t.prefix != "" && ruleHeads[name] {
+		return t.prefix + name
+	}
+	return name
+}
+
+// generatePrefixedVarDecls generates variable declarations for usedVars, applying
+// t.prefix to rule-head symbols so that declare-fun and assertions share the same name.
+func (t *Translator) generatePrefixedVarDecls(usedVars map[string]any, ruleHeads map[string]bool) (*Bucket, error) {
+	bucket := NewBucket()
+	for name := range usedVars {
+		smtName := t.smtVarName(name, ruleHeads)
+		varBucket, err := t.TypeTrans.GenerateVarDeclAs(name, smtName)
+		if err != nil {
+			return nil, err
+		}
+		bucket.Append(varBucket)
+	}
+	return bucket, nil
+}
+
+// GetDeclaredSmtVars returns a map from original variable name to the SMT symbol
+// used in the generated declarations (rule-head names carry t.prefix).
+func (t *Translator) GetDeclaredSmtVars() map[string]string {
+	globalVars := t.getSmtVarsDeclare()
+	ruleHeads := t.ruleHeadNames()
+	result := make(map[string]string, len(globalVars))
+	for name := range globalVars {
+		result[name] = t.smtVarName(name, ruleHeads)
+	}
+	return result
+}
+
 // GenerateSmtContent generates the SMT-LIB content for the current module.
 //
 // This function collects input parameter variables and global variables, then generates
@@ -248,7 +298,6 @@ func (t *Translator) getSmtVarsDeclare() map[string]any {
 //
 //	error: An error if type definition generation fails, otherwise nil.
 func (t *Translator) GenerateSmtContent() error {
-	// Gather input parameter variables
 	globalVars := t.getSmtVarsDeclare()
 
 	bucket, err := t.TypeTrans.GenerateTypeDecls(globalVars)
@@ -257,7 +306,14 @@ func (t *Translator) GenerateSmtContent() error {
 	}
 	t.AppendBucket(bucket)
 
-	bucket, err = t.TypeTrans.GenerateVarDecls(globalVars)
+	// When a prefix is set, rule-head declare-funs must also carry the prefix so
+	// that every occurrence of the symbol is consistent across the SMT program.
+	if t.prefix != "" {
+		ruleHeads := t.ruleHeadNames()
+		bucket, err = t.generatePrefixedVarDecls(globalVars, ruleHeads)
+	} else {
+		bucket, err = t.TypeTrans.GenerateVarDecls(globalVars)
+	}
 	if err != nil {
 		return err
 	}
@@ -277,6 +333,14 @@ func (t *Translator) GenerateSmtContent() error {
 // GenerateEntryPointPredicate emits a single aggregating define-fun that OR-combines
 // the bodies of all non-default rules whose head matches t.entryPoint.
 // The output symbol is t.prefix+t.entryPointOutput when set, otherwise t.prefix+t.entryPoint.
+//
+// For atomic-boolean entry points the aggregate is:
+//
+//	(define-fun <out> () OTypeD0
+//	  (ite (or (= body1 (OBoolean true)) ...) (OBoolean true) <default>))
+//
+// so that the SMT-LIB `or` operator always receives Bool arguments.
+// For other types the bodies are combined with a raw `(or ...)`.
 func (t *Translator) GenerateEntryPointPredicate() error {
 	if t.entryPoint == "" || len(t.entryPointBodies) == 0 {
 		return nil
@@ -288,21 +352,43 @@ func (t *Translator) GenerateEntryPointPredicate() error {
 	}
 
 	var depth int
+	isBoolAtomic := false
 	if tp, ok := t.TypeTrans.TypeInfo.Types[t.entryPoint]; ok {
 		depth = max(tp.TypeDepth(), 0)
+		isBoolAtomic = tp.IsAtomic() && tp.AtomicType == types.AtomicBoolean
 	}
 
 	smtType := NewSmtType(uint(depth))
 
 	var bodyExpr string
-	if len(t.entryPointBodies) == 1 {
-		bodyExpr = t.entryPointBodies[0].WrapToDepth(depth).String()
+	if isBoolAtomic {
+		// Build bool-typed conditions from each body and OR them.
+		trueVal := "(OBoolean true)"
+		defaultVal, err := t.GetDefaultValue(t.entryPoint)
+		if err != nil || defaultVal == nil {
+			defaultVal = NewSmtValue("OUndef", 0)
+		}
+		parts := make([]string, len(t.entryPointBodies))
+		for i, b := range t.entryPointBodies {
+			parts[i] = fmt.Sprintf("(= %s %s)", b.WrapToDepth(depth).String(), trueVal)
+		}
+		var cond string
+		if len(parts) == 1 {
+			cond = parts[0]
+		} else {
+			cond = fmt.Sprintf("(or %s)", strings.Join(parts, " "))
+		}
+		bodyExpr = fmt.Sprintf("(ite %s %s %s)", cond, trueVal, defaultVal.WrapToDepth(depth).String())
 	} else {
 		parts := make([]string, len(t.entryPointBodies))
 		for i, b := range t.entryPointBodies {
 			parts[i] = b.WrapToDepth(depth).String()
 		}
-		bodyExpr = fmt.Sprintf("(or %s)", strings.Join(parts, " "))
+		if len(parts) == 1 {
+			bodyExpr = parts[0]
+		} else {
+			bodyExpr = fmt.Sprintf("(or %s)", strings.Join(parts, " "))
+		}
 	}
 
 	cmd := RawCommand(fmt.Sprintf("(define-fun %s%s () %s %s)", t.prefix, outputName, smtType, bodyExpr))
