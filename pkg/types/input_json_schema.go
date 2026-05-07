@@ -466,6 +466,51 @@ func arrayTypeFromItemSchemasAt(conv *InputJsonSchema, schemas []*qjsonschema.Sc
 	return NewArrayType(u)
 }
 
+// boolAdditionalProps converts a boolean additionalProperties value to the standard return form.
+func boolAdditionalProps(allow bool) (*RegoTypeDef, bool) {
+	if !allow {
+		return nil, true
+	}
+	t := NewUnknownType()
+	return &t, false
+}
+
+// apFromResolvedSchema converts a resolved additionalProperties *Schema to the return form.
+// It detects boolean "true"/"false" shapes via JSON marshalling and falls back to schema processing.
+func (s *InputJsonSchema) apFromResolvedSchema(sch *qjsonschema.Schema) (*RegoTypeDef, bool) {
+	if sch == nil {
+		return nil, false
+	}
+	if b, err := sch.MarshalJSON(); err == nil {
+		switch string(b) {
+		case "true":
+			return boolAdditionalProps(true)
+		case "false":
+			return boolAdditionalProps(false)
+		}
+	}
+	t := s.processQriSchema(sch)
+	return &t, false
+}
+
+// apFallback handles unknown additionalProperties wrapper types via JSON round-trip.
+func (s *InputJsonSchema) apFallback(v interface{}) (*RegoTypeDef, bool) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, false
+	}
+	var bval bool
+	if err := json.Unmarshal(b, &bval); err == nil {
+		return boolAdditionalProps(bval)
+	}
+	tmp := &qjsonschema.Schema{}
+	if err := json.Unmarshal(b, tmp); err == nil {
+		t := s.processQriSchema(tmp)
+		return &t, false
+	}
+	return nil, false
+}
+
 // extractAdditionalProperties inspects rs for additionalProperties and returns
 // the type definition if present, along with a flag indicating if it's explicitly false.
 // Returns (type, isFalse) where:
@@ -477,62 +522,21 @@ func (s *InputJsonSchema) extractAdditionalProperties(rs *qjsonschema.Schema) (*
 	if v == nil {
 		return nil, false
 	}
-
 	switch ap := v.(type) {
 	case *qjsonschema.AdditionalProperties:
-		if ap != nil {
-			// Resolve to underlying *Schema
-			sch := ap.Resolve(jptr.Pointer{}, "")
-			if sch == nil {
-				return nil, false
-			}
-			// Inspect marshaled form to detect boolean true/false vs object
-			if b, err := sch.MarshalJSON(); err == nil {
-				// Boolean true
-				if string(b) == "true" {
-					t := NewUnknownType()
-					return &t, false
-				}
-				// Boolean false -> return flag
-				if string(b) == "false" {
-					return nil, true
-				}
-			}
-			// Treat as schema
-			t := s.processQriSchema(sch)
-			return &t, false
+		if ap == nil {
+			return nil, false
 		}
+		return s.apFromResolvedSchema(ap.Resolve(jptr.Pointer{}, ""))
 	case bool:
-		if ap {
-			// Unknown type if 'true'
-			t := NewUnknownType()
-			return &t, false
-		}
-		// Return flag for false
-		return nil, true
+		return boolAdditionalProps(ap)
 	case *qjsonschema.Schema:
 		if ap != nil {
 			t := s.processQriSchema(ap)
 			return &t, false
 		}
 	default:
-		// Fallback: try to interpret unknown wrapper by JSON round-trip
-		if b, err := json.Marshal(v); err == nil {
-			var bval bool
-			if err2 := json.Unmarshal(b, &bval); err2 == nil {
-				if bval {
-					t := NewUnknownType()
-					return &t, false
-				}
-				// Return flag for false
-				return nil, true
-			}
-			tmp := &qjsonschema.Schema{}
-			if err3 := json.Unmarshal(b, tmp); err3 == nil {
-				t := s.processQriSchema(tmp)
-				return &t, false
-			}
-		}
+		return s.apFallback(v)
 	}
 	return nil, false
 }

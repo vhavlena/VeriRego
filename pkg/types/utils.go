@@ -44,6 +44,7 @@ func IsEqualityOp(op string) bool {
 	return false
 }
 
+
 // IsNumericCompOp reports whether op is an OPA numeric comparison operator.
 func IsNumericCompOp(op string) bool {
 	switch op {
@@ -52,3 +53,4 @@ func IsNumericCompOp(op string) bool {
 	}
 	return false
 }
+

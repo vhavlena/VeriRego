@@ -152,7 +152,7 @@ func (ta *TypeAnalyzer) addToType(val ast.Value, typ RegoTypeDef) {
 }
 
 // InferTermType infers the type of an AST term by analyzing its value, optionally refining the type based on an expected type (inherType).
-//
+// \
 // Parameters:
 //
 //	term *ast.Term: The AST term to infer the type for.
@@ -209,20 +209,29 @@ func (ta *TypeAnalyzer) InferExprType(expr *ast.Expr) RegoTypeDef {
 	// Handle built-in operators and functions
 	if expr.IsCall() {
 		operator := terms[0]
-		if isEquality(operator.String()) {
+		opStr := operator.String()
+
+		if opStr == "equal" {
+			// Pure equality check (==): visit operands for type info but do not propagate.
+			ta.InferTermType(terms[1], nil)
+			ta.InferTermType(terms[2], nil)
+			return NewAtomicType(AtomicBoolean)
+		}
+
+		if IsEqualityOp(opStr) {
+			// Assignment/unification (:= or =): propagate types bidirectionally.
 			tleft := ta.InferTermType(terms[1], nil)
 			tright := ta.InferTermType(terms[2], nil)
-
-			// Update types only for variables involved in equality
 			if isVar(terms[1]) {
 				ta.addToType(terms[1].Value, tright)
 			}
 			if isVar(terms[2]) {
 				ta.addToType(terms[2].Value, tleft)
 			}
-
 			return NewAtomicType(AtomicBoolean)
-		} else {
+		}
+
+		{
 			// Handle function calls (user-defined functions are checked first)
 			funcType, funcParams := ta.resolveFunctionType(operator.String(), len(terms)-1)
 			for i := 1; i < len(terms); i++ {
@@ -614,35 +623,33 @@ func (ta *TypeAnalyzer) inferQuantifiedVarTypesInSomeDecl(sd *ast.SomeDecl) {
 	}
 }
 
+// extractVar returns the Var from a term if it is a non-excluded variable, otherwise false.
+func extractVar(term *ast.Term) (ast.Var, bool) {
+	v, ok := term.Value.(ast.Var)
+	if !ok || isExcluded(string(v)) {
+		return "", false
+	}
+	return v, true
+}
+
 // inferMemberValueVarType infers the type for a value variable in a membership
-// expression. The value variable should take the element type of the collection
-// (array element type, or union of object field values).
-func (ta *TypeAnalyzer) inferMemberValueVarType(varTerm *ast.Term, collTerm *ast.Term) {
-	v, ok := varTerm.Value.(ast.Var)
+// expression (array element type or union of object field values).
+func (ta *TypeAnalyzer) inferMemberValueVarType(varTerm, collTerm *ast.Term) {
+	v, ok := extractVar(varTerm)
 	if !ok {
 		return
 	}
-	name := string(v)
-	if isExcluded(name) {
-		return
-	}
 	collType := ta.inferAstType(collTerm.Value, nil)
-	// Value type = element type (array) or union of values (object).
-	nonGroundPath := []PathNode{{Key: "_", IsGround: false}}
-	if valType, found := collType.GetTypeFromPath(nonGroundPath); found && valType != nil {
+	if valType, found := collType.GetTypeFromPath([]PathNode{{Key: "_", IsGround: false}}); found && valType != nil {
 		ta.addToType(v, *valType)
 	}
 }
 
 // inferMemberKeyVarType infers the type for a key variable in a membership
 // expression (Int for array index, String for object key).
-func (ta *TypeAnalyzer) inferMemberKeyVarType(varTerm *ast.Term, collTerm *ast.Term) {
-	v, ok := varTerm.Value.(ast.Var)
+func (ta *TypeAnalyzer) inferMemberKeyVarType(varTerm, collTerm *ast.Term) {
+	v, ok := extractVar(varTerm)
 	if !ok {
-		return
-	}
-	name := string(v)
-	if isExcluded(name) {
 		return
 	}
 	collType := ta.inferAstType(collTerm.Value, nil)
@@ -664,25 +671,14 @@ func (ta *TypeAnalyzer) inferMemberKeyVarType(varTerm *ast.Term, collTerm *ast.T
 // entry in Types (and Refs) and downstream SMT translation can declare it.
 func (ta *TypeAnalyzer) inferQuantifiedVarTypesInRef(ref ast.Ref) {
 	for i := 1; i < len(ref); i++ {
-		seg := ref[i]
-		v, ok := seg.Value.(ast.Var)
+		v, ok := extractVar(ref[i])
 		if !ok {
 			continue
 		}
-		name := string(v)
-		if isExcluded(name) {
-			continue
+		collectionType := ta.inferRefType(ref[:i])
+		if indexType := ta.indexTypeFromCollection(collectionType); indexType != nil {
+			ta.addToType(v, *indexType)
 		}
-
-		// Determine the collection type from the prefix ref.
-		prefixRef := ref[:i]
-		collectionType := ta.inferRefType(prefixRef)
-
-		indexType := ta.indexTypeFromCollection(collectionType)
-		if indexType == nil {
-			continue
-		}
-		ta.addToType(v, *indexType)
 	}
 }
 
@@ -768,11 +764,6 @@ func funcParamsType(name string, params int) (RegoTypeDef, []RegoTypeDef) {
 		return ret, pars
 	}
 	return NewUnknownType(), pars
-}
-
-// isEquality checks if a function name corresponds to an equality operation.
-func isEquality(name string) bool {
-	return IsEqualityOp(name)
 }
 
 // AnalyzeTypes is the main entry point for type analysis.

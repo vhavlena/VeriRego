@@ -70,6 +70,8 @@ func analyzeModule(mod *ast.Module, yamlFile, jsonSchemaFile, dataYamlFile, data
 		compiledModule = inliner.InlineModule(compiledModule)
 	}
 
+	compiledModule = types.RestoreEqualityOperators(mod, compiledModule)
+
 	fmt.Printf("Compiled Module: %+v\n", compiledModule)
 	fmt.Printf("\nRego Policy Analysis:\n")
 
