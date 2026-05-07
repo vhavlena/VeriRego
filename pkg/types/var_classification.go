@@ -70,8 +70,8 @@ func isExcluded(name string) bool {
 }
 
 
-// collectVars walks term recursively, calling onVar for every non-excluded variable name.
-func collectVars(term *ast.Term, onVar func(string)) {
+// WalkVars walks term recursively, calling onVar for every non-excluded variable name.
+func WalkVars(term *ast.Term, onVar func(string)) {
 	if term == nil {
 		return
 	}
@@ -82,29 +82,29 @@ func collectVars(term *ast.Term, onVar func(string)) {
 		}
 	case ast.Ref:
 		for _, seg := range v {
-			collectVars(seg, onVar)
+			WalkVars(seg, onVar)
 		}
 	case *ast.Array:
 		for i := 0; i < v.Len(); i++ {
-			collectVars(v.Elem(i), onVar)
+			WalkVars(v.Elem(i), onVar)
 		}
 	case ast.Object:
 		v.Foreach(func(k, val *ast.Term) {
-			collectVars(k, onVar)
-			collectVars(val, onVar)
+			WalkVars(k, onVar)
+			WalkVars(val, onVar)
 		})
 	case ast.Set:
-		v.Foreach(func(elem *ast.Term) { collectVars(elem, onVar) })
+		v.Foreach(func(elem *ast.Term) { WalkVars(elem, onVar) })
 	case ast.Call:
 		for _, t := range v {
-			collectVars(t, onVar)
+			WalkVars(t, onVar)
 		}
 	}
 }
 
 // collectVarsLocal marks every variable in term as local, unless already quantified/parameter.
 func collectVarsLocal(term *ast.Term, vc *VarClassification) {
-	collectVars(term, func(name string) {
+	WalkVars(term, func(name string) {
 		if !vc.Quantified[name] && !vc.Parameter[name] {
 			vc.Local[name] = true
 		}
@@ -233,7 +233,7 @@ func markLocalIfVar(term *ast.Term, vc *VarClassification) {
 
 // collectVarsQuantified marks every variable in term as quantified, unless already local/parameter.
 func collectVarsQuantified(term *ast.Term, vc *VarClassification) {
-	collectVars(term, func(name string) {
+	WalkVars(term, func(name string) {
 		if !vc.Local[name] && !vc.Parameter[name] {
 			vc.Quantified[name] = true
 		}
