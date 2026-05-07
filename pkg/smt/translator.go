@@ -330,17 +330,21 @@ func (t *Translator) GenerateSmtContent() error {
 	return nil
 }
 
-// GenerateEntryPointPredicate emits a single aggregating define-fun that OR-combines
+// GenerateEntryPointPredicate emits a single aggregating define-fun that combines
 // the bodies of all non-default rules whose head matches t.entryPoint.
 // The output symbol is t.prefix+t.entryPointOutput when set, otherwise t.prefix+t.entryPoint.
 //
-// For atomic-boolean entry points the aggregate is:
+// For atomic-boolean entry points:
 //
 //	(define-fun <out> () OTypeD0
 //	  (ite (or (= body1 (OBoolean true)) ...) (OBoolean true) <default>))
 //
-// so that the SMT-LIB `or` operator always receives Bool arguments.
-// For other types the bodies are combined with a raw `(or ...)`.
+// For all other types the aggregate returns the first non-undef body via a
+// right-fold ITE chain:
+//
+//	(ite (not (is-OUndef body1)) body1
+//	  (ite (not (is-OUndef body2)) body2
+//	    OUndef))
 func (t *Translator) GenerateEntryPointPredicate() error {
 	if t.entryPoint == "" || len(t.entryPointBodies) == 0 {
 		return nil
@@ -362,7 +366,7 @@ func (t *Translator) GenerateEntryPointPredicate() error {
 
 	var bodyExpr string
 	if isBoolAtomic {
-		// Build bool-typed conditions from each body and OR them.
+		// Build a Bool-typed (or ...) of equality checks, then wrap in ite.
 		trueVal := "(OBoolean true)"
 		defaultVal, err := t.GetDefaultValue(t.entryPoint)
 		if err != nil || defaultVal == nil {
@@ -380,15 +384,16 @@ func (t *Translator) GenerateEntryPointPredicate() error {
 		}
 		bodyExpr = fmt.Sprintf("(ite %s %s %s)", cond, trueVal, defaultVal.WrapToDepth(depth).String())
 	} else {
-		parts := make([]string, len(t.entryPointBodies))
-		for i, b := range t.entryPointBodies {
-			parts[i] = b.WrapToDepth(depth).String()
+		// Right-fold ITE chain: return the first body that is not OUndef.
+		// is-OUndef is applied after unwrapping to depth 0 (consistent with IsUndef).
+		fallback := NewSmtValue("OUndef", 0).WrapToDepth(depth).String()
+		expr := fallback
+		for i := len(t.entryPointBodies) - 1; i >= 0; i-- {
+			b := t.entryPointBodies[i].WrapToDepth(depth)
+			isUndef := fmt.Sprintf("(is-OUndef %s)", b.UnwrapToDepth(0).String())
+			expr = fmt.Sprintf("(ite (not %s) %s %s)", isUndef, b.String(), expr)
 		}
-		if len(parts) == 1 {
-			bodyExpr = parts[0]
-		} else {
-			bodyExpr = fmt.Sprintf("(or %s)", strings.Join(parts, " "))
-		}
+		bodyExpr = expr
 	}
 
 	cmd := RawCommand(fmt.Sprintf("(define-fun %s%s () %s %s)", t.prefix, outputName, smtType, bodyExpr))

@@ -211,3 +211,33 @@ allow if { input.y == 2 }
 		t.Error("no per-rule assertion found for 'ns__allow'")
 	}
 }
+
+// TestTranslatorOptions_EntryPointNonBoolean verifies that the aggregate define-fun
+// for a non-boolean (integer) entry point uses the first-non-undef ITE chain rather
+// than a type-incorrect "(or ...)".
+func TestTranslatorOptions_EntryPointNonBoolean(t *testing.T) {
+	t.Parallel()
+	rego := `
+package test
+default score := 0
+score := 10 if { input.x == 1 }
+score := 20 if { input.y == 2 }
+`
+	opts := TranslatorOptions{
+		Prefix:           "ns__",
+		EntryPoint:       "score",
+		EntryPointOutput: "score_combined",
+	}
+	result, err := RunPolicyToModelWithOptions(rego, inputSchemaXY, nil, opts)
+	if err != nil {
+		t.Fatalf("RunPolicyToModelWithOptions error: %v", err)
+	}
+
+	// The aggregate must use is-OUndef, not a bare (or ...) of OTypeD values.
+	if !strings.Contains(result.SmtContent, "(define-fun ns__score_combined") {
+		t.Error("SMT does not contain '(define-fun ns__score_combined ...'")
+	}
+	if !strings.Contains(result.SmtContent, "is-OUndef") {
+		t.Error("non-boolean aggregate does not contain 'is-OUndef' check")
+	}
+}
