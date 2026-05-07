@@ -106,16 +106,24 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		return t.SetDefaultValue(name.String(), value)
 	}
 
+	// Collect body for entry-point aggregation before emitting individual assertions.
+	if t.entryPoint != "" && rule.Head.Name.String() == t.entryPoint {
+		t.entryPointBodies = append(t.entryPointBodies, value)
+	}
+
+	smtSymbolName := t.prefix + name.String()
+	smtSymbol := NewSmtValue(smtSymbolName, name.GetDepth())
+
 	args, err := t.getArgs(rule)
 	if err != nil {
 		return err
 	}
 
 	if len(args) == 0 {
-		assertion := Assert(name.Equals(value))
+		assertion := Assert(smtSymbol.Equals(value))
 		t.smtAsserts = append(t.smtAsserts, assertion)
 	} else {
-		fun := DefineFun(name.String(), args, value)
+		fun := DefineFun(smtSymbolName, args, value)
 		t.smtDecls = append(t.smtDecls, fun)
 	}
 

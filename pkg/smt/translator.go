@@ -2,13 +2,22 @@ package smt
 
 import (
 	"errors"
+	"fmt"
 	"maps"
+	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
 	verr "github.com/vhavlena/verirego/pkg/err"
 
 	"github.com/vhavlena/verirego/pkg/types"
 )
+
+// TranslatorOptions holds optional configuration for a Translator.
+type TranslatorOptions struct {
+	Prefix           string // SMT symbol prefix applied to all rule-head names
+	EntryPoint       string // Rule name whose bodies are aggregated by GenerateEntryPointPredicate
+	EntryPointOutput string // SMT symbol name for the aggregate define-fun (defaults to EntryPoint)
+}
 
 type TransContext struct {
 	VarMap map[string]string // Mapping of Rego term keys to SMT variable names
@@ -33,29 +42,43 @@ func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
 
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
-	TypeTrans    *TypeTranslator     // Type definitions and type-related operations
-	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
-	defaultsMap	 map[string]SmtValue // Mapping of variable names to default values
-	funcMap      map[string]Function // Mapping of function names to their representation
-	smtTypeDecls []*SmtCommand       // SMT type declarations
-	smtDecls     []*SmtCommand       // SMT variable declarations
-	smtAsserts   []*SmtCommand       // SMT assertions
-	mod          *ast.Module
+	TypeTrans        *TypeTranslator     // Type definitions and type-related operations
+	VarMap           map[string]string   // Mapping of Rego term keys to SMT variable names
+	defaultsMap      map[string]SmtValue // Mapping of variable names to default values
+	funcMap          map[string]Function // Mapping of function names to their representation
+	smtTypeDecls     []*SmtCommand       // SMT type declarations
+	smtDecls         []*SmtCommand       // SMT variable declarations
+	smtAsserts       []*SmtCommand       // SMT assertions
+	mod               *ast.Module
+	prefix            string      // SMT symbol prefix for all rule-head names
+	entryPoint        string      // rule name to aggregate in GenerateEntryPointPredicate
+	entryPointOutput  string      // SMT name for the aggregate define-fun (defaults to entryPoint)
+	entryPointBodies  []*SmtValue // rule bodies collected for the entry point
 }
 
 // NewTranslator creates a new Translator instance with the given TypeAnalyzer.
 func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 	t := &Translator{
-		TypeTrans:    NewTypeDefs(typeInfo),
-		VarMap:       make(map[string]string),
-		defaultsMap:  make(map[string]SmtValue),
-		funcMap:      GetBuiltinFuncMap(),
-		smtTypeDecls: make([]*SmtCommand, 0, 32),
-		smtDecls:     make([]*SmtCommand, 0, 64),
-		smtAsserts:   make([]*SmtCommand, 0, 128),
-		mod:          mod,
+		TypeTrans:        NewTypeDefs(typeInfo),
+		VarMap:           make(map[string]string),
+		defaultsMap:      make(map[string]SmtValue),
+		funcMap:          GetBuiltinFuncMap(),
+		smtTypeDecls:     make([]*SmtCommand, 0, 32),
+		smtDecls:         make([]*SmtCommand, 0, 64),
+		smtAsserts:       make([]*SmtCommand, 0, 128),
+		mod:              mod,
+		entryPointBodies: make([]*SmtValue, 0),
 	}
 	t.generateFunctions()
+	return t
+}
+
+// NewTranslatorWithOptions creates a Translator with optional prefix and entry-point settings.
+func NewTranslatorWithOptions(typeInfo *types.TypeAnalyzer, mod *ast.Module, opts TranslatorOptions) *Translator {
+	t := NewTranslator(typeInfo, mod)
+	t.prefix = opts.Prefix
+	t.entryPoint = opts.EntryPoint
+	t.entryPointOutput = opts.EntryPointOutput
 	return t
 }
 
@@ -93,7 +116,7 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 
 // generateFunctions populates the inner funcMap with function with resolved type definitions
 func (t *Translator) generateFunctions() {
-	for op,ft := range t.TypeTrans.TypeInfo.Types {
+	for op, ft := range t.TypeTrans.TypeInfo.Types {
 		if !ft.IsFunction() {
 			continue
 		}
@@ -126,7 +149,7 @@ func (t *Translator) AddTransContext(context *TransContext) {
 }
 
 func (t *Translator) SetDefaultValue(varName string, value *SmtValue) error {
-	if _,ok := t.defaultsMap[varName]; ok {
+	if _, ok := t.defaultsMap[varName]; ok {
 		return errors.New("redefinition of default value of " + varName)
 	}
 	t.defaultsMap[varName] = *value
@@ -134,15 +157,15 @@ func (t *Translator) SetDefaultValue(varName string, value *SmtValue) error {
 }
 
 func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
-	if def,ok := t.defaultsMap[varName]; ok {
-		return &def,nil
+	if def, ok := t.defaultsMap[varName]; ok {
+		return &def, nil
 	}
-	if tp,ok := t.TypeTrans.TypeInfo.Types[varName]; ok {
-		depth := max(tp.TypeDepth(),0)
-		def := NewSmtValue("OUndef", 0) 
-		return def.WrapToDepth(depth),nil
+	if tp, ok := t.TypeTrans.TypeInfo.Types[varName]; ok {
+		depth := max(tp.TypeDepth(), 0)
+		def := NewSmtValue("OUndef", 0)
+		return def.WrapToDepth(depth), nil
 	}
-	return nil,verr.ErrTypeNotFound(varName)
+	return nil, verr.ErrTypeNotFound(varName)
 }
 
 // IntoExprTranslator creates an ExprTranslator populated with values from given Translator
@@ -243,6 +266,47 @@ func (t *Translator) GenerateSmtContent() error {
 	if err := t.TranslateModuleToSmt(); err != nil {
 		return err
 	}
+	if t.entryPoint != "" {
+		if err := t.GenerateEntryPointPredicate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GenerateEntryPointPredicate emits a single aggregating define-fun that OR-combines
+// the bodies of all non-default rules whose head matches t.entryPoint.
+// The output symbol is t.prefix+t.entryPointOutput when set, otherwise t.prefix+t.entryPoint.
+func (t *Translator) GenerateEntryPointPredicate() error {
+	if t.entryPoint == "" || len(t.entryPointBodies) == 0 {
+		return nil
+	}
+
+	outputName := t.entryPointOutput
+	if outputName == "" {
+		outputName = t.entryPoint
+	}
+
+	var depth int
+	if tp, ok := t.TypeTrans.TypeInfo.Types[t.entryPoint]; ok {
+		depth = max(tp.TypeDepth(), 0)
+	}
+
+	smtType := NewSmtType(uint(depth))
+
+	var bodyExpr string
+	if len(t.entryPointBodies) == 1 {
+		bodyExpr = t.entryPointBodies[0].WrapToDepth(depth).String()
+	} else {
+		parts := make([]string, len(t.entryPointBodies))
+		for i, b := range t.entryPointBodies {
+			parts[i] = b.WrapToDepth(depth).String()
+		}
+		bodyExpr = fmt.Sprintf("(or %s)", strings.Join(parts, " "))
+	}
+
+	cmd := RawCommand(fmt.Sprintf("(define-fun %s%s () %s %s)", t.prefix, outputName, smtType, bodyExpr))
+	t.smtAsserts = append(t.smtAsserts, cmd)
 	return nil
 }
 
