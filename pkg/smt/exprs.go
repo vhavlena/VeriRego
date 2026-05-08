@@ -236,8 +236,6 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 }
 
 // arrayToSmt converts a Rego array to an SmtValue representing the corresponding SMT-LIB expression.
-// it works for arrays with explicit elements (e.g. arr := [1,2,3])
-// now experimenting with the sequence based approach 
 //
 // Parameters:
 //
@@ -257,15 +255,16 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 	// If the sequence is empty, we just return a constant empty array
 	if arr.Len() == 0 {
 		depth := tp.TypeDepth()
+		if depth < 1 {
+			panic("arrayToSmt: expected depth >= 1")
+		}
         return &SmtValue {
-			// TODO: can we return depth-1 here?
 			value: fmt.Sprintf("(OArray%d (as seq.empty (Seq OTypeD%d)))", depth, depth-1),
 			depth: depth,
 		}, nil
 	}
 
 	depth := tp.TypeDepth()
-	// arrSmt := createConstArray("Int", depth)
 	elements := make([]string, arr.Len())
 	// We wrap each element and add it as an element of the sequence
 	// using seq.unit
@@ -276,7 +275,6 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 			return nil, err
 		}
 		valSmt = valSmt.WrapToDepth(depth - 1)
-		// arrSmt = fmt.Sprintf("(store %s %d %s)", arrSmt, index, valSmt.String())
 		elements[index] = fmt.Sprintf("(seq.unit %s)", valSmt.String())
 	}
 
@@ -366,8 +364,6 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 		name = ref[0].String()
 	}
 
-	// TODO: direct arr comparison val := [1,2,3] input.user.numero[0] == val[0] fails
-	// on val[0] here;; val is considered without name, but head is "__lv0" (the generated identifier)
 	tp, ok := et.TypeTrans.TypeInfo.Types[name]
 	if !ok {
 		return nil, verr.ErrTypeNotFound(name)
@@ -402,6 +398,8 @@ func (et *ExprTranslator) GetSmtRef(base string, tp *types.RegoTypeDef, rest *as
 				return nil, nil, err
 			}
 		case types.KindUnion:
+			// TODO: indexation for nested arrays ends up here
+			// for example arr := [[1]] , arr[0][0]
 			panic("TODO")
 		default:
 			return nil, nil, fmt.Errorf("only object types can be used in references")

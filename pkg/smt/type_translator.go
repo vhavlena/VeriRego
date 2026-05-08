@@ -341,6 +341,8 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 	case tp.IsObject():
 		return td.getSmtObjectConstr(smtValue, tp)
 	case tp.IsArray():
+		// TODO: as of now, no constraints over the 
+		// array elements are generated, shall change with anyOf support
 		return td.getSmtArrConstr(smtValue, tp)
 	case tp.IsUnion():
 		return td.getSmtUnionConstr(smtValue, tp)
@@ -676,6 +678,10 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 }
 
 // getSmtArrConstr generates constraints for an array value and its element type.
+// TODO: unless anyOf/oneOf support is added, this code is not adding constraints over individual elements
+// NOTES: the constraint generation should be dependent on the combinator inclusion
+// the commented-out code below therefore corresponds to anyOf combinator; 
+// oneOf support would require possibly some union unwrapping, however the schema might be processed differently alltogether
 //
 // Behaviour:
 //   - Asserts `(is-OArray<d> smtValue)`.
@@ -697,22 +703,22 @@ func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef
 	depth := max(tp.TypeDepth(), 0)
 	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(is-OArray%d %s)", depth, smtValue)))
 	
-	qvar := RandString(5)
-	seqvar := RandString(5)
-	elvar := RandString(5)
+	// qvar := RandString(5)
+	// seqvar := RandString(5)
+	// elvar := RandString(5)
 
-	valAnalysis, er := td.getSmtConstr(elvar, tp.ArrayType)
-	if er != nil {
-		return nil, er
-	}
-	ands := AndPtrs(valAnalysis.Props)
-	andsStr := ands.String()
+	// valAnalysis, er := td.getSmtConstr(elvar, tp.ArrayType)
+	// if er != nil {
+	// 	return nil, er
+	// }
+	// ands := AndPtrs(valAnalysis.Props)
+	// andsStr := ands.String()
 	
-	// the forall ensures that for every valid index, the selected element satisfies the type constraints
-	// using sequences simplifies the boundary checking
-	forall := fmt.Sprintf("(forall ((%s Int)) (let ((%s (arr%d %s))) (=> (and (>= %s 0) (< %s (seq.len %s))) (let ((%s (seq.nth %s %s))) %s))))", qvar, seqvar, depth, smtValue, qvar, qvar, seqvar, elvar, seqvar, qvar, andsStr)
+	// // the forall ensures that for every valid index, the selected element satisfies the type constraints
+	// // using sequences simplifies the boundary checking
+	// forall := fmt.Sprintf("(forall ((%s Int)) (let ((%s (arr%d %s))) (=> (and (>= %s 0) (< %s (seq.len %s))) (let ((%s (seq.nth %s %s))) %s))))", qvar, seqvar, depth, smtValue, qvar, qvar, seqvar, elvar, seqvar, qvar, andsStr)
 
-	bucket.Props = append(bucket.Props, RawProposition(forall))
+	// bucket.Props = append(bucket.Props, RawProposition(forall))
 
 	return bucket, nil
 }

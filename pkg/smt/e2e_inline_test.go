@@ -295,6 +295,7 @@ allow if {
 		}
 	})
 
+	// The array contains mixed types
 	t.Run("MixArrRef", func(t *testing.T) {
 		t.Parallel()
 		rego := `
@@ -305,6 +306,73 @@ allow if {
 }
 `
 		inputSchema := []byte(`{"type":"object","properties":{"age":{"type":"integer"}},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// Array contains an array (no indexation to the inner array)
+	t.Run("MixArrNestedRefBasic", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+arr := [0,"karel",[3,2]]
+allow if {
+    arr[0] == 0
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// An element of the array is a variable
+	t.Run("MixArrVarElem", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+
+arr := [0, x, 2]
+x := 5
+
+allow if {
+    arr[1] == x
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// referencing with object number.value
+	t.Run("ArrObjIndexRef", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+allow if {
+    number := {"value": 1}
+    arr := [10, 20, 30]
+    arr[number.value] == 20
+}
+`
+		inputSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
 		dataSchema := []byte(`{"type":"object","properties":{},"additionalProperties":false}`)
 		result, err := RunPolicyToModel(rego, inputSchema, dataSchema)
 		if err != nil {

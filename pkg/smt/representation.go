@@ -175,7 +175,7 @@ func (sv *SmtValue) SelectArr(at string) *SmtValue {
 	// contain the possible right value
 	// such models align with the universum generation logic, however not with Rego semantics
 	preambule := fmt.Sprintf("(ite (< %s (seq.len (arr%d %s)))", at, sv.depth, sv.value)
-	undef := fmt.Sprintf("OUndef")
+	undef := NewSmtValue("OUndef", 0).WrapToDepth(sv.depth - 1).String()
 	value := fmt.Sprintf("(seq.nth (arr%d %s) %s)", sv.depth, sv.value, at)
 	concat := fmt.Sprintf("%s %s %s)", preambule, value, undef)
 	return NewSmtValue(concat, sv.depth-1)
