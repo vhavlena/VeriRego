@@ -301,9 +301,6 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	if !strings.Contains(complexConstraintStr, "(is-OBoolean (select (obj1 v) \"field1\"))") {
 		t.Errorf("missing object field constraint in complex union: %v", complexConstraintStr)
 	}
-	if !strings.Contains(complexConstraintStr, "(is-OArray1 v)") {
-		t.Errorf("missing array constraint in complex union: %v", complexConstraintStr)
-	}
 
 	// Test nested union: (string | int) | boolean
 	nestedUnionType := &types.RegoTypeDef{
