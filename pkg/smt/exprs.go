@@ -235,7 +235,7 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 	}
 }
 
-// arrayToSmt converts a Rego array to an SmtValue representing the corresponding SMT-LIB expression.
+// arrayToSmt transforms a constant Rego array into SMT representation.
 //
 // Parameters:
 //

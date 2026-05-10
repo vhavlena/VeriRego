@@ -418,13 +418,6 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 			return nil, verr.ErrMissingObjectKey(smtValue, key)
 		}
 		sel := fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtValue, key)
-		// if !val.IsAtomic() {
-		// 	constr, err := getTypeConstr(depth-1, val)
-		// 	if err != nil {
-		// 		return nil, err
-		// 	}
-		// 	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, sel)))
-		// }
 
 		valAnalysis, err := td.getSmtConstr(sel, val)
 		if err != nil {
