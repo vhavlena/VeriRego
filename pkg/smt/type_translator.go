@@ -343,7 +343,7 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 	case tp.IsArray():
 		// TODO: as of now, no constraints over the 
 		// array elements are generated, shall change with anyOf support
-		return td.getSmtArrConstr(smtValue, tp)
+		return NewPropBucket(), nil
 	case tp.IsUnion():
 		return td.getSmtUnionConstr(smtValue, tp)
 	default:
@@ -669,94 +669,6 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, smtValue)))
 	return bucket, nil
 }
-
-// getSmtArrConstr generates constraints for an array value and its element type.
-// TODO: unless anyOf/oneOf support is added, this code is not adding constraints over individual elements
-// NOTES: the constraint generation should be dependent on the combinator inclusion
-// the commented-out code below therefore corresponds to anyOf combinator; 
-// oneOf support would require possibly some union unwrapping, however the schema might be processed differently alltogether
-//
-// Behaviour:
-//   - Asserts `(is-OArray<d> smtValue)`.
-//   - Adds a `forall` over indices constraining each selected element.
-//
-// Parameters:
-// - `smtValue string`: SMT expression/value to constrain.
-// - `tp *types.RegoTypeDef`: Array type.
-//
-// Returns:
-// - `*PropBucket`: Bucket containing array and element constraints in `Props`.
-// - `error`: Non-nil if `tp` is not an array or element constraints fail.
-func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
-	if !tp.IsArray() {
-		return nil, verr.ErrUnexpectedValueType(smtValue, "array")
-	}
-
-	bucket := NewPropBucket()
-	depth := max(tp.TypeDepth(), 0)
-	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(is-OArray%d %s)", depth, smtValue)))
-	
-	// qvar := RandString(5)
-	// seqvar := RandString(5)
-	// elvar := RandString(5)
-
-	// valAnalysis, er := td.getSmtConstr(elvar, tp.ArrayType)
-	// if er != nil {
-	// 	return nil, er
-	// }
-	// ands := AndPtrs(valAnalysis.Props)
-	// andsStr := ands.String()
-	
-	// // the forall ensures that for every valid index, the selected element satisfies the type constraints
-	// // using sequences simplifies the boundary checking
-	// forall := fmt.Sprintf("(forall ((%s Int)) (let ((%s (arr%d %s))) (=> (and (>= %s 0) (< %s (seq.len %s))) (let ((%s (seq.nth %s %s))) %s))))", qvar, seqvar, depth, smtValue, qvar, qvar, seqvar, elvar, seqvar, qvar, andsStr)
-
-	// bucket.Props = append(bucket.Props, RawProposition(forall))
-
-	return bucket, nil
-}
-
-// TODO: can we delete this? replaced in exprs.go by getSmtRef, not used anywhere in the codebase anymore.
-// getSmtRef constructs an SMT select-chain by traversing an object-typed path.
-// 
-// Parameters:
-// - `smtvar string`: Base SMT variable/expression.
-// - `path []string`: Field-name path to traverse.
-// - `tp *types.RegoTypeDef`: Starting type for traversal.
-//
-// Returns:
-// - `string`: SMT expression selecting the nested value.
-// - `*types.RegoTypeDef`: Type definition of the selected value.
-// - `error`: Non-nil if a non-object is traversed or a field is missing.
-func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *types.RegoTypeDef, error) {
-    smtref := smtvar
-    actType := tp
-    for _, p := range path {
-        depth := max(actType.TypeDepth(), 0)
-
-        if actType.IsObject() {
-            val, found := actType.ObjectFields.Get(p)
-            if !found {
-                return "", nil, verr.ErrMissingObjectKey(smtvar, p)
-            }
-            actType = val
-            smtref = fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtref, p)
-        } else if actType.IsArray() {
-            val := actType.ArrayType
-            if val == nil {
-                return "", nil, fmt.Errorf("array type is missing element type for %s", smtvar)
-            }
-            actType = val
-            // p is the index (e.g., "0"). We inject it directly into the SMT-LIB output
-            // since SMT-LIB treats "0" as an integer natively.
-            smtref = fmt.Sprintf("(seq.nth (arr%d %s) %s)", depth, smtref, p)
-        } else {
-            return "", nil, fmt.Errorf("only object and array types can be traversed, trying to traverse %s with key %s", actType.Kind, p)
-        }
-    }
-    return smtref, actType, nil
-}
-
 
 // refToPath converts a Rego AST ref into a string path.
 //
