@@ -168,8 +168,17 @@ func (sv *SmtValue) SelectObj(at string) *SmtValue {
 
 // SelectArr performs a selection of SmtValue sv (representing an array) at specified key.
 func (sv *SmtValue) SelectArr(at string) *SmtValue {
-	value := fmt.Sprintf("(select (arr%d %s) %s)", sv.depth, sv.value, at)
-	return NewSmtValue(value, sv.depth-1)
+
+	// The ite logic is because of the seq.nth_u generation
+	// by saying that the element at index at is in the array (is < length)
+	// we block the generation of seq.nth_u and empty arrays, where seq.nth_u would
+	// contain the possible right value
+	// such models align with the universum generation logic, however not with Rego semantics
+	preambule := fmt.Sprintf("(ite (< %s (seq.len (arr%d %s)))", at, sv.depth, sv.value)
+	undef := NewSmtValue("OUndef", 0).WrapToDepth(sv.depth - 1).String()
+	value := fmt.Sprintf("(seq.nth (arr%d %s) %s)", sv.depth, sv.value, at)
+	concat := fmt.Sprintf("%s %s %s)", preambule, value, undef)
+	return NewSmtValue(concat, sv.depth-1)
 }
 
 // Equals returns a proposition corresponding to equality of the two given SmtValues.

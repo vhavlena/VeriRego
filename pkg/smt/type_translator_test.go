@@ -238,61 +238,6 @@ func TestTypeDefs_getSmtConstrAssert_NestedObject(t *testing.T) {
 	}
 }
 
-func TestTypeDefs_getSmtArrConstr(t *testing.T) {
-	t.Parallel()
-	td := &TypeTranslator{}
-
-	// Test simple array of atomic strings
-	arrType := &types.RegoTypeDef{
-		Kind: types.KindArray,
-		ArrayType: &types.RegoTypeDef{
-			Kind:       types.KindAtomic,
-			AtomicType: types.AtomicString,
-		},
-	}
-	b, err := td.getSmtArrConstr("a", arrType)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(b.Props) != 2 {
-		t.Errorf("expected 2 constraints, got %d", len(b.Props))
-	}
-	if b.Props[0].String() != "(is-OArray1 a)" {
-		t.Errorf("missing or incorrect OArray constraint: %v", b.Props[0].String())
-	}
-	if !strings.Contains(b.Props[1].String(), "(is-OString elem)") {
-		t.Errorf("missing or incorrect atomic string constraint in forall: %v", b.Props[1].String())
-	}
-
-	// Test nested array: array of array of ints
-	nestedArrType := &types.RegoTypeDef{
-		Kind: types.KindArray,
-		ArrayType: &types.RegoTypeDef{
-			Kind: types.KindArray,
-			ArrayType: &types.RegoTypeDef{
-				Kind:       types.KindAtomic,
-				AtomicType: types.AtomicInt,
-			},
-		},
-	}
-	nestedB, err := td.getSmtArrConstr("b", nestedArrType)
-	if err != nil {
-		t.Fatalf("unexpected error for nested array: %v", err)
-	}
-	if len(nestedB.Props) != 2 {
-		t.Errorf("expected 2 constraints for nested array, got %d", len(nestedB.Props))
-	}
-	if nestedB.Props[0].String() != "(is-OArray2 b)" {
-		t.Errorf("missing or incorrect OArray constraint for nested array: %v", nestedB.Props[0].String())
-	}
-	if !strings.Contains(nestedB.Props[1].String(), "(is-OArray1 elem)") {
-		t.Errorf("missing or incorrect nested OArray constraint in forall: %v", nestedB.Props[1].String())
-	}
-	if !strings.Contains(nestedB.Props[1].String(), "(is-ONumber elem") {
-		t.Errorf("missing or incorrect atomic int constraint in nested forall: %v", nestedB.Props[1].String())
-	}
-}
-
 func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	t.Parallel()
 	td := &TypeTranslator{}
@@ -355,9 +300,6 @@ func TestTypeDefs_getSmtConstr_Union(t *testing.T) {
 	}
 	if !strings.Contains(complexConstraintStr, "(is-OBoolean (select (obj1 v) \"field1\"))") {
 		t.Errorf("missing object field constraint in complex union: %v", complexConstraintStr)
-	}
-	if !strings.Contains(complexConstraintStr, "(is-OArray1 v)") {
-		t.Errorf("missing array constraint in complex union: %v", complexConstraintStr)
 	}
 
 	// Test nested union: (string | int) | boolean

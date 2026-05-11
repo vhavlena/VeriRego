@@ -236,15 +236,38 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 }
 
 // arrayToSmt transforms a constant Rego array into SMT representation.
+//
+// Parameters:
+//
+//	arr *ast.Array: The Rego array to convert.
+//
+// Returns:
+//
+//	*SmtValue: An SmtValue representing the SMT-LIB expression for the array.
+//	error: An error if type information is missing or conversion fails.
 func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 	tp, ok := et.TypeTrans.TypeInfo.Types[arr.String()]
 	if !ok {
 		return nil, verr.ErrTypeNotFound(arr.String())
 	}
 
-	depth := tp.TypeDepth()
-	arrSmt := createConstArray("Int", depth)
+	// We cannot use seq.nth and the concatenation seq.++ for empty arrays
+	// If the sequence is empty, we just return a constant empty array
+	if arr.Len() == 0 {
+		depth := tp.TypeDepth()
+		if depth < 1 {
+			panic("arrayToSmt: expected depth >= 1")
+		}
+        return &SmtValue {
+			value: fmt.Sprintf("(OArray%d (as seq.empty (Seq OTypeD%d)))", depth, depth-1),
+			depth: depth,
+		}, nil
+	}
 
+	depth := tp.TypeDepth()
+	elements := make([]string, arr.Len())
+	// We wrap each element and add it as an element of the sequence
+	// using seq.unit
 	for index := range arr.Len() {
 		val := arr.Elem(index)
 		valSmt, err := et.termToSmtValue(val)
@@ -252,11 +275,22 @@ func (et *ExprTranslator) arrayToSmt(arr *ast.Array) (*SmtValue, error) {
 			return nil, err
 		}
 		valSmt = valSmt.WrapToDepth(depth - 1)
-		arrSmt = fmt.Sprintf("(store %s %d %s)", arrSmt, index, valSmt.String())
+		elements[index] = fmt.Sprintf("(seq.unit %s)", valSmt.String())
 	}
 
+	// seq.++ requires 2+ arguments, so we handle the single element case separately
+	if len(elements) == 1 {
+		return &SmtValue{
+			value: fmt.Sprintf("(OArray%d %s)", depth, elements[0]),
+			depth: depth,
+		}, nil
+	}
+
+	joinedArr := strings.Join(elements, " ")
+
+	// joined elements are wrapped in the OArray constructor of the appropriate depth
 	return &SmtValue{
-		value: fmt.Sprintf("(OArray%d %s)", depth, arrSmt),
+		value: fmt.Sprintf("(OArray%d (seq.++ %s))", depth, joinedArr),
 		depth: depth,
 	}, nil
 }
@@ -364,6 +398,8 @@ func (et *ExprTranslator) GetSmtRef(base string, tp *types.RegoTypeDef, rest *as
 				return nil, nil, err
 			}
 		case types.KindUnion:
+			// TODO: indexation for nested arrays ends up here
+			// for example arr := [[1]] , arr[0][0]
 			panic("TODO")
 		default:
 			return nil, nil, fmt.Errorf("only object types can be used in references")

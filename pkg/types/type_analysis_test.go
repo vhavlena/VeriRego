@@ -524,7 +524,11 @@ test if { [[1, 2], [3, 4]] }`,
 			name: "mixed type array",
 			rule: `package test
 test if { [1, "two", true] }`,
-			expected: NewArrayType(NewAtomicType(AtomicInt)), // Should infer from first element
+			expected: NewArrayType(NewUnionType([]RegoTypeDef{
+				NewAtomicType(AtomicInt),
+				NewAtomicType(AtomicString),
+				NewAtomicType(AtomicBoolean),
+			})), // Array with mixed types should infer a union type
 		},
 	}
 

@@ -264,7 +264,7 @@ func (td *TypeTranslator) getDatatypesDeclaration(maxDepth int) *Bucket {
   ((OTypeD%d
     (Atom%d (atom%d OTypeD0))
     (OObj%d (obj%d (Array String %s)))
-    (OArray%d (arr%d (Array Int %s)))
+    (OArray%d (arr%d (Seq %s)))
 	(Wrap%d (wrap%d %s))
   ))
 )`, d, d, d, d, d, inner, d, d, inner, d, d, inner)))
@@ -341,7 +341,9 @@ func (td *TypeTranslator) getSmtConstr(smtValue string, tp *types.RegoTypeDef) (
 	case tp.IsObject():
 		return td.getSmtObjectConstr(smtValue, tp)
 	case tp.IsArray():
-		return td.getSmtArrConstr(smtValue, tp)
+		// TODO: as of now, no constraints over the 
+		// array elements are generated, shall change with anyOf support
+		return NewPropBucket(), nil
 	case tp.IsUnion():
 		return td.getSmtUnionConstr(smtValue, tp)
 	default:
@@ -416,13 +418,6 @@ func (td *TypeTranslator) getSmtObjectConstr(smtValue string, tp *types.RegoType
 			return nil, verr.ErrMissingObjectKey(smtValue, key)
 		}
 		sel := fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtValue, key)
-		if !val.IsAtomic() {
-			constr, err := getTypeConstr(depth-1, val)
-			if err != nil {
-				return nil, err
-			}
-			bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, sel)))
-		}
 
 		valAnalysis, err := td.getSmtConstr(sel, val)
 		if err != nil {
@@ -674,70 +669,6 @@ func (td *TypeTranslator) getSmtAtomConstr(smtValue string, tp *types.RegoTypeDe
 	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(%s %s)", constr, smtValue)))
 	return bucket, nil
 }
-
-// getSmtArrConstr generates constraints for an array value and its element type.
-//
-// Behaviour:
-//   - Asserts `(is-OArray<d> smtValue)`.
-//   - Adds a `forall` over indices constraining each selected element.
-//
-// Parameters:
-// - `smtValue string`: SMT expression/value to constrain.
-// - `tp *types.RegoTypeDef`: Array type.
-//
-// Returns:
-// - `*PropBucket`: Bucket containing array and element constraints in `Props`.
-// - `error`: Non-nil if `tp` is not an array or element constraints fail.
-func (td *TypeTranslator) getSmtArrConstr(smtValue string, tp *types.RegoTypeDef) (*PropBucket, error) {
-	if !tp.IsArray() {
-		return nil, verr.ErrUnexpectedValueType(smtValue, "array")
-	}
-
-	bucket := NewPropBucket()
-	depth := max(tp.TypeDepth(), 0)
-	bucket.Props = append(bucket.Props, RawProposition(fmt.Sprintf("(is-OArray%d %s)", depth, smtValue)))
-
-	valAnalysis, er := td.getSmtConstr("elem", tp.ArrayType)
-	if er != nil {
-		return nil, er
-	}
-	ands := AndPtrs(valAnalysis.Props)
-	qvar := RandString(5)
-	forall := fmt.Sprintf("(forall ((%s Int))  (let ((elem (select (arr%d %s) %s))) %s))", qvar, depth, smtValue, qvar, ands.String())
-	bucket.Props = append(bucket.Props, RawProposition(forall))
-
-	return bucket, nil
-}
-
-// getSmtRef constructs an SMT select-chain by traversing an object-typed path.
-//
-// Parameters:
-// - `smtvar string`: Base SMT variable/expression.
-// - `path []string`: Field-name path to traverse.
-// - `tp *types.RegoTypeDef`: Starting type for traversal.
-//
-// Returns:
-// - `string`: SMT expression selecting the nested value.
-// - `*types.RegoTypeDef`: Type definition of the selected value.
-// - `error`: Non-nil if a non-object is traversed or a field is missing.
-func getSmtRef(smtvar string, path []string, tp *types.RegoTypeDef) (string, *types.RegoTypeDef, error) {
-	smtref := smtvar
-	actType := tp
-	for _, p := range path {
-		if !actType.IsObject() {
-			return "", nil, fmt.Errorf("only object types can be used in references")
-		}
-		val, found := actType.ObjectFields.Get(p)
-		if !found {
-			return "", nil, verr.ErrMissingObjectKey(smtvar, p)
-		}
-		depth := max(actType.TypeDepth(), 0)
-		actType = val
-		smtref = fmt.Sprintf("(select (obj%d %s) \"%s\")", depth, smtref, p)
-	}
-	return smtref, actType, nil
-}
-
 
 // refToPath converts a Rego AST ref into a string path.
 //

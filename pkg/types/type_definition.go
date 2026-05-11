@@ -718,7 +718,18 @@ func (t *RegoTypeDef) prettyPrintWithIndentShort(indent int, short bool) string 
 		return result
 	case KindUnion:
 		if short {
-			return "union"
+			if len(t.Union) == 0 {
+				return "union{}"
+			}
+			result := "union<"
+			for i, m := range t.Union {
+				if i > 0 {
+					result += ", "
+				}
+				result += m.prettyPrintWithIndentShort(indent, short)
+			}
+			result += ">"
+			return result
 		}
 		if len(t.Union) == 0 {
 			return "union{}"

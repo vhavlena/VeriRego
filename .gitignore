@@ -1,2 +1,8 @@
 build/
 .claude
+REPORT.md
+TEST.md
+tests/
+.vscode/
+out.smt2
+cmd/smt/out.smt2
