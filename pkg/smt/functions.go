@@ -162,7 +162,7 @@ func addBuiltin(funcMap map[string]Function, b ast.Builtin, call callFn) {
 // GetBuiltinFuncMap constructs and returns a map of Rego function converters into SMT.
 // This map is accessed via the names of functions, e.g., "plus", "eq".
 func GetBuiltinFuncMap() map[string]Function {
-	funcMap := make(map[string]Function, 17)
+	funcMap := make(map[string]Function, 18)
 	addBuiltin(funcMap, *ast.Plus, mkSmtFunction("+"))
 	addBuiltin(funcMap, *ast.Minus, mkSmtFunction("-"))
 	addBuiltin(funcMap, *ast.Multiply, mkSmtFunction("*"))
@@ -177,6 +177,7 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.EndsWith, mkSmtFunction("str.suffixof"))
 	addBuiltin(funcMap, *ast.IndexOf, mkSmtFunction("str.indexof"))
 	addBuiltin(funcMap, *ast.Substring, mkSmtFunction("str.substr"))
+	addBuiltin(funcMap, *ast.Replace, mkSmtFunction("str.replace_all"))
 	addBuiltin(funcMap, *ast.Equal, EqFunction)
 	addBuiltin(funcMap, *ast.Equality, EqFunction)
 	addBuiltin(funcMap, *ast.NotEqual, NeqFunction)
