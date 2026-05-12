@@ -1,7 +1,6 @@
 package smt
 
 import (
-	"fmt"
 	"testing"
 
 	modelPkg "github.com/vhavlena/verirego/pkg/model"
@@ -53,9 +52,8 @@ p := 2 if { 1 != 2 }
 	if err != nil {
 		t.Fatalf("RunPolicyToModel error: %v", err)
 	}
-	fmt.Printf("%s\n\n", result.SmtContent)
 	pVal, ok := result.Vars["p"]
-	if ok {
+	if !ok {
 		t.Fatalf("expected 'p' in model vars, got: %v", varKeys(result.Vars))
 	}
 	num, ok := pVal.Int64()

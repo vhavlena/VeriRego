@@ -31,14 +31,13 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 	return ruleVar, ruleValSmt, nil
 }
 
-// ruleToSmtString returns smt values for a rule variable and for its assignment based on the rule
-//
-// Returns:
-//
-//	*SmtValue: variable
-//	*SmtValue: assignment - value, which is conditional to the rule body
-//	error
-func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, error) {
+// ruleToSmtCore translates a rule into SMT head/value pair. The getDefault callback
+// returns the fallback SmtValue used when rule.Else is nil; it receives the rule's
+// declared name and its inferred type depth.
+func (t *Translator) ruleToSmtCore(
+	rule *ast.Rule,
+	getDefault func(name string, depth int) (*SmtValue, error),
+) (*SmtValue, *SmtValue, error) {
 	exprTrans := t.IntoExprTranslator()
 	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
 	if err != nil {
@@ -52,13 +51,19 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, erro
 	t.AddTransContext(exprTrans.GetTransContext())
 
 	name := rule.Head.Name.String()
-	elseVal, err := t.GetDefaultValue(name)
-	if err != nil {
-		return nil, nil, err
+	depth := 0
+	if tp, ok := t.TypeTrans.TypeInfo.Types[name]; ok {
+		depth = max(tp.TypeDepth(), 0)
 	}
-	elseSmt := elseVal
+
+	var elseSmt *SmtValue
 	if rule.Else != nil {
-		_, elseSmt, err = t.ruleToSmtString(rule.Else)
+		_, elseSmt, err = t.ruleToSmtCore(rule.Else, getDefault)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		elseSmt, err = getDefault(name, depth)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -69,6 +74,20 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, erro
 		smt = Let(localVarDefs[i], smt)
 	}
 	return smtHead, smt, nil
+}
+
+// ruleToSmtString returns smt values for a rule variable and for its assignment based on the rule.
+// Falls back to the declared default value (or OUndef when none is set).
+//
+// Returns:
+//
+//	*SmtValue: variable
+//	*SmtValue: assignment - value, which is conditional to the rule body
+//	error
+func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, error) {
+	return t.ruleToSmtCore(rule, func(name string, _ int) (*SmtValue, error) {
+		return t.GetDefaultValue(name)
+	})
 }
 
 func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
@@ -89,38 +108,9 @@ func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 // (never consults defaultsMap). Used for individual incremental rule occurrences; the
 // default is applied at the combinator level by IncrementalRulesToSmt.
 func (t *Translator) ruleOccurrenceToSmt(rule *ast.Rule) (*SmtValue, *SmtValue, error) {
-	exprTrans := t.IntoExprTranslator()
-	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	bodySmt, localVarDefs, err := exprTrans.BodyToSmt(&rule.Body)
-	if err != nil {
-		return nil, nil, err
-	}
-	t.AddTransContext(exprTrans.GetTransContext())
-
-	var elseSmt *SmtValue
-	if rule.Else != nil {
-		_, elseSmt, err = t.ruleOccurrenceToSmt(rule.Else)
-		if err != nil {
-			return nil, nil, err
-		}
-	} else {
-		name := rule.Head.Name.String()
-		depth := 0
-		if tp, ok := t.TypeTrans.TypeInfo.Types[name]; ok {
-			depth = max(tp.TypeDepth(), 0)
-		}
-		elseSmt = NewSmtValue("OUndef", 0).WrapToDepth(depth)
-	}
-
-	smt := Ite(bodySmt, smtVal, elseSmt)
-	for i := len(localVarDefs) - 1; i >= 0; i-- {
-		smt = Let(localVarDefs[i], smt)
-	}
-	return smtHead, smt, nil
+	return t.ruleToSmtCore(rule, func(_ string, depth int) (*SmtValue, error) {
+		return NewSmtValue("OUndef", 0).WrapToDepth(depth), nil
+	})
 }
 
 // IncrementalRulesToSmt translates multiple Rego rules sharing the same name into SMT-LIB.
