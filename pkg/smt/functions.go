@@ -1,6 +1,8 @@
 package smt
 
 import (
+	"fmt"
+
 	"github.com/open-policy-agent/opa/v1/ast"
 	ast_types "github.com/open-policy-agent/opa/v1/types"
 	verr "github.com/vhavlena/verirego/pkg/err"
@@ -133,6 +135,73 @@ func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) 
 	return eq.Not().IntoValue(), nil
 }
 
+// generateCaseTemplate creates a nested str.replace_all chain that maps one ASCII
+// case range to the other. The template has a single %s placeholder for the input string.
+func generateCaseTemplate(fromStart, toStart byte) string {
+	template := "%s"
+	for offset := int(25); offset >= 0; offset-- {
+		src := fromStart + byte(offset)
+		dst := toStart + byte(offset)
+		template = fmt.Sprintf(`(str.replace_all %s "%c" "%c")`, template, src, dst)
+	}
+	return template
+}
+
+// toLowerTemplate is the pre-computed SMT template for the lower function.
+var toLowerTemplate = generateCaseTemplate('A', 'a')
+
+// toUpperTemplate is the pre-computed SMT template for the upper function.
+var toUpperTemplate = generateCaseTemplate('a', 'A')
+
+// LowerFunction converts a string to lowercase using nested str.replace_all calls.
+func LowerFunction(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error) {
+	if len(params) != 1 || len(args) != 1 {
+		return nil, verr.ErrUnexpectedParamCount("lower", 1, len(params))
+	}
+
+	str, err := params[0].AsArgType(args[0])
+	if err != nil {
+		return nil, verr.ErrUnexpectedValueType(params[0].String(), string(types.AtomicString))
+	}
+
+	callVal := fmt.Sprintf(toLowerTemplate, str.String())
+
+	atomics := []types.AtomicType{}
+	if result.atomic != "" {
+		atomics = append(atomics, result.atomic)
+	}
+
+	return &SmtValue{
+		value:   callVal,
+		depth:   result.depth,
+		atomics: []types.AtomicType{types.AtomicString},
+		isConst: false,
+	}, nil
+}
+
+// UpperFunction converts a string to uppercase using nested str.replace_all calls.
+func UpperFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) {
+	if len(params) != 1 {
+		return nil, verr.ErrUnexpectedParamCount("upper", 1, len(params))
+	}
+
+	str, err := params[0].AsString()
+	if err != nil {
+		return nil, verr.ErrUnexpectedValueType(params[0].String(), string(types.AtomicString))
+	}
+
+	callVal := fmt.Sprintf(toUpperTemplate, str.String())
+
+	return &SmtValue{
+		value: callVal,
+		// The nested str.replace_all expression has SMT String sort.
+		// Keep depth at -1 so callers can wrap to OString when needed.
+		depth:   -1,
+		atomics: []types.AtomicType{types.AtomicString},
+		isConst: false,
+	}, nil
+}
+
 // SmtCall generates a SMT representation of call of given function
 func (f *Function) SmtCall(params []*SmtValue) (*SmtValue, error) {
 	return f.call(params, f.args, f.result)
@@ -162,7 +231,7 @@ func addBuiltin(funcMap map[string]Function, b ast.Builtin, call callFn) {
 // GetBuiltinFuncMap constructs and returns a map of Rego function converters into SMT.
 // This map is accessed via the names of functions, e.g., "plus", "eq".
 func GetBuiltinFuncMap() map[string]Function {
-	funcMap := make(map[string]Function, 18)
+	funcMap := make(map[string]Function, 20)
 	addBuiltin(funcMap, *ast.Plus, mkSmtFunction("+"))
 	addBuiltin(funcMap, *ast.Minus, mkSmtFunction("-"))
 	addBuiltin(funcMap, *ast.Multiply, mkSmtFunction("*"))
@@ -178,6 +247,10 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.IndexOf, mkSmtFunction("str.indexof"))
 	addBuiltin(funcMap, *ast.Substring, mkSmtFunction("str.substr"))
 	addBuiltin(funcMap, *ast.Replace, mkSmtFunction("str.replace_all"))
+	// TODO: use define-fun to define lower/upper functions (as nested replace_all)
+	// and use these functions to represent ast.Lower and ast.Upper
+	addBuiltin(funcMap, *ast.Lower, LowerFunction)
+	addBuiltin(funcMap, *ast.Upper, UpperFunction)
 	addBuiltin(funcMap, *ast.Equal, EqFunction)
 	addBuiltin(funcMap, *ast.Equality, EqFunction)
 	addBuiltin(funcMap, *ast.NotEqual, NeqFunction)
