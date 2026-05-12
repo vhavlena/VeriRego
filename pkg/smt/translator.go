@@ -2,6 +2,7 @@ package smt
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -35,8 +36,9 @@ func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
 type Translator struct {
 	TypeTrans    *TypeTranslator     // Type definitions and type-related operations
 	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
-	defaultsMap	 map[string]SmtValue // Mapping of variable names to default values
+	defaultsMap  map[string]SmtValue // Mapping of variable names to default values
 	funcMap      map[string]Function // Mapping of function names to their representation
+	freshNames   map[string]struct{} // Names already issued by FreshName, to prevent re-use
 	smtTypeDecls []*SmtCommand       // SMT type declarations
 	smtDecls     []*SmtCommand       // SMT variable declarations
 	smtAsserts   []*SmtCommand       // SMT assertions
@@ -50,6 +52,7 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		VarMap:       make(map[string]string),
 		defaultsMap:  make(map[string]SmtValue),
 		funcMap:      GetBuiltinFuncMap(),
+		freshNames:   make(map[string]struct{}),
 		smtTypeDecls: make([]*SmtCommand, 0, 32),
 		smtDecls:     make([]*SmtCommand, 0, 64),
 		smtAsserts:   make([]*SmtCommand, 0, 128),
@@ -93,7 +96,7 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 
 // generateFunctions populates the inner funcMap with function with resolved type definitions
 func (t *Translator) generateFunctions() {
-	for op,ft := range t.TypeTrans.TypeInfo.Types {
+	for op, ft := range t.TypeTrans.TypeInfo.Types {
 		if !ft.IsFunction() {
 			continue
 		}
@@ -125,8 +128,23 @@ func (t *Translator) AddTransContext(context *TransContext) {
 	t.AppendBucket(context.Bucket)
 }
 
+// FreshName returns a name of the form "base_N" (N ≥ 1) that does not collide
+// with any known rule name (TypeInfo.Types) or any name previously issued by
+// this method. The returned name is recorded so it is not issued again.
+func (t *Translator) FreshName(base string) string {
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("%s_%d", base, i)
+		_, inTypes := t.TypeTrans.TypeInfo.Types[candidate]
+		_, inFresh := t.freshNames[candidate]
+		if !inTypes && !inFresh {
+			t.freshNames[candidate] = struct{}{}
+			return candidate
+		}
+	}
+}
+
 func (t *Translator) SetDefaultValue(varName string, value *SmtValue) error {
-	if _,ok := t.defaultsMap[varName]; ok {
+	if _, ok := t.defaultsMap[varName]; ok {
 		return errors.New("redefinition of default value of " + varName)
 	}
 	t.defaultsMap[varName] = *value
@@ -134,15 +152,15 @@ func (t *Translator) SetDefaultValue(varName string, value *SmtValue) error {
 }
 
 func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
-	if def,ok := t.defaultsMap[varName]; ok {
-		return &def,nil
+	if def, ok := t.defaultsMap[varName]; ok {
+		return &def, nil
 	}
-	if tp,ok := t.TypeTrans.TypeInfo.Types[varName]; ok {
-		depth := max(tp.TypeDepth(),0)
-		def := NewSmtValue("OUndef", 0) 
-		return def.WrapToDepth(depth),nil
+	if tp, ok := t.TypeTrans.TypeInfo.Types[varName]; ok {
+		depth := max(tp.TypeDepth(), 0)
+		def := NewSmtValue("OUndef", 0)
+		return def.WrapToDepth(depth), nil
 	}
-	return nil,verr.ErrTypeNotFound(varName)
+	return nil, verr.ErrTypeNotFound(varName)
 }
 
 // IntoExprTranslator creates an ExprTranslator populated with values from given Translator

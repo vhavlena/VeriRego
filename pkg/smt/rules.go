@@ -135,7 +135,7 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 	retDepth := 0
 
 	for i, rule := range rules {
-		occName := fmt.Sprintf("%s_%d", name, i+1)
+		occName := t.FreshName(name)
 		occurrenceNames[i] = occName
 
 		_, smtVal, err := t.ruleOccurrenceToSmt(rule)
