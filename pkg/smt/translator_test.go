@@ -2,6 +2,7 @@ package smt
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -95,9 +96,9 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 	// Minimal type analyzer for variables used in rules
 	ta := &types.TypeAnalyzer{
 		Types: map[string]types.RegoTypeDef{
-			"x": types.NewAtomicType(types.AtomicInt),
-			"p": types.NewAtomicType(types.AtomicInt),
-			"q": types.NewAtomicType(types.AtomicInt),
+			"x":    types.NewAtomicType(types.AtomicInt),
+			"p":    types.NewAtomicType(types.AtomicInt),
+			"q":    types.NewAtomicType(types.AtomicInt),
 			"true": types.NewAtomicType(types.AtomicBoolean),
 		},
 		Refs: map[string]ast.Value{},
@@ -108,14 +109,94 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 		t.Fatalf("TranslateModuleToSmt error: %v", err)
 	}
 	smtLines := tr.SmtLines()
-	if len(smtLines) != 2 {
-		t.Errorf("Expected 2 SMT assertions, got %d", len(smtLines))
-	}
+	assertCount := 0
 	for i, line := range smtLines {
+		if i == 0 {
+			if line != "(declare-fun trim (String String) String)" {
+				t.Fatalf("unexpected trim declaration: %q", line)
+			}
+			continue
+		}
 		if line == "" || line[:7] != "(assert" {
 			t.Errorf("SMT line %d not an assertion: %q", i, line)
+			continue
 		}
+		assertCount++
 	}
+	if assertCount != 2 {
+		t.Errorf("Expected 2 SMT assertions, got %d", assertCount)
+	}
+}
+
+func TestTranslateModuleToSmt_Trim(t *testing.T) {
+	t.Run("literal second argument", func(t *testing.T) {
+		rego := `
+		package test
+		allow if {
+			trim(input.name, " ") == "foo"
+		}
+		`
+		mod, err := ast.ParseModule("trim.rego", rego)
+		if err != nil {
+			t.Fatalf("failed to parse rego: %v", err)
+		}
+
+		ta := &types.TypeAnalyzer{
+			Types: map[string]types.RegoTypeDef{
+				"input": types.NewObjectType(map[string]types.RegoTypeDef{
+					"name": types.NewAtomicType(types.AtomicString),
+				}),
+				"allow": types.NewAtomicType(types.AtomicBoolean),
+			},
+			Refs: map[string]ast.Value{},
+		}
+
+		tr := NewTranslator(ta, mod)
+		if err := tr.TranslateModuleToSmt(); err != nil {
+			t.Fatalf("TranslateModuleToSmt error: %v", err)
+		}
+
+		smt := strings.Join(tr.SmtLines(), "\n")
+		if !strings.Contains(smt, "(declare-fun trim (String String) String)") {
+			t.Fatalf("expected trim declaration in SMT, got:\n%s", smt)
+		}
+		if !strings.Contains(smt, "(trim ") {
+			t.Fatalf("expected trim uninterpreted function in SMT, got:\n%s", smt)
+		}
+		if !strings.Contains(smt, `" "`) {
+			t.Fatalf("expected literal trim chars in SMT, got:\n%s", smt)
+		}
+	})
+
+	t.Run("non-literal second argument", func(t *testing.T) {
+		rego := `
+		package test
+		allow if {
+			trim(input.name, input.name) == "foo"
+		}
+		`
+		mod, err := ast.ParseModule("trim_invalid.rego", rego)
+		if err != nil {
+			t.Fatalf("failed to parse rego: %v", err)
+		}
+
+		ta := &types.TypeAnalyzer{
+			Types: map[string]types.RegoTypeDef{
+				"input": types.NewObjectType(map[string]types.RegoTypeDef{
+					"name": types.NewAtomicType(types.AtomicString),
+				}),
+				"allow": types.NewAtomicType(types.AtomicBoolean),
+			},
+			Refs: map[string]ast.Value{},
+		}
+
+		tr := NewTranslator(ta, mod)
+		if err := tr.TranslateModuleToSmt(); err == nil {
+			t.Fatal("expected TranslateModuleToSmt to fail for non-literal trim chars")
+		} else if !strings.Contains(err.Error(), "string literal") {
+			t.Fatalf("expected string-literal error, got: %v", err)
+		}
+	})
 }
 
 // TestGetSmtVarsDeclare_SkipsFunctionTypes verifies that KindFunction entries in

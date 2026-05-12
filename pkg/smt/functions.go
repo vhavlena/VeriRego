@@ -202,6 +202,37 @@ func UpperFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error
 	}, nil
 }
 
+// TrimFunction represents Rego trim as an uninterpreted SMT function.
+// The second argument must be a string literal.
+func TrimFunction(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error) {
+	if len(params) != 2 || len(args) != 2 {
+		return nil, verr.ErrUnexpectedParamCount("trim", 2, len(params))
+	}
+
+	if !params[1].isConst || !params[1].TypeIs(types.AtomicString) {
+		return nil, verr.ErrUnexpectedValueType(params[1].String(), "string literal")
+	}
+
+	text, err := params[0].AsArgType(args[0])
+	if err != nil {
+		return nil, verr.ErrUnexpectedValueType(params[0].String(), string(types.AtomicString))
+	}
+
+	chars, err := params[1].AsString()
+	if err != nil {
+		return nil, verr.ErrUnexpectedValueType(params[1].String(), string(types.AtomicString))
+	}
+
+	callVal := fmt.Sprintf("(trim %s %s)", text.String(), chars.String())
+
+	return &SmtValue{
+		value:   callVal,
+		depth:   result.depth,
+		atomics: []types.AtomicType{types.AtomicString},
+		isConst: false,
+	}, nil
+}
+
 // SmtCall generates a SMT representation of call of given function
 func (f *Function) SmtCall(params []*SmtValue) (*SmtValue, error) {
 	return f.call(params, f.args, f.result)
@@ -247,6 +278,7 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.IndexOf, mkSmtFunction("str.indexof"))
 	addBuiltin(funcMap, *ast.Substring, mkSmtFunction("str.substr"))
 	addBuiltin(funcMap, *ast.Replace, mkSmtFunction("str.replace_all"))
+	addBuiltin(funcMap, *ast.Trim, TrimFunction)
 	// TODO: use define-fun to define lower/upper functions (as nested replace_all)
 	// and use these functions to represent ast.Lower and ast.Upper
 	addBuiltin(funcMap, *ast.Lower, LowerFunction)
