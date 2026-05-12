@@ -248,7 +248,10 @@ func (t *Translator) GenerateSmtContent() error {
 
 // TranslateModuleToSmt converts all rules in the Translator's module to SMT-LIB assertions.
 //
-// Each rule is translated using RuleToSmt and results in a single SMT-LIB (assert ...) statement.
+// Default rules are processed first to populate the defaults map. Non-default rules are
+// then grouped by name: a group with a single rule uses RuleToSmt (existing behaviour),
+// while a group with multiple rules (incremental rules) is handled by IncrementalRulesToSmt,
+// which emits one SMT function per occurrence and a top-level combinator using nested ite.
 //
 // Returns:
 //
@@ -257,9 +260,46 @@ func (t *Translator) TranslateModuleToSmt() error {
 	if t.mod == nil || t.mod.Rules == nil {
 		return nil
 	}
+
+	// First pass: register all default values before translating bodies.
 	for _, rule := range t.mod.Rules {
-		if err := t.RuleToSmt(rule); err != nil {
-			return err
+		if rule.Default {
+			if err := t.RuleToSmt(rule); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Group non-default rules by name, preserving order of first occurrence.
+	type ruleGroup struct {
+		name  string
+		rules []*ast.Rule
+	}
+	seen := make(map[string]int)
+	groups := make([]ruleGroup, 0)
+
+	for _, rule := range t.mod.Rules {
+		if rule.Default {
+			continue
+		}
+		name := rule.Head.Name.String()
+		if idx, ok := seen[name]; ok {
+			groups[idx].rules = append(groups[idx].rules, rule)
+		} else {
+			seen[name] = len(groups)
+			groups = append(groups, ruleGroup{name: name, rules: []*ast.Rule{rule}})
+		}
+	}
+
+	for _, g := range groups {
+		if len(g.rules) == 1 {
+			if err := t.RuleToSmt(g.rules[0]); err != nil {
+				return err
+			}
+		} else {
+			if err := t.IncrementalRulesToSmt(g.name, g.rules); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

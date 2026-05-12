@@ -538,14 +538,16 @@ func DeclareFun(name string, paramSorts []string, retSort string) *SmtCommand {
 // DefineFun creates a SMT function definition.
 // The return type is derived from the function body.
 func DefineFun(name string, args []Arg, body *SmtValue) *SmtCommand {
-	argStr := "("
+	var argStr string
 	if len(args) == 0 {
-		argStr += "()"
+		argStr = "()"
+	} else {
+		argStr = "("
+		for _, a := range args {
+			argStr += fmt.Sprintf("(%s %s)", a.name, NewSmtType(uint(a.typ.depth)).String())
+		}
+		argStr += ")"
 	}
-	for _, a := range args {
-		argStr += fmt.Sprintf("(%s %s)", a.name, NewSmtType(uint(a.typ.depth)).String())
-	}
-	argStr += ")"
 
 	typ := NewSmtType(uint(body.depth))
 
