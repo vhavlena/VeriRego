@@ -253,6 +253,102 @@ allow if { 1 != 2 }
 	}
 }
 
+// ---- parametric (function) incremental rules ----
+
+// TestIncrementalRules_Parametric_FirstFires verifies that the first occurrence
+// of a function takes priority when its condition holds.
+func TestIncrementalRules_Parametric_FirstFires(t *testing.T) {
+	rego := `
+package test
+foo(x) := 1 if { x > 0 }
+foo(x) := 2 if { x > 0 }
+p := foo(5)
+`
+	result, err := RunPolicyToModel(rego, nil, nil)
+	if err != nil {
+		t.Fatalf("RunPolicyToModel error: %v", err)
+	}
+	pVal, ok := result.Vars["p"]
+	if !ok {
+		t.Fatalf("expected 'p' in model vars, got: %v", varKeys(result.Vars))
+	}
+	num, ok := pVal.Int64()
+	if !ok || num != 1 {
+		t.Fatalf("expected p == 1 (first occurrence wins), got: %v", num)
+	}
+}
+
+// TestIncrementalRules_Parametric_SecondFires verifies that the combinator
+// falls through to the second occurrence when the first body does not hold.
+func TestIncrementalRules_Parametric_SecondFires(t *testing.T) {
+	rego := `
+package test
+foo(x) := 1 if { x > 10 }
+foo(x) := 2 if { x > 0 }
+p := foo(5)
+`
+	result, err := RunPolicyToModel(rego, nil, nil)
+	if err != nil {
+		t.Fatalf("RunPolicyToModel error: %v", err)
+	}
+	pVal, ok := result.Vars["p"]
+	if !ok {
+		t.Fatalf("expected 'p' in model vars, got: %v", varKeys(result.Vars))
+	}
+	num, ok := pVal.Int64()
+	if !ok || num != 2 {
+		t.Fatalf("expected p == 2 (second occurrence fires), got: %v", num)
+	}
+}
+
+// TestIncrementalRules_Parametric_ThreeOccurrences verifies the nested-ite chain
+// for three function occurrences, reaching the third when the first two are guarded
+// by conditions that do not hold for the given argument.
+func TestIncrementalRules_Parametric_ThreeOccurrences(t *testing.T) {
+	rego := `
+package test
+foo(x) := 1 if { x > 100 }
+foo(x) := 2 if { x > 10 }
+foo(x) := 3 if { x > 0 }
+p := foo(5)
+`
+	result, err := RunPolicyToModel(rego, nil, nil)
+	if err != nil {
+		t.Fatalf("RunPolicyToModel error: %v", err)
+	}
+	pVal, ok := result.Vars["p"]
+	if !ok {
+		t.Fatalf("expected 'p' in model vars, got: %v", varKeys(result.Vars))
+	}
+	num, ok := pVal.Int64()
+	if !ok || num != 3 {
+		t.Fatalf("expected p == 3 (third occurrence fires), got: %v", num)
+	}
+}
+
+// TestIncrementalRules_Parametric_TwoArgs verifies incremental rules with two
+// parameters. The first occurrence fires when x >= y; otherwise the second fires.
+func TestIncrementalRules_Parametric_TwoArgs(t *testing.T) {
+	rego := `
+package test
+choose(x, y) := x if { x >= y }
+choose(x, y) := y if { y > x }
+p := choose(3, 7)
+`
+	result, err := RunPolicyToModel(rego, nil, nil)
+	if err != nil {
+		t.Fatalf("RunPolicyToModel error: %v", err)
+	}
+	pVal, ok := result.Vars["p"]
+	if !ok {
+		t.Fatalf("expected 'p' in model vars, got: %v", varKeys(result.Vars))
+	}
+	num, ok := pVal.Int64()
+	if !ok || num != 7 {
+		t.Fatalf("expected p == 7 (second occurrence fires, y > x), got: %v", num)
+	}
+}
+
 // TestIncrementalRules_StringValues verifies incremental rules that assign string values.
 func TestIncrementalRules_StringValues(t *testing.T) {
 	rego := `

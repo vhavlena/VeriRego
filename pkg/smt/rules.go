@@ -126,7 +126,8 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 		return nil
 	}
 
-	args, err := t.getArgs(rules[0])
+	// Combinatorargs come from rule 0; all occurrences must have the same arity.
+	combinatorArgs, err := t.getArgs(rules[0])
 	if err != nil {
 		return err
 	}
@@ -138,13 +139,20 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 		occName := t.FreshName(name)
 		occurrenceNames[i] = occName
 
+		// Each occurrence may use different OPA-generated local names for its
+		// parameters (e.g. __local0__ vs __local1__), so fetch args per-occurrence.
+		occArgs, err := t.getArgs(rule)
+		if err != nil {
+			return err
+		}
+
 		_, smtVal, err := t.ruleOccurrenceToSmt(rule)
 		if err != nil {
 			return err
 		}
 		retDepth = smtVal.depth
 
-		t.smtDecls = append(t.smtDecls, DefineFun(occName, args, smtVal))
+		t.smtDecls = append(t.smtDecls, DefineFun(occName, occArgs, smtVal))
 	}
 
 	// Build combinator from right to left: start with default (or OUndef)
@@ -158,11 +166,11 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 		occName := occurrenceNames[i]
 
 		var callExpr *SmtValue
-		if len(args) == 0 {
+		if len(combinatorArgs) == 0 {
 			callExpr = NewSmtValue(occName, retDepth)
 		} else {
-			argNames := make([]string, len(args))
-			for j, arg := range args {
+			argNames := make([]string, len(combinatorArgs))
+			for j, arg := range combinatorArgs {
 				argNames[j] = arg.name
 			}
 			callExpr = NewSmtValue(fmt.Sprintf("(%s %s)", occName, strings.Join(argNames, " ")), retDepth)
@@ -171,11 +179,11 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 		combinator = Ite(callExpr.IsUndef().Not(), callExpr, combinator)
 	}
 
-	if len(args) == 0 {
+	if len(combinatorArgs) == 0 {
 		varSmt := NewSmtValue(name, retDepth)
 		t.smtAsserts = append(t.smtAsserts, Assert(varSmt.Equals(combinator)))
 	} else {
-		t.smtDecls = append(t.smtDecls, DefineFun(name, args, combinator))
+		t.smtDecls = append(t.smtDecls, DefineFun(name, combinatorArgs, combinator))
 	}
 
 	return nil

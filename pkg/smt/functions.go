@@ -159,6 +159,20 @@ func addBuiltin(funcMap map[string]Function, b ast.Builtin, call callFn) {
 	funcMap[f.name] = f
 }
 
+// addNumericCompare registers a binary comparison operator that takes two integer
+// arguments and returns a boolean. This overrides OPA's "any any" arg types with
+// explicit AtomicInt args so that SMT generation correctly unwraps OTypeD0 values.
+func addNumericCompare(funcMap map[string]Function, b ast.Builtin, smtOp string) {
+	intArg := ArgType{depth: -1, atomic: types.AtomicInt}
+	boolResult := ArgType{depth: -1, atomic: types.AtomicBoolean}
+	funcMap[b.Name] = Function{
+		name:   b.Name,
+		args:   []ArgType{intArg, intArg},
+		result: boolResult,
+		call:   mkSmtFunction(smtOp),
+	}
+}
+
 // GetBuiltinFuncMap constructs and returns a map of Rego function converters into SMT.
 // This map is accessed via the names of functions, e.g., "plus", "eq".
 func GetBuiltinFuncMap() map[string]Function {
@@ -167,10 +181,10 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.Minus, mkSmtFunction("-"))
 	addBuiltin(funcMap, *ast.Multiply, mkSmtFunction("*"))
 	addBuiltin(funcMap, *ast.Divide, mkSmtFunction("/"))
-	addBuiltin(funcMap, *ast.GreaterThan, mkSmtFunction(">"))
-	addBuiltin(funcMap, *ast.GreaterThanEq, mkSmtFunction(">="))
-	addBuiltin(funcMap, *ast.LessThan, mkSmtFunction("<"))
-	addBuiltin(funcMap, *ast.LessThanEq, mkSmtFunction("<="))
+	addNumericCompare(funcMap, *ast.GreaterThan, ">")
+	addNumericCompare(funcMap, *ast.GreaterThanEq, ">=")
+	addNumericCompare(funcMap, *ast.LessThan, "<")
+	addNumericCompare(funcMap, *ast.LessThanEq, "<=")
 	addBuiltin(funcMap, *ast.Concat, mkSmtFunction("str.++"))
 	addBuiltin(funcMap, *ast.Contains, mkSmtFunction("str.contains"))
 	addBuiltin(funcMap, *ast.StartsWith, mkSmtFunction("str.prefixof"))
