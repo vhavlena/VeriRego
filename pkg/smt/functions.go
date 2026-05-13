@@ -69,13 +69,21 @@ func NewArgType(t ast_types.Type) ArgType {
 
 // Function is a structure for handling the conversion of Rego functions into SMT.
 type Function struct {
-	name   string // for example: eq, plus, ...
-	args   []ArgType
-	result ArgType // the return type
-	call   callFn  // function for creating the SMT representation of call, w.r.t. the given arguments
+	name        string // for example: eq, plus, ...
+	args        []ArgType
+	result      ArgType // the return type
+	call        callFn  // function for creating the SMT representation of call, w.r.t. the given arguments
+	constraints constraintsFn
 }
 
 type callFn func(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error)
+
+// constraintsFn produces additional SMT top-level commands for a function call.
+// It can inspect the produced SMT value as well as the original arguments and
+// declared signature to emit extra constraints (assertions, declarations, etc).
+// It returns a Bucket containing declarations, asserts and type decls that
+// should be merged into the translation context.
+type constraintsFn func(callResult *SmtValue, params []*SmtValue, args []ArgType, result ArgType) (*Bucket, error)
 
 // mkSmtFunction creates a callFn function,
 // which checks the expected parameter types and creates a SMT value
@@ -233,9 +241,132 @@ func TrimFunction(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue
 	}, nil
 }
 
+// trimConstraints generates SMT constraints about the trim operation.
+func trimConstraints(callResult *SmtValue, params []*SmtValue, args []ArgType, result ArgType) (*Bucket, error) {
+	// If trimming with an empty string, the result should equal the input: trim(x, "") = x
+	bucket := NewBucket()
+	if params[1].value == `""` {
+		// Extract raw string from input
+		inputStr, err := params[0].AsString()
+		if err != nil {
+			return nil, err
+		}
+		// Compare raw string values: (assert (= (trim x "") x))
+		eqVal := fmt.Sprintf("(= %s %s)", callResult.String(), inputStr.String())
+		bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(eqVal)))
+		return bucket, nil
+	}
+
+	// General case: assert existence of fresh y,z (strings) such that
+	// (= x (str.++ y (trim x chars) z))
+	y := RandString(8)
+	z := RandString(8)
+	// declare fresh constants of sort String
+	bucket.Decls = append(bucket.Decls, RawCommand(fmt.Sprintf("(declare-const %s String)", y)))
+	bucket.Decls = append(bucket.Decls, RawCommand(fmt.Sprintf("(declare-const %s String)", z)))
+
+	// get raw input string expression
+	inputStr, err := params[0].AsString()
+	if err != nil {
+		return nil, err
+	}
+
+	// (str.++ y (trim x chars) z) = x
+	concat := fmt.Sprintf("(str.++ %s %s %s)", y, callResult.String(), z)
+	eqVal := fmt.Sprintf("(= %s %s)", inputStr.String(), concat)
+	bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(eqVal)))
+
+	// Build regex constraints:
+	// C = charset to trim (from params[1])
+	// S/C = all chars except C = re.diff re.allchar C
+	// Assert: y and z belong to C*
+	// Assert: trim result belongs to (S/C)*
+
+	charsStr := params[1].value // e.g., "\" abc \"" or "\" \""
+	// Extract actual string value (remove quotes and unescape)
+	charsVal := charsStr
+	if len(charsVal) >= 2 && charsVal[0] == '"' && charsVal[len(charsVal)-1] == '"' {
+		charsVal = charsVal[1 : len(charsVal)-1]
+	}
+
+	// Build regex for C (union of each char)
+	cRegex := buildCharsetRegex(charsVal)
+
+	// Build (S/C) = re.diff re.allchar C
+	notCRegex := fmt.Sprintf("(re.diff re.allchar %s)", cRegex)
+
+	// Build C* and (S/C)*
+	cStar := fmt.Sprintf("(re.* %s)", cRegex)
+	notCStar := fmt.Sprintf("(re.* %s)", notCRegex)
+
+	// Assert y in C*
+	bucket.Asserts = append(bucket.Asserts,
+		Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", y, cStar))))
+
+	// Assert z in C*
+	bucket.Asserts = append(bucket.Asserts,
+		Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", z, cStar))))
+
+	// Assert trim result in (S/C)* + ((S/C).S*.(S/C))
+	// Build: (re.union (re.* (S/C)) (re.concat (S/C) re.all (S/C)))
+	notCConcat := fmt.Sprintf("(re.++ %s re.all %s)", notCRegex, notCRegex)
+	trimResultRegex := fmt.Sprintf("(re.union %s %s)", notCStar, notCConcat)
+	bucket.Asserts = append(bucket.Asserts,
+		Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", callResult.String(), trimResultRegex))))
+
+	return bucket, nil
+}
+
+// buildCharsetRegex builds an SMT regex that matches any single character in the charset.
+// Iterates over Unicode code points (runes) rather than bytes.
+// For empty charset, returns re.none. For single char, returns (str.to_re char).
+// For multiple chars, builds a union of (str.to_re char) for each char.
+func buildCharsetRegex(charset string) string {
+	if len(charset) == 0 {
+		// Empty charset: matches nothing
+		return "re.none"
+	}
+
+	runes := []rune(charset)
+
+	if len(runes) == 1 {
+		return fmt.Sprintf("(str.to_re \"%s\")", string(runes[0]))
+	}
+
+	// Build union of individual character regexes (iterate over runes, not bytes)
+	regexes := make([]string, 0, len(runes))
+	for _, r := range runes {
+		regexes = append(regexes, fmt.Sprintf("(str.to_re \"%s\")", string(r)))
+	}
+
+	// Build nested re.union: (re.union r1 (re.union r2 (re.union r3 ...)))
+	result := regexes[0]
+	for i := 1; i < len(regexes); i++ {
+		result = fmt.Sprintf("(re.union %s %s)", result, regexes[i])
+	}
+	return result
+}
+
 // SmtCall generates a SMT representation of call of given function
 func (f *Function) SmtCall(params []*SmtValue) (*SmtValue, error) {
 	return f.call(params, f.args, f.result)
+}
+
+// SmtCallWithConstraints generates the SMT representation of the call and any
+// additional top-level constraints (assertions, declarations, etc) associated with the function.
+func (f *Function) SmtCallWithConstraints(params []*SmtValue) (*SmtValue, *Bucket, error) {
+	callResult, err := f.call(params, f.args, f.result)
+	if err != nil {
+		return nil, nil, err
+	}
+	if f.constraints == nil {
+		return callResult, nil, nil
+	}
+	bucket, err := f.constraints(callResult, params, f.args, f.result)
+	if err != nil {
+		return nil, nil, err
+	}
+	return callResult, bucket, nil
 }
 
 func NewFunctionFromBuiltin(b *ast.Builtin, call callFn) Function {
@@ -278,7 +409,9 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.IndexOf, mkSmtFunction("str.indexof"))
 	addBuiltin(funcMap, *ast.Substring, mkSmtFunction("str.substr"))
 	addBuiltin(funcMap, *ast.Replace, mkSmtFunction("str.replace_all"))
-	addBuiltin(funcMap, *ast.Trim, TrimFunction)
+	trimFunc := NewFunctionFromBuiltin(ast.Trim, TrimFunction)
+	trimFunc.constraints = trimConstraints
+	funcMap[trimFunc.name] = trimFunc
 	// TODO: use define-fun to define lower/upper functions (as nested replace_all)
 	// and use these functions to represent ast.Lower and ast.Upper
 	addBuiltin(funcMap, *ast.Lower, LowerFunction)
