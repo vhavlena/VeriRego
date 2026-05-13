@@ -51,12 +51,10 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		defaultsMap:  make(map[string]SmtValue),
 		funcMap:      GetBuiltinFuncMap(),
 		smtTypeDecls: make([]*SmtCommand, 0, 32),
-		smtDecls:     make([]*SmtCommand, 0, 64),
+		smtDecls:     GetBuiltinDecls(),
 		smtAsserts:   make([]*SmtCommand, 0, 128),
 		mod:          mod,
 	}
-	// Trim is represented as an uninterpreted SMT function.
-	t.smtDecls = append(t.smtDecls, DeclareFun("trim", []string{"String", "String"}, "String"))
 	t.generateFunctions()
 	return t
 }
