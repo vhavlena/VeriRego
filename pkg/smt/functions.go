@@ -153,37 +153,6 @@ func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) 
 	return eq.Not().IntoValue(), nil
 }
 
-// TrimFunction represents Rego trim as an uninterpreted SMT function.
-// The second argument must be a string literal.
-func TrimFunction(params []*SmtValue, args []ArgType, result ArgType) (*SmtValue, error) {
-	if len(params) != 2 || len(args) != 2 {
-		return nil, verr.ErrUnexpectedParamCount("trim", 2, len(params))
-	}
-
-	if !params[1].isConst || !params[1].TypeIs(types.AtomicString) {
-		return nil, verr.ErrUnexpectedValueType(params[1].String(), "string literal")
-	}
-
-	text, err := params[0].AsArgType(args[0])
-	if err != nil {
-		return nil, verr.ErrUnexpectedValueType(params[0].String(), string(types.AtomicString))
-	}
-
-	chars, err := params[1].AsString()
-	if err != nil {
-		return nil, verr.ErrUnexpectedValueType(params[1].String(), string(types.AtomicString))
-	}
-
-	callVal := fmt.Sprintf("(trim %s %s)", text.String(), chars.String())
-
-	return &SmtValue{
-		value:   callVal,
-		depth:   result.depth,
-		atomics: []types.AtomicType{types.AtomicString},
-		isConst: false,
-	}, nil
-}
-
 // trimConstraints generates SMT constraints about the trim operation.
 func trimConstraints(callResult *SmtValue, params []*SmtValue, args []ArgType, result ArgType) (*Bucket, error) {
 	// If trimming with an empty string, the result should equal the input: trim(x, "") = x
@@ -207,6 +176,10 @@ func trimConstraints(callResult *SmtValue, params []*SmtValue, args []ArgType, r
 	// declare fresh constants of sort String
 	bucket.Decls = append(bucket.Decls, RawCommand(fmt.Sprintf("(declare-const %s String)", y)))
 	bucket.Decls = append(bucket.Decls, RawCommand(fmt.Sprintf("(declare-const %s String)", z)))
+
+	if !params[1].isConst || !params[1].TypeIs(types.AtomicString) {
+		return nil, verr.ErrNotImplemented("trim with second argument that is not literal")
+	}
 
 	// get raw input string expression
 	inputStr, err := params[0].AsString()
@@ -366,9 +339,9 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.Replace, mkSmtFunction("str.replace_all"))
 
 	// builtin functions without counterparts, they use newly declared/defined SMT functions (see GetBuiltinDecls())
-	addBuiltinWithConstraints(funcMap, *ast.Trim, TrimFunction, trimConstraints)
-	addBuiltin(funcMap, *ast.Lower, mkSmtFunction("to_lower"))
-	addBuiltin(funcMap, *ast.Upper, mkSmtFunction("to_upper"))
+	addBuiltinWithConstraints(funcMap, *ast.Trim, mkSmtFunction("__trim"), trimConstraints)
+	addBuiltin(funcMap, *ast.Lower, mkSmtFunction("__to_lower"))
+	addBuiltin(funcMap, *ast.Upper, mkSmtFunction("__to_upper"))
 
 	return funcMap
 }
@@ -417,17 +390,17 @@ func generateCaseTemplateUnicode(lower bool) string {
 // Creates function declarations/definitions used for built in Rego functions (see also GetBuilinFuncMap())
 func GetBuiltinDecls() []*SmtCommand {
 	res := make([]*SmtCommand, 0, 64)
-	res = append(res, DeclareFun("trim", []string{"String", "String"}, "String"))
+	res = append(res, DeclareFun("__trim", []string{"String", "String"}, "String"))
 	// Define case functions depending on configured behavior.
 	if UseUnicodeCase {
 		// Unicode-aware implementation will be provided by caller later.
 		// For now, keep same define-fun placeholder; user can replace body.
-		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_upper ((x String)) String %s)", fmt.Sprintf(generateCaseTemplateUnicode(false), "x"))})
-		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_lower ((x String)) String %s)", fmt.Sprintf(generateCaseTemplateUnicode(true), "x"))})
+		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun __to_upper ((x String)) String %s)", fmt.Sprintf(generateCaseTemplateUnicode(false), "x"))})
+		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun __to_lower ((x String)) String %s)", fmt.Sprintf(generateCaseTemplateUnicode(true), "x"))})
 	} else {
 		// ASCII-only implementation using nested str.replace_all templates.
-		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_upper ((x String)) String %s)", fmt.Sprintf(toUpperTemplate, "x"))})
-		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_lower ((x String)) String %s)", fmt.Sprintf(toLowerTemplate, "x"))})
+		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun __to_upper ((x String)) String %s)", fmt.Sprintf(toUpperTemplate, "x"))})
+		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun __to_lower ((x String)) String %s)", fmt.Sprintf(toLowerTemplate, "x"))})
 	}
 	return res
 }
