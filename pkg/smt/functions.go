@@ -2,12 +2,22 @@ package smt
 
 import (
 	"fmt"
+	"unicode"
 
 	"github.com/open-policy-agent/opa/v1/ast"
 	ast_types "github.com/open-policy-agent/opa/v1/types"
 	verr "github.com/vhavlena/verirego/pkg/err"
 	types "github.com/vhavlena/verirego/pkg/types"
 )
+
+// UseUnicodeCase controls whether to_lower/to_upper should operate on full Unicode
+// or only ASCII. Default is false (ASCII-only behavior).
+var UseUnicodeCase bool = false
+
+// SetUseUnicodeCase sets the package-wide flag controlling case handling.
+func SetUseUnicodeCase(v bool) {
+	UseUnicodeCase = v
+}
 
 // ArgType is a structure holding information about function arguments
 // It has depth specified separately, since for builtin functions, it should be -1
@@ -381,12 +391,44 @@ var toLowerTemplate = generateCaseTemplate('A', 'a')
 // toUpperTemplate is the pre-computed SMT template for the upper function.
 var toUpperTemplate = generateCaseTemplate('a', 'A')
 
+func generateCaseTemplateUnicode(lower bool) string {
+	template := "%s"
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		// Skip surrogate code points (invalid Unicode scalars)
+		if r >= 0xD800 && r <= 0xDFFF {
+			continue
+		}
+
+		var c rune
+		if lower {
+			c = unicode.ToLower(r)
+		} else {
+			c = unicode.ToUpper(r)
+		}
+
+		// Only print runes that actually change
+		if c != r {
+			template = fmt.Sprintf(`(str.replace_all %s "%s" "%s")`, template, SmtCharFromRune(r), SmtCharFromRune(c))
+		}
+	}
+	return template
+}
+
 // Creates function declarations/definitions used for built in Rego functions (see also GetBuilinFuncMap())
 func GetBuiltinDecls() []*SmtCommand {
 	res := make([]*SmtCommand, 0, 64)
 	res = append(res, DeclareFun("trim", []string{"String", "String"}, "String"))
-	res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_upper ((x String)) String %s)", fmt.Sprintf(toUpperTemplate, "x"))})
-	res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_lower ((x String)) String %s)", fmt.Sprintf(toLowerTemplate, "x"))})
+	// Define case functions depending on configured behavior.
+	if UseUnicodeCase {
+		// Unicode-aware implementation will be provided by caller later.
+		// For now, keep same define-fun placeholder; user can replace body.
+		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_upper ((x String)) String %s)", fmt.Sprintf(generateCaseTemplateUnicode(false), "x"))})
+		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_lower ((x String)) String %s)", fmt.Sprintf(generateCaseTemplateUnicode(true), "x"))})
+	} else {
+		// ASCII-only implementation using nested str.replace_all templates.
+		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_upper ((x String)) String %s)", fmt.Sprintf(toUpperTemplate, "x"))})
+		res = append(res, &SmtCommand{value: fmt.Sprintf("(define-fun to_lower ((x String)) String %s)", fmt.Sprintf(toLowerTemplate, "x"))})
+	}
 	return res
 }
 
