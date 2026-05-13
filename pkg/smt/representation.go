@@ -42,7 +42,21 @@ func NewSmtValue(value string, depth int) *SmtValue {
 }
 
 func NewSmtValueFromString(str string) *SmtValue {
-	value := fmt.Sprintf("\"%s\"", str)
+	// Build SMT-LIB string literal according to SMT-LIB UnicodeStrings
+	// Printable ASCII range: 0x20..0x7E. Quote ("), backslash (\) must be escaped.
+	var sb strings.Builder
+	for _, r := range str {
+		// printable ASCII except quote and backslash
+		if r >= 0x20 && r <= 0x7E && r != '"' && r != '\\' {
+			sb.WriteRune(r)
+			continue
+		}
+		// use \u{HEX} format as recommended by SMT-LIB for all other runes
+		sb.WriteString("\\u{")
+		sb.WriteString(fmt.Sprintf("%X", r))
+		sb.WriteString("}")
+	}
+	value := fmt.Sprintf("\"%s\"", sb.String())
 	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicString}, isConst: true}
 }
 
