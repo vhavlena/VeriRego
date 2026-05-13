@@ -2,6 +2,7 @@ package smt
 
 import (
 	"fmt"
+	"strings"
 	"unicode"
 
 	"github.com/open-policy-agent/opa/v1/ast"
@@ -154,105 +155,144 @@ func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) 
 }
 
 // trimConstraints generates SMT constraints about the trim operation.
-func trimConstraints(callResult *SmtValue, params []*SmtValue, args []ArgType, result ArgType) (*Bucket, error) {
-	// If trimming with an empty string, the result should equal the input: trim(x, "") = x
-	bucket := NewBucket()
-	if params[1].value == `""` {
-		// Extract raw string from input
+// trim_left - whether to trim from left
+// trim_right - whether to trim from right
+// both directions can be true (then we trim from both sides)
+func trimConstraints(trim_left bool, trim_right bool) constraintsFn {
+	res := func(callResult *SmtValue, params []*SmtValue, args []ArgType, result ArgType) (*Bucket, error) {
+		// If trimming with an empty string, the result should equal the input: trim(x, "") = x
+		bucket := NewBucket()
+		if params[1].value == `""` {
+			// Extract raw string from input
+			inputStr, err := params[0].AsString()
+			if err != nil {
+				return nil, err
+			}
+			// Compare raw string values: (assert (= (trim x "") x))
+			eqVal := fmt.Sprintf("(= %s %s)", callResult.String(), inputStr.String())
+			bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(eqVal)))
+			return bucket, nil
+		}
+
+		// General case for (trim x chars)
+
+		if !params[1].isConst || !params[1].TypeIs(types.AtomicString) {
+			return nil, verr.ErrNotImplemented("trim with second argument that is not literal")
+		}
+
+		// get raw input string expression
 		inputStr, err := params[0].AsString()
 		if err != nil {
 			return nil, err
 		}
-		// Compare raw string values: (assert (= (trim x "") x))
-		eqVal := fmt.Sprintf("(= %s %s)", callResult.String(), inputStr.String())
+
+		// Build regex representing the set C of chars (union of each char)
+		cRegex, err := buildCharsetRegex(params[1].value)
+		if err != nil {
+			return nil, err
+		}
+		// Build the set of all chars outside of C: (S/C) = re.diff re.allchar C
+		notCRegex := fmt.Sprintf("(re.diff re.allchar %s)", cRegex)
+		// Build C* and (S/C)*
+		cStar := fmt.Sprintf("(re.* %s)", cRegex)
+		notCStar := fmt.Sprintf("(re.* %s)", notCRegex)
+
+		// General case: assert existence of fresh y,z (strings) such that
+		// (= x (str.++ y (trim x chars) z))
+		// where y is there only if trim_left is true, z is there only if trim_right is true
+		y := RandString(8)
+		z := RandString(8)
+		partsOfRightSide := []string{}
+
+		if trim_left {
+			// declare y as a string var
+			bucket.Decls = append(bucket.Decls, RawCommand(fmt.Sprintf("(declare-const %s String)", y)))
+			// Assert y in C*
+			bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", y, cStar))))
+			// add y to the right side of the equation
+			partsOfRightSide = append(partsOfRightSide, y)
+		}
+
+		// add (trim x chars) to the right side of the equation
+		partsOfRightSide = append(partsOfRightSide, callResult.String())
+
+		if trim_right {
+			// declare z as a string var
+			bucket.Decls = append(bucket.Decls, RawCommand(fmt.Sprintf("(declare-const %s String)", z)))
+			// Assert z in C*
+			bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", z, cStar))))
+			// add z to the right side of the equation
+			partsOfRightSide = append(partsOfRightSide, z)
+		}
+
+		// (= x (str.++ y (trim x chars) z))
+		concat := fmt.Sprintf("(str.++ %s)", strings.Join(partsOfRightSide, " "))
+		eqVal := fmt.Sprintf("(= %s %s)", inputStr.String(), concat)
 		bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(eqVal)))
+
+		// Assert (trim x chars) in (S/C)* + (S/C).S*.(S/C)
+		// but in (S/C).S*.(S/C), the first (S/C) is there only if trim_left is true
+		// and the second (S/C) is there only if trim_right is true
+		secondConcatParts := []string{}
+		if trim_left {
+			secondConcatParts = append(secondConcatParts, notCRegex)
+		}
+		secondConcatParts = append(secondConcatParts, "re.all")
+		if trim_right {
+			secondConcatParts = append(secondConcatParts, notCRegex)
+		}
+		secondConcat := fmt.Sprintf("(re.++ %s)", strings.Join(secondConcatParts, " "))
+		trimResultRegex := fmt.Sprintf("(re.union %s %s)", notCStar, secondConcat)
+		bucket.Asserts = append(bucket.Asserts,
+			Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", callResult.String(), trimResultRegex))))
+
 		return bucket, nil
 	}
-
-	// General case: assert existence of fresh y,z (strings) such that
-	// (= x (str.++ y (trim x chars) z))
-	y := RandString(8)
-	z := RandString(8)
-	// declare fresh constants of sort String
-	bucket.Decls = append(bucket.Decls, RawCommand(fmt.Sprintf("(declare-const %s String)", y)))
-	bucket.Decls = append(bucket.Decls, RawCommand(fmt.Sprintf("(declare-const %s String)", z)))
-
-	if !params[1].isConst || !params[1].TypeIs(types.AtomicString) {
-		return nil, verr.ErrNotImplemented("trim with second argument that is not literal")
-	}
-
-	// get raw input string expression
-	inputStr, err := params[0].AsString()
-	if err != nil {
-		return nil, err
-	}
-
-	// (str.++ y (trim x chars) z) = x
-	concat := fmt.Sprintf("(str.++ %s %s %s)", y, callResult.String(), z)
-	eqVal := fmt.Sprintf("(= %s %s)", inputStr.String(), concat)
-	bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(eqVal)))
-
-	// Build regex constraints:
-	// C = charset to trim (from params[1])
-	// S/C = all chars except C = re.diff re.allchar C
-	// Assert: y and z belong to C*
-	// Assert: trim result belongs to (S/C)*
-
-	charsStr := params[1].value // e.g., "\" abc \"" or "\" \""
-	// Extract actual string value (remove quotes and unescape)
-	charsVal := charsStr
-	if len(charsVal) >= 2 && charsVal[0] == '"' && charsVal[len(charsVal)-1] == '"' {
-		charsVal = charsVal[1 : len(charsVal)-1]
-	}
-
-	// Build regex for C (union of each char)
-	cRegex := buildCharsetRegex(charsVal)
-
-	// Build (S/C) = re.diff re.allchar C
-	notCRegex := fmt.Sprintf("(re.diff re.allchar %s)", cRegex)
-
-	// Build C* and (S/C)*
-	cStar := fmt.Sprintf("(re.* %s)", cRegex)
-	notCStar := fmt.Sprintf("(re.* %s)", notCRegex)
-
-	// Assert y in C*
-	bucket.Asserts = append(bucket.Asserts,
-		Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", y, cStar))))
-
-	// Assert z in C*
-	bucket.Asserts = append(bucket.Asserts,
-		Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", z, cStar))))
-
-	// Assert trim result in (S/C)* + ((S/C).S*.(S/C))
-	// Build: (re.union (re.* (S/C)) (re.concat (S/C) re.all (S/C)))
-	notCConcat := fmt.Sprintf("(re.++ %s re.all %s)", notCRegex, notCRegex)
-	trimResultRegex := fmt.Sprintf("(re.union %s %s)", notCStar, notCConcat)
-	bucket.Asserts = append(bucket.Asserts,
-		Assert(RawProposition(fmt.Sprintf("(str.in_re %s %s)", callResult.String(), trimResultRegex))))
-
-	return bucket, nil
+	return res
 }
 
 // buildCharsetRegex builds an SMT regex that matches any single character in the charset.
-// Iterates over Unicode code points (runes) rather than bytes.
 // For empty charset, returns re.none. For single char, returns (str.to_re char).
 // For multiple chars, builds a union of (str.to_re char) for each char.
-func buildCharsetRegex(charset string) string {
-	if len(charset) == 0 {
-		// Empty charset: matches nothing
-		return "re.none"
+func buildCharsetRegex(smtString string) (string, error) {
+	// Optional surrounding quotes.
+	if len(smtString) >= 2 && smtString[0] == '"' && smtString[len(smtString)-1] == '"' {
+		smtString = smtString[1 : len(smtString)-1]
 	}
 
-	runes := []rune(charset)
+	chars := make([]string, 0, len(smtString))
+	for i := 0; i < len(smtString); {
+		if smtString[i] != '\\' {
+			chars = append(chars, string(smtString[i])) // literal ASCII byte
+			i++
+			continue
+		}
 
-	if len(runes) == 1 {
-		return fmt.Sprintf("(str.to_re \"%s\")", string(runes[0]))
+		// Must be \u{...}
+		if i+3 >= len(smtString) || smtString[i+1] != 'u' || smtString[i+2] != '{' {
+			return "", fmt.Errorf("invalid escape at byte %d", i)
+		}
+
+		j := i + 3
+		for j < len(smtString) && smtString[j] != '}' {
+			j++
+		}
+		if j >= len(smtString) || smtString[j] != '}' {
+			return "", fmt.Errorf("unterminated \\u{...} escape at byte %d", i)
+		}
+
+		chars = append(chars, smtString[i:j+1])
+		i = j + 1
+	}
+
+	if len(chars) == 0 {
+		return "re.none", nil
 	}
 
 	// Build union of individual character regexes (iterate over runes, not bytes)
-	regexes := make([]string, 0, len(runes))
-	for _, r := range runes {
-		regexes = append(regexes, fmt.Sprintf("(str.to_re \"%s\")", string(r)))
+	regexes := make([]string, 0, len(chars))
+	for _, char := range chars {
+		regexes = append(regexes, fmt.Sprintf("(str.to_re \"%s\")", string(char)))
 	}
 
 	// Build nested re.union: (re.union r1 (re.union r2 (re.union r3 ...)))
@@ -260,7 +300,7 @@ func buildCharsetRegex(charset string) string {
 	for i := 1; i < len(regexes); i++ {
 		result = fmt.Sprintf("(re.union %s %s)", result, regexes[i])
 	}
-	return result
+	return result, nil
 }
 
 // SmtCall generates a SMT representation of call of given function
@@ -339,7 +379,9 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.Replace, mkSmtFunction("str.replace_all"))
 
 	// builtin functions without counterparts, they use newly declared/defined SMT functions (see GetBuiltinDecls())
-	addBuiltinWithConstraints(funcMap, *ast.Trim, mkSmtFunction("__trim"), trimConstraints)
+	addBuiltinWithConstraints(funcMap, *ast.Trim, mkSmtFunction("__trim"), trimConstraints(true, true))
+	addBuiltinWithConstraints(funcMap, *ast.TrimLeft, mkSmtFunction("__trim_left"), trimConstraints(true, false))
+	addBuiltinWithConstraints(funcMap, *ast.TrimRight, mkSmtFunction("__trim_right"), trimConstraints(false, true))
 	addBuiltin(funcMap, *ast.Lower, mkSmtFunction("__to_lower"))
 	addBuiltin(funcMap, *ast.Upper, mkSmtFunction("__to_upper"))
 
@@ -391,6 +433,8 @@ func generateCaseTemplateUnicode(lower bool) string {
 func GetBuiltinDecls() []*SmtCommand {
 	res := make([]*SmtCommand, 0, 64)
 	res = append(res, DeclareFun("__trim", []string{"String", "String"}, "String"))
+	res = append(res, DeclareFun("__trim_left", []string{"String", "String"}, "String"))
+	res = append(res, DeclareFun("__trim_right", []string{"String", "String"}, "String"))
 	// Define case functions depending on configured behavior.
 	if UseUnicodeCase {
 		// Unicode-aware implementation will be provided by caller later.
