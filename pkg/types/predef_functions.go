@@ -83,11 +83,12 @@ func getPredefFunctions() map[string]PredefFunction {
 			CheckArity:   func(n int) bool { return n >= arityUnary },
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
-		"concat": {
-			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n >= arityUnary },
-			UpdateParams: makeUpdateParamsAtomic(AtomicString),
-		},
+		// TODO concat is incorrect, it takes two arguments, string to concatenate with, and collection of strings to concatenate
+		// "concat": {
+		// 	ReturnType:   NewAtomicType(AtomicString),
+		// 	CheckArity:   func(n int) bool { return n >= arityUnary },
+		// 	UpdateParams: makeUpdateParamsAtomic(AtomicString),
+		// },
 		"format": {
 			ReturnType:   NewAtomicType(AtomicString),
 			CheckArity:   func(n int) bool { return n >= arityUnary },

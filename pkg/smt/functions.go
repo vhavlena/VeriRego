@@ -370,7 +370,7 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.GreaterThanEq, mkSmtFunction(">="))
 	addBuiltin(funcMap, *ast.LessThan, mkSmtFunction("<"))
 	addBuiltin(funcMap, *ast.LessThanEq, mkSmtFunction("<="))
-	addBuiltin(funcMap, *ast.Concat, mkSmtFunction("str.++"))
+	// addBuiltin(funcMap, *ast.Concat, mkSmtFunction("str.++")) // TODO incorrect, ast.Concat has different semantics than str.++
 	addBuiltin(funcMap, *ast.Contains, mkSmtFunction("str.contains"))
 	addBuiltin(funcMap, *ast.StartsWith, mkSmtFunction("str.prefixof"))
 	addBuiltin(funcMap, *ast.EndsWith, mkSmtFunction("str.suffixof"))
