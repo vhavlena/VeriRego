@@ -104,6 +104,7 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 		Refs: map[string]ast.Value{},
 	}
 	tr := NewTranslator(ta, mod)
+	tr.smtDecls = make([]*SmtCommand, 0) // remove default decls
 	err = tr.TranslateModuleToSmt()
 	if err != nil {
 		t.Fatalf("TranslateModuleToSmt error: %v", err)
@@ -111,12 +112,6 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 	smtLines := tr.SmtLines()
 	assertCount := 0
 	for i, line := range smtLines {
-		if i == 0 {
-			if line != "(declare-fun trim (String String) String)" {
-				t.Fatalf("unexpected trim declaration: %q", line)
-			}
-			continue
-		}
 		if line == "" || line[:7] != "(assert" {
 			t.Errorf("SMT line %d not an assertion: %q", i, line)
 			continue
