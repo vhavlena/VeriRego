@@ -73,6 +73,11 @@ func getPredefFunctions() map[string]PredefFunction {
 			CheckArity:   func(n int) bool { return n >= arityUnary },
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
+		"trim_right": {
+			ReturnType:   NewAtomicType(AtomicString),
+			CheckArity:   func(n int) bool { return n >= arityUnary },
+			UpdateParams: makeUpdateParamsAtomic(AtomicString),
+		},
 		"replace": {
 			ReturnType:   NewAtomicType(AtomicString),
 			CheckArity:   func(n int) bool { return n >= arityUnary },
