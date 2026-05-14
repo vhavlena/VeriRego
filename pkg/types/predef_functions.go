@@ -105,15 +105,15 @@ func getPredefFunctions() map[string]PredefFunction {
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
 		"substring": {
-			ReturnType: NewAtomicType(AtomicString),
+			ReturnType: NewAtomicType(AtomicString), // TODO can return also undef if offset < 0
 			CheckArity: func(n int) bool { return n >= arityTernary },
 			UpdateParams: func(pars []RegoTypeDef) {
-				pars[0] = NewAtomicType(AtomicString)
-				pars[1] = NewAtomicType(AtomicInt)
-				pars[2] = NewAtomicType(AtomicInt)
+				pars[0] = NewAtomicType(AtomicString) // string
+				pars[1] = NewAtomicType(AtomicInt)    // offset
+				pars[2] = NewAtomicType(AtomicInt)    // length
 				if len(pars) > arityTernary {
 					// can contain result as last argument
-					pars[3] = NewAtomicType(AtomicString)
+					pars[3] = NewAtomicType(AtomicString) // TODO can return also undef
 				}
 			},
 		},
