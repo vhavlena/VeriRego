@@ -109,16 +109,13 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 		t.Fatalf("TranslateModuleToSmt error: %v", err)
 	}
 	smtLines := tr.SmtLines()
-	assertCount := 0
+	if len(smtLines) != 2 {
+		t.Errorf("Expected 2 SMT assertions, got %d", len(smtLines))
+	}
 	for i, line := range smtLines {
 		if line == "" || line[:7] != "(assert" {
 			t.Errorf("SMT line %d not an assertion: %q", i, line)
-			continue
 		}
-		assertCount++
-	}
-	if assertCount != 2 {
-		t.Errorf("Expected 2 SMT assertions, got %d", assertCount)
 	}
 }
 
