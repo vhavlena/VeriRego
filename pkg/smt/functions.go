@@ -154,6 +154,35 @@ func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) 
 	return eq.Not().IntoValue(), nil
 }
 
+// substrConstraints generates constraints for substr(s, i, j):
+// if j < 0: result = str.substr(s, i, str.len(s))
+// else: result = str.substr(s, i, j)
+var substrConstraints constraintsFn = func(callResult *SmtValue, params []*SmtValue, args []ArgType, result ArgType) (*Bucket, error) {
+	bucket := NewBucket()
+	if len(params) != 3 {
+		return nil, verr.ErrUnexpectedParamCount("substr", 3, len(params))
+	}
+
+	s, err := params[0].AsString()
+	if err != nil {
+		return nil, err
+	}
+	i, err := params[1].AsInt()
+	if err != nil {
+		return nil, err
+	}
+	j := params[2]
+
+	// Build: if (< j 0) then (str.substr s i (str.len s)) else (str.substr s i j)
+	lenS := fmt.Sprintf("(str.len %s)", s.String())
+	correctNegative := fmt.Sprintf("(str.substr %s %s %s)", s.String(), i.String(), lenS)
+	correctNonNeg := fmt.Sprintf("(str.substr %s %s %s)", s.String(), i.String(), j.String())
+	iteExpr := fmt.Sprintf("(ite (< %s 0) %s %s)", j.String(), correctNegative, correctNonNeg)
+	eqVal := fmt.Sprintf("(= %s %s)", callResult.String(), iteExpr)
+	bucket.Asserts = append(bucket.Asserts, Assert(RawProposition(eqVal)))
+	return bucket, nil
+}
+
 // trimConstraints generates SMT constraints about the trim operation.
 // trim_left - whether to trim from left
 // trim_right - whether to trim from right
@@ -375,10 +404,10 @@ func GetBuiltinFuncMap() map[string]Function {
 	addBuiltin(funcMap, *ast.StartsWith, mkSmtFunction("str.prefixof"))
 	addBuiltin(funcMap, *ast.EndsWith, mkSmtFunction("str.suffixof"))
 	addBuiltin(funcMap, *ast.IndexOf, mkSmtFunction("str.indexof"))
-	addBuiltin(funcMap, *ast.Substring, mkSmtFunction("str.substr"))
 	addBuiltin(funcMap, *ast.Replace, mkSmtFunction("str.replace_all"))
 
 	// builtin functions without counterparts, they use newly declared/defined SMT functions (see GetBuiltinDecls())
+	addBuiltinWithConstraints(funcMap, *ast.Substring, mkSmtFunction("__substr"), substrConstraints) // we cannot use str.substr directly, third argument (length) behaves differently for negative numbers
 	addBuiltinWithConstraints(funcMap, *ast.Trim, mkSmtFunction("__trim"), trimConstraints(true, true))
 	addBuiltinWithConstraints(funcMap, *ast.TrimLeft, mkSmtFunction("__trim_left"), trimConstraints(true, false))
 	addBuiltinWithConstraints(funcMap, *ast.TrimRight, mkSmtFunction("__trim_right"), trimConstraints(false, true))
@@ -432,6 +461,7 @@ func generateCaseTemplateUnicode(lower bool) string {
 // Creates function declarations/definitions used for built in Rego functions (see also GetBuilinFuncMap())
 func GetBuiltinDecls() []*SmtCommand {
 	res := make([]*SmtCommand, 0, 64)
+	res = append(res, DeclareFun("__substr", []string{"String", "Int", "Int"}, "String"))
 	res = append(res, DeclareFun("__trim", []string{"String", "String"}, "String"))
 	res = append(res, DeclareFun("__trim_left", []string{"String", "String"}, "String"))
 	res = append(res, DeclareFun("__trim_right", []string{"String", "String"}, "String"))

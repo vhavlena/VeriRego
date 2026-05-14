@@ -90,6 +90,8 @@ var stringOperationsList = []string{
 	"startswith",
 	"substring",
 	"trim",
+	"trim_left",
+	"trim_right",
 	"upper",
 	"regex.split",
 	"regex.match",
