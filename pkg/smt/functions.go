@@ -157,7 +157,7 @@ func NeqFunction(params []*SmtValue, _ []ArgType, _ ArgType) (*SmtValue, error) 
 // substrConstraints generates constraints for substr(s, i, j):
 // if j < 0: result = str.substr(s, i, str.len(s))
 // else: result = str.substr(s, i, j)
-// TODO: if i < 0, we should return undef, not possble for now
+// TODO: if i < 0, we should return undef, not possible for now
 var substrConstraints constraintsFn = func(callResult *SmtValue, params []*SmtValue, args []ArgType, result ArgType) (*Bucket, error) {
 	bucket := NewBucket()
 	if len(params) != 3 {
