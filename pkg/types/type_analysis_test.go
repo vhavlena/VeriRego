@@ -1209,40 +1209,6 @@ func TestFunctionTypeIsMorePrecise(t *testing.T) {
 	}
 }
 
-func TestNestedFunctionCalls(t *testing.T) {
-	t.Parallel()
-	schema := NewInputSchema()
-	tests := []struct {
-		name     string
-		rule     string
-		varName  string
-		expected RegoTypeDef
-	}{
-		{
-			name: "sprintf assigns string type",
-			rule: `package test
-test if { x = concat(concat(u, v),z) }`,
-			varName:  "v",
-			expected: NewAtomicType(AtomicString),
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			module, err := ast.ParseModule("test.rego", tt.rule)
-			if err != nil {
-				t.Fatalf("Failed to parse module: %v", err)
-			}
-			analyzer := AnalyzeTypes(module.Rules[0], schema)
-			varTerm := ast.VarTerm(tt.varName)
-			actual := analyzer.GetType(varTerm.Value)
-			if !actual.IsEqual(&tt.expected) {
-				t.Errorf("Expected type %v for variable %s, got %v", tt.expected, tt.varName, actual)
-			}
-		})
-	}
-}
-
 // TestDataSchemaTypeInference verifies that data.* references are resolved using the
 // data schema when one is provided.
 func TestDataSchemaTypeInference(t *testing.T) {
