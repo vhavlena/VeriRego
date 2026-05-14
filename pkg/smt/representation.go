@@ -41,8 +41,22 @@ func NewSmtValue(value string, depth int) *SmtValue {
 	return &SmtValue{value: value, depth: depth}
 }
 
+func SmtCharFromRune(r rune) string {
+	if r >= 0x20 && r <= 0x7E && r != '"' && r != '\\' {
+		// printable ASCII (except " and \) are printed directly
+		return string(r)
+	}
+	// use \u{HEX} format as recommended by SMT-LIB for all other runes
+	return fmt.Sprintf("\\u{%X}", r)
+}
+
 func NewSmtValueFromString(str string) *SmtValue {
-	value := fmt.Sprintf("\"%s\"", str)
+	// Build SMT-LIB string literal according to SMT-LIB UnicodeStrings
+	var sb strings.Builder
+	for _, r := range str {
+		sb.WriteString(SmtCharFromRune(r))
+	}
+	value := fmt.Sprintf("\"%s\"", sb.String())
 	return &SmtValue{value: value, depth: -1, atomics: []types.AtomicType{types.AtomicString}, isConst: true}
 }
 
@@ -409,7 +423,7 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 // Ite creates a SMT "let" statement, introducing a local variable to the given clause.
 func Let(localVar varDef, value *SmtValue) *SmtValue {
 	lName := localVar.name
-	lVal  := localVar.value
+	lVal := localVar.value
 	val := fmt.Sprintf("(let ((%s %s)) %s)", lName, lVal.String(), value.String())
 	return &SmtValue{value: val, depth: value.depth, atomics: value.atomics}
 }

@@ -35,7 +35,7 @@ func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
 type Translator struct {
 	TypeTrans    *TypeTranslator     // Type definitions and type-related operations
 	VarMap       map[string]string   // Mapping of Rego term keys to SMT variable names
-	defaultsMap	 map[string]SmtValue // Mapping of variable names to default values
+	defaultsMap  map[string]SmtValue // Mapping of variable names to default values
 	funcMap      map[string]Function // Mapping of function names to their representation
 	smtTypeDecls []*SmtCommand       // SMT type declarations
 	smtDecls     []*SmtCommand       // SMT variable declarations
@@ -51,7 +51,7 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		defaultsMap:  make(map[string]SmtValue),
 		funcMap:      GetBuiltinFuncMap(),
 		smtTypeDecls: make([]*SmtCommand, 0, 32),
-		smtDecls:     make([]*SmtCommand, 0, 64),
+		smtDecls:     GetBuiltinDecls(),
 		smtAsserts:   make([]*SmtCommand, 0, 128),
 		mod:          mod,
 	}
@@ -93,7 +93,7 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 
 // generateFunctions populates the inner funcMap with function with resolved type definitions
 func (t *Translator) generateFunctions() {
-	for op,ft := range t.TypeTrans.TypeInfo.Types {
+	for op, ft := range t.TypeTrans.TypeInfo.Types {
 		if !ft.IsFunction() {
 			continue
 		}
@@ -126,7 +126,7 @@ func (t *Translator) AddTransContext(context *TransContext) {
 }
 
 func (t *Translator) SetDefaultValue(varName string, value *SmtValue) error {
-	if _,ok := t.defaultsMap[varName]; ok {
+	if _, ok := t.defaultsMap[varName]; ok {
 		return errors.New("redefinition of default value of " + varName)
 	}
 	t.defaultsMap[varName] = *value
@@ -134,15 +134,15 @@ func (t *Translator) SetDefaultValue(varName string, value *SmtValue) error {
 }
 
 func (t *Translator) GetDefaultValue(varName string) (*SmtValue, error) {
-	if def,ok := t.defaultsMap[varName]; ok {
-		return &def,nil
+	if def, ok := t.defaultsMap[varName]; ok {
+		return &def, nil
 	}
-	if tp,ok := t.TypeTrans.TypeInfo.Types[varName]; ok {
-		depth := max(tp.TypeDepth(),0)
-		def := NewSmtValue("OUndef", 0) 
-		return def.WrapToDepth(depth),nil
+	if tp, ok := t.TypeTrans.TypeInfo.Types[varName]; ok {
+		depth := max(tp.TypeDepth(), 0)
+		def := NewSmtValue("OUndef", 0)
+		return def.WrapToDepth(depth), nil
 	}
-	return nil,verr.ErrTypeNotFound(varName)
+	return nil, verr.ErrTypeNotFound(varName)
 }
 
 // IntoExprTranslator creates an ExprTranslator populated with values from given Translator

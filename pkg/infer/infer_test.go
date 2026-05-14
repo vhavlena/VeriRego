@@ -423,7 +423,7 @@ func TestLiteralTermType(t *testing.T) {
 // ---- builtinParamHints from predef registry ---------------------------------
 
 func TestBuiltinParamHints_StringFunctions(t *testing.T) {
-	for _, fn := range []string{"startswith", "endswith", "contains", "trim", "replace", "concat"} {
+	for _, fn := range []string{"startswith", "endswith", "contains", "trim"} {
 		hints := builtinParamHints(fn, 2)
 		for i, h := range hints {
 			if h.Kind != types.KindAtomic || h.AtomicType != types.AtomicString {

@@ -95,14 +95,15 @@ func TestTranslateModuleToSmt_Basic(t *testing.T) {
 	// Minimal type analyzer for variables used in rules
 	ta := &types.TypeAnalyzer{
 		Types: map[string]types.RegoTypeDef{
-			"x": types.NewAtomicType(types.AtomicInt),
-			"p": types.NewAtomicType(types.AtomicInt),
-			"q": types.NewAtomicType(types.AtomicInt),
+			"x":    types.NewAtomicType(types.AtomicInt),
+			"p":    types.NewAtomicType(types.AtomicInt),
+			"q":    types.NewAtomicType(types.AtomicInt),
 			"true": types.NewAtomicType(types.AtomicBoolean),
 		},
 		Refs: map[string]ast.Value{},
 	}
 	tr := NewTranslator(ta, mod)
+	tr.smtDecls = make([]*SmtCommand, 0) // remove default decls
 	err = tr.TranslateModuleToSmt()
 	if err != nil {
 		t.Fatalf("TranslateModuleToSmt error: %v", err)

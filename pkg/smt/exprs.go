@@ -45,6 +45,17 @@ type varDef struct {
 	value SmtValue
 }
 
+func (et *ExprTranslator) callBuiltin(op *Function, params []*SmtValue) (*SmtValue, error) {
+	val, bucket, err := op.SmtCallWithConstraints(params)
+	if err != nil {
+		return nil, err
+	}
+	if bucket != nil {
+		et.context.Bucket.Append(bucket)
+	}
+	return val, nil
+}
+
 func (et *ExprTranslator) gatherQuantFromExpr(expr *ast.Expr, out map[string]bool) {
 	if term, ok := expr.Terms.(*ast.Term); ok {
 		et.gatherQuantFromTerm(term, out)
@@ -52,7 +63,9 @@ func (et *ExprTranslator) gatherQuantFromExpr(expr *ast.Expr, out map[string]boo
 	}
 
 	terms, ok := expr.Terms.([]*ast.Term)
-	if !ok { return }
+	if !ok {
+		return
+	}
 
 	et.gatherQuantFromTerms(terms[1:], out)
 }
@@ -64,17 +77,17 @@ func (et *ExprTranslator) gatherQuantFromTerms(terms []*ast.Term, out map[string
 }
 
 func (et *ExprTranslator) gatherQuantFromTerm(term *ast.Term, out map[string]bool) {
-		switch v := term.Value.(type) {
-		case ast.Var:
-			name := removeQuotes(v.String())
-			if et.TypeTrans.TypeInfo.VarClassification.Quantified[name] {
-				out[name] = true
-			}
-		case ast.Ref:
-			et.gatherQuantFromTerms(v[1:], out)
-		case ast.Call:
-			et.gatherQuantFromTerms(v[1:], out)
+	switch v := term.Value.(type) {
+	case ast.Var:
+		name := removeQuotes(v.String())
+		if et.TypeTrans.TypeInfo.VarClassification.Quantified[name] {
+			out[name] = true
 		}
+	case ast.Ref:
+		et.gatherQuantFromTerms(v[1:], out)
+	case ast.Call:
+		et.gatherQuantFromTerms(v[1:], out)
+	}
 }
 
 // GatherQuant returns a set of all quantifiers present in giver body
@@ -130,7 +143,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 		}
 
 		if arity+1 == len(params) { // the return is a part of the call
-			val, err := op.SmtCall(params[:len(params)-1])
+			val, err := et.callBuiltin(op, params[:len(params)-1])
 			if err != nil {
 				return nil, localVarDefs, err
 			}
@@ -167,7 +180,7 @@ func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varD
 		}
 
 		// normal function call
-		bodySmt, err := op.SmtCall(params)
+		bodySmt, err := et.callBuiltin(op, params)
 		if err != nil {
 			return nil, localVarDefs, err
 		}
@@ -229,7 +242,7 @@ func (et *ExprTranslator) termToSmtValue(term *ast.Term) (*SmtValue, error) {
 			}
 			params[i-1] = sv
 		}
-		return op.SmtCall(params)
+		return et.callBuiltin(op, params)
 	default:
 		return nil, fmt.Errorf("%w: %T", verr.ErrUnsupportedTermType, v)
 	}
@@ -325,7 +338,7 @@ func (et *ExprTranslator) objectToSmt(obj ast.Object) (*SmtValue, error) {
 // keyType "Int" is used for arrays
 // keyType "String" is used for objects
 func createConstArray(keyType string, depth int) string {
-	constElem := NewSmtValue("OUndef", 0).WrapToDepth(depth-1)
+	constElem := NewSmtValue("OUndef", 0).WrapToDepth(depth - 1)
 	return fmt.Sprintf("((as const (Array %s OTypeD%d)) %s)", keyType, depth-1, constElem)
 }
 
@@ -430,9 +443,9 @@ func (et *ExprTranslator) GetObjSelect(val *SmtValue, actType *types.RegoTypeDef
 		if !found {
 			return nil, verr.ErrMissingObjectKey(val.String(), key)
 		}
-		*val = *val.SelectObj(`"`+key+`"`)
+		*val = *val.SelectObj(`"` + key + `"`)
 		*val = *val.UnwrapToDepth(tp.TypeDepth())
-		*actType = *tp;
+		*actType = *tp
 	case ast.Var:
 		name := removeQuotes(v.String())
 		varTp := et.TypeTrans.TypeInfo.Types[name]
@@ -444,8 +457,8 @@ func (et *ExprTranslator) GetObjSelect(val *SmtValue, actType *types.RegoTypeDef
 			key := fmt.Sprintf("(str %s)", name)
 			*val = *val.SelectObj(key)
 			*val = *val.UnwrapToDepth(tp.TypeDepth())
-			*actType = tp;
-			exp = expect{ key, &strType }
+			*actType = tp
+			exp = expect{key, &strType}
 		} else {
 			// TODO: it can be union
 			return nil, verr.ErrUnexpectedValueType(name, "string")
@@ -462,8 +475,8 @@ func (et *ExprTranslator) GetObjSelect(val *SmtValue, actType *types.RegoTypeDef
 		tp := actType.ObjectFields.UnionizeFields()
 		*val = *val.SelectObj(key.String())
 		*val = *val.UnwrapToDepth(tp.TypeDepth())
-		*actType = tp;
-		exp = expect{ key.String(), &strType }
+		*actType = tp
+		exp = expect{key.String(), &strType}
 	default:
 		panic("todo: implement")
 	}
@@ -482,7 +495,7 @@ func (et *ExprTranslator) GetArrSelect(val *SmtValue, actType *types.RegoTypeDef
 		tp := actType.ArrayType
 		*val = *val.SelectArr(key)
 		*val = *val.UnwrapToDepth(tp.TypeDepth())
-		*actType = *tp;
+		*actType = *tp
 	case ast.Var:
 		name := removeQuotes(v.String())
 		varTp := et.TypeTrans.TypeInfo.Types[name]
@@ -494,8 +507,8 @@ func (et *ExprTranslator) GetArrSelect(val *SmtValue, actType *types.RegoTypeDef
 			key := fmt.Sprintf("(num %s)", name)
 			*val = *val.SelectArr(key)
 			*val = *val.UnwrapToDepth(tp.TypeDepth())
-			*actType = *tp;
-			exp = expect{ key, &intType }
+			*actType = *tp
+			exp = expect{key, &intType}
 		} else {
 			// TODO: it can be union
 			return nil, verr.ErrUnexpectedValueType(name, "string")
@@ -512,8 +525,8 @@ func (et *ExprTranslator) GetArrSelect(val *SmtValue, actType *types.RegoTypeDef
 		tp := actType.ArrayType
 		*val = *val.SelectArr(key.String())
 		*val = *val.UnwrapToDepth(tp.TypeDepth())
-		*actType = *tp;
-		exp = expect{ key.String(), &intType }
+		*actType = *tp
+		exp = expect{key.String(), &intType}
 	default:
 		panic("todo: implement")
 	}

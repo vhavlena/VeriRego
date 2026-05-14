@@ -65,29 +65,30 @@ func getPredefFunctions() map[string]PredefFunction {
 		// String operations: all params are strings, return string
 		"trim": {
 			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n >= arityUnary },
+			CheckArity:   func(n int) bool { return n >= arityBinary },
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
 		"trim_left": {
 			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n >= arityUnary },
+			CheckArity:   func(n int) bool { return n >= arityBinary },
+			UpdateParams: makeUpdateParamsAtomic(AtomicString),
+		},
+		"trim_right": {
+			ReturnType:   NewAtomicType(AtomicString),
+			CheckArity:   func(n int) bool { return n >= arityBinary },
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
 		"replace": {
 			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n >= arityUnary },
+			CheckArity:   func(n int) bool { return n >= arityTernary },
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
 		},
-		"concat": {
-			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n >= arityUnary },
-			UpdateParams: makeUpdateParamsAtomic(AtomicString),
-		},
-		"format": {
-			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n >= arityUnary },
-			UpdateParams: makeUpdateParamsAtomic(AtomicString),
-		},
+		// TODO concat is incorrect, it takes two arguments, string to concatenate with, and collection of strings to concatenate
+		// "concat": {
+		// 	ReturnType:   NewAtomicType(AtomicString),
+		// 	CheckArity:   func(n int) bool { return n >= arityUnary },
+		// 	UpdateParams: makeUpdateParamsAtomic(AtomicString),
+		// },
 		"lower": {
 			ReturnType:   NewAtomicType(AtomicString),
 			CheckArity:   func(n int) bool { return n == arityBinary }, // lower(string, ret)
@@ -100,8 +101,21 @@ func getPredefFunctions() map[string]PredefFunction {
 		},
 		"split": {
 			ReturnType:   NewAtomicType(AtomicString),
-			CheckArity:   func(n int) bool { return n >= arityUnary },
+			CheckArity:   func(n int) bool { return n >= arityBinary }, // split(string, del)
 			UpdateParams: makeUpdateParamsAtomic(AtomicString),
+		},
+		"substring": {
+			ReturnType: NewAtomicType(AtomicString), // TODO can return also undef if offset < 0
+			CheckArity: func(n int) bool { return n >= arityTernary },
+			UpdateParams: func(pars []RegoTypeDef) {
+				pars[0] = NewAtomicType(AtomicString) // string
+				pars[1] = NewAtomicType(AtomicInt)    // offset
+				pars[2] = NewAtomicType(AtomicInt)    // length
+				if len(pars) > arityTernary {
+					// can contain result as last argument
+					pars[3] = NewAtomicType(AtomicString) // TODO can return also undef
+				}
+			},
 		},
 		"semver.compare": {
 			ReturnType: NewAtomicType(AtomicBoolean),

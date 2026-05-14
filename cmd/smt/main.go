@@ -139,9 +139,13 @@ func main() {
 	dataJsonSchemaFile := flag.String("data-json-schema", "", "Path to the JSON Schema file for data (optional)")
 	regoVersionFlag := flag.String("rego-version", "1", "Rego language version for parsing the policy (0 or 1)")
 	outFile := flag.String("out", "out.smt2", "Path to the output SMT-LIB file (default: out.smt2)")
+	caseUnicode := flag.Bool("case-unicode", false, "If set, upper/lower operate on full Unicode instead of only ASCII")
 
 	// Parse flags
 	flag.Parse()
+
+	// Propagate case handling flag into SMT package before translator creation
+	smt.SetUseUnicodeCase(*caseUnicode)
 
 	// Validate required arguments
 	if *regoFile == "" {
