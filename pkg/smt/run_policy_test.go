@@ -147,3 +147,14 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 
 	return &PolicyModel{Vars: vars, SmtContent: smtContent}, nil
 }
+
+// RunPolicyToModelWithCaseUnicode is like RunPolicyToModel but allows configuring whether
+// the to_lower/to_upper functions should use Unicode-aware case handling.
+func RunPolicyToModelWithCaseUnicode(regoPolicy string, jsonSchema []byte, dataJsonSchema []byte, useUnicode bool) (*PolicyModel, error) {
+	prevUseUnicode := UseUnicodeCase
+	defer func() {
+		UseUnicodeCase = prevUseUnicode
+	}()
+	UseUnicodeCase = useUnicode
+	return RunPolicyToModel(regoPolicy, jsonSchema, dataJsonSchema)
+}

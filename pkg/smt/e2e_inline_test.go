@@ -545,3 +545,493 @@ allow if {
 		}
 	})
 }
+
+// TestStringFunctions tests the full pipeline — parse → compile → inline
+// → type-infer → SMT-translate → Z3 solve — for policies that work with
+// string functions
+func TestStringFunctions(t *testing.T) {
+	t.Parallel()
+
+	// ======================= TRIM TESTS =======================
+	t.Run("trim_simple", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim("  abcd   ", " ")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "abcd" {
+			t.Fatalf(`expected to be string "abcd", got %v`, trString)
+		}
+	})
+
+	t.Run("trim_empty_string", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim("abcd", "")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "abcd" {
+			t.Fatalf(`expected to be string "abcd", got %v`, trString)
+		}
+	})
+
+	t.Run("trim_multiple_chars", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim("xxyabcdyxx", "xy")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "abcd" {
+			t.Fatalf(`expected to be string "abcd", got %v`, trString)
+		}
+	})
+
+	t.Run("trim_no_matching_chars", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim("abcd", "xyz")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "abcd" {
+			t.Fatalf(`expected to be string "abcd", got %v`, trString)
+		}
+	})
+
+	t.Run("trim_all_chars_match", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim("aaaa", "a")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "" {
+			t.Fatalf(`expected to be empty string, got %v`, trString)
+		}
+	})
+
+	// ======================= TRIM_LEFT TESTS =======================
+	t.Run("trim_left_simple", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim_left("  abcd  ", " ")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "abcd  " {
+			t.Fatalf(`expected to be string "abcd  ", got %v`, trString)
+		}
+	})
+
+	t.Run("trim_left_multiple_chars", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim_left("xxyabcdyxx", "xy")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "abcdyxx" {
+			t.Fatalf(`expected to be string "abcdyxx", got %v`, trString)
+		}
+	})
+
+	// ======================= TRIM_RIGHT TESTS =======================
+	t.Run("trim_right_simple", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim_right("  abcd  ", " ")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "  abcd" {
+			t.Fatalf(`expected to be string "  abcd", got %v`, trString)
+		}
+	})
+
+	t.Run("trim_right_multiple_chars", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+tr := trim_right("xxyabcdyxx", "xy")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		trVal, ok := result.Vars["tr"]
+		if !ok {
+			t.Fatalf("expected 'tr' in model vars, got: %v", varKeys(result.Vars))
+		}
+		trString, ok := trVal.String()
+		if !ok || trString != "xxyabcd" {
+			t.Fatalf(`expected to be string "xxyabcd", got %v`, trString)
+		}
+	})
+
+	// ======================= SUBSTRING TESTS =======================
+	t.Run("substring_simple", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+sub := substring("hello", 1, 2)
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		subVal, ok := result.Vars["sub"]
+		if !ok {
+			t.Fatalf("expected 'sub' in model vars, got: %v", varKeys(result.Vars))
+		}
+		subString, ok := subVal.String()
+		if !ok || subString != "el" {
+			t.Fatalf(`expected to be string "el", got %v`, subString)
+		}
+	})
+
+	t.Run("substring_from_start", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+sub := substring("hello", 0, 2)
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		subVal, ok := result.Vars["sub"]
+		if !ok {
+			t.Fatalf("expected 'sub' in model vars, got: %v", varKeys(result.Vars))
+		}
+		subString, ok := subVal.String()
+		if !ok || subString != "he" {
+			t.Fatalf(`expected to be string "he", got %v`, subString)
+		}
+	})
+
+	t.Run("substring_offset_outside_string", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+sub := substring("hello", 10, 2)
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		subVal, ok := result.Vars["sub"]
+		if !ok {
+			t.Fatalf("expected 'sub' in model vars, got: %v", varKeys(result.Vars))
+		}
+		// When offset is outside string, substring returns empty string
+		subString, ok := subVal.String()
+		if !ok || subString != "" {
+			t.Fatalf(`expected to be empty string, got %v`, subString)
+		}
+	})
+
+	t.Run("substring_negative_length", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+sub := substring("hello", 1, -1)
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		subVal, ok := result.Vars["sub"]
+		if !ok {
+			t.Fatalf("expected 'sub' in model vars, got: %v", varKeys(result.Vars))
+		}
+		// With negative length, substring should take everything from offset to end
+		subString, ok := subVal.String()
+		if !ok || subString != "ello" {
+			t.Fatalf(`expected to be string "ello", got %v`, subString)
+		}
+	})
+
+	t.Run("substring_zero_length", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+sub := substring("hello", 2, 0)
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		subVal, ok := result.Vars["sub"]
+		if !ok {
+			t.Fatalf("expected 'sub' in model vars, got: %v", varKeys(result.Vars))
+		}
+		// Zero length should return empty string
+		subString, ok := subVal.String()
+		if !ok || subString != "" {
+			t.Fatalf(`expected to be empty string, got %v`, subString)
+		}
+	})
+
+	// ======================= LOWER TESTS =======================
+	t.Run("lower_simple", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+lower_val := lower("HeLLo")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		lowerVal, ok := result.Vars["lower_val"]
+		if !ok {
+			t.Fatalf("expected 'lower_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		lowerString, ok := lowerVal.String()
+		if !ok || lowerString != "hello" {
+			t.Fatalf(`expected to be string "hello", got %v`, lowerString)
+		}
+	})
+
+	t.Run("lower_ascii_only", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+lower_val := lower("ABC123xyz")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		lowerVal, ok := result.Vars["lower_val"]
+		if !ok {
+			t.Fatalf("expected 'lower_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		lowerString, ok := lowerVal.String()
+		if !ok || lowerString != "abc123xyz" {
+			t.Fatalf(`expected to be string "abc123xyz", got %v`, lowerString)
+		}
+	})
+
+	// ======================= UPPER TESTS =======================
+	t.Run("upper_simple", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+upper_val := upper("HeLLo")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		upperVal, ok := result.Vars["upper_val"]
+		if !ok {
+			t.Fatalf("expected 'upper_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		upperString, ok := upperVal.String()
+		if !ok || upperString != "HELLO" {
+			t.Fatalf(`expected to be string "HELLO", got %v`, upperString)
+		}
+	})
+
+	t.Run("upper_ascii_only", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+upper_val := upper("ABC123xyz")
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		upperVal, ok := result.Vars["upper_val"]
+		if !ok {
+			t.Fatalf("expected 'upper_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		upperString, ok := upperVal.String()
+		if !ok || upperString != "ABC123XYZ" {
+			t.Fatalf(`expected to be string "ABC123XYZ", got %v`, upperString)
+		}
+	})
+
+	// ======================= CHAINED CASE TESTS =======================
+	t.Run("lower_then_upper", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+lower_val := lower("HeLLo")
+upper_val := upper(lower_val)
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		upperVal, ok := result.Vars["upper_val"]
+		if !ok {
+			t.Fatalf("expected 'upper_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		upperString, ok := upperVal.String()
+		if !ok || upperString != "HELLO" {
+			t.Fatalf(`expected to be string "HELLO", got %v`, upperString)
+		}
+	})
+
+	t.Run("upper_then_lower", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+upper_val := upper("HeLLo")
+lower_val := lower(upper_val)
+`
+		result, err := RunPolicyToModel(rego, nil, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		lowerVal, ok := result.Vars["lower_val"]
+		if !ok {
+			t.Fatalf("expected 'lower_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		lowerString, ok := lowerVal.String()
+		if !ok || lowerString != "hello" {
+			t.Fatalf(`expected to be string "hello", got %v`, lowerString)
+		}
+	})
+
+	// ======================= LOWER/UPPER WITH UNICODE =======================
+	t.Run("lower_unicode_enabled", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+lower_val := lower("Ü")
+`
+		result, err := RunPolicyToModelWithCaseUnicode(rego, nil, nil, true)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		lowerVal, ok := result.Vars["lower_val"]
+		if !ok {
+			t.Fatalf("expected 'lower_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		lowerString, ok := lowerVal.String()
+		if !ok {
+			t.Fatalf("expected string value, got: %v", lowerVal.Kind())
+		}
+		// With Unicode enabled, Ü should convert to ü
+		// The actual value is represented as \u{fc} in the model
+		if lowerString != `\u{fc}` {
+			t.Fatalf(`expected unicode escape \u{fc}, got %q`, lowerString)
+		}
+	})
+
+	t.Run("upper_unicode_enabled", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+upper_val := upper("ü")
+`
+		result, err := RunPolicyToModelWithCaseUnicode(rego, nil, nil, true)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		upperVal, ok := result.Vars["upper_val"]
+		if !ok {
+			t.Fatalf("expected 'upper_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		upperString, ok := upperVal.String()
+		if !ok {
+			t.Fatalf("expected string value, got: %v", upperVal.Kind())
+		}
+		// With Unicode enabled, ü should convert to Ü
+		// The actual value is represented as \u{dc} in the model
+		if upperString != `\u{dc}` {
+			t.Fatalf(`expected unicode escape \u{dc}, got %q`, upperString)
+		}
+	})
+
+	t.Run("lower_unicode_disabled", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package example
+lower_val := lower("HELLO")
+`
+		result, err := RunPolicyToModelWithCaseUnicode(rego, nil, nil, false)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		lowerVal, ok := result.Vars["lower_val"]
+		if !ok {
+			t.Fatalf("expected 'lower_val' in model vars, got: %v", varKeys(result.Vars))
+		}
+		lowerString, ok := lowerVal.String()
+		if !ok || lowerString != "hello" {
+			t.Fatalf(`expected to be string "hello", got %v`, lowerString)
+		}
+	})
+}
