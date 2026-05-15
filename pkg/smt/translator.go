@@ -32,6 +32,17 @@ func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
 
 //-------------------------------------------------------------
 
+// TranslatorMetadata holds optional configuration that affects SMT output naming.
+type TranslatorMetadata struct {
+	// EntryPoint is the name of the main rule to verify. When set, it can be
+	// used by callers to identify which rule acts as the top-level entry point.
+	EntryPoint string
+	// NamePrefix is prepended to every define-fun name in the generated SMT-LIB
+	// output. Use this when merging multiple Rego modules into one SMT file to
+	// avoid name collisions between modules.
+	NamePrefix string
+}
+
 // Translator is responsible for translating Rego terms to SMT expressions.
 type Translator struct {
 	TypeTrans    *TypeTranslator     // Type definitions and type-related operations
@@ -43,10 +54,18 @@ type Translator struct {
 	smtDecls     []*SmtCommand       // SMT variable declarations
 	smtAsserts   []*SmtCommand       // SMT assertions
 	mod          *ast.Module
+	Metadata     TranslatorMetadata
 }
 
 // NewTranslator creates a new Translator instance with the given TypeAnalyzer.
 func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
+	return NewTranslatorWithMetadata(typeInfo, mod, TranslatorMetadata{})
+}
+
+// NewTranslatorWithMetadata creates a new Translator with the given TypeAnalyzer and metadata.
+// Metadata (e.g. NamePrefix) is applied during construction so that user-defined function
+// call sites in the generated SMT already carry the correct prefix.
+func NewTranslatorWithMetadata(typeInfo *types.TypeAnalyzer, mod *ast.Module, meta TranslatorMetadata) *Translator {
 	t := &Translator{
 		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
@@ -57,9 +76,19 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 		smtDecls:     make([]*SmtCommand, 0, 64),
 		smtAsserts:   make([]*SmtCommand, 0, 128),
 		mod:          mod,
+		Metadata:     meta,
 	}
 	t.generateFunctions()
 	return t
+}
+
+// applyPrefix prepends the configured NamePrefix to name. Returns name unchanged when
+// NamePrefix is empty.
+func (t *Translator) applyPrefix(name string) string {
+	if t.Metadata.NamePrefix == "" {
+		return name
+	}
+	return t.Metadata.NamePrefix + name
 }
 
 // SmtLines returns the generated SMT-LIB lines collected during translation, in the correct order.
@@ -94,7 +123,9 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 	t.smtAsserts = append(t.smtAsserts, bucket.Asserts...)
 }
 
-// generateFunctions populates the inner funcMap with function with resolved type definitions
+// generateFunctions populates the inner funcMap with function with resolved type definitions.
+// The funcMap key stays as the unqualified Rego name so call-site lookups work; the SMT
+// function name inside each entry uses applyPrefix so emitted calls carry the right name.
 func (t *Translator) generateFunctions() {
 	for op, ft := range t.TypeTrans.TypeInfo.Types {
 		if !ft.IsFunction() {
@@ -106,7 +137,7 @@ func (t *Translator) generateFunctions() {
 			// e.g. defining `plus` would redefine builtin `+` operator
 			// this is in accordance with Rego functionality
 		}
-		t.funcMap[op] = NewFunction(op, ft)
+		t.funcMap[op] = NewFunction(t.applyPrefix(op), ft)
 	}
 }
 

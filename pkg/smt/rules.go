@@ -152,7 +152,7 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 		}
 		retDepth = smtVal.depth
 
-		t.smtDecls = append(t.smtDecls, DefineFun(occName, occArgs, smtVal))
+		t.smtDecls = append(t.smtDecls, DefineFun(t.applyPrefix(occName), occArgs, smtVal))
 	}
 
 	// Build combinator from right to left: start with default (or OUndef)
@@ -163,7 +163,7 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 	combinator := defaultVal.WrapToDepth(retDepth)
 
 	for i := len(occurrenceNames) - 1; i >= 0; i-- {
-		occName := occurrenceNames[i]
+		occName := t.applyPrefix(occurrenceNames[i])
 
 		var callExpr *SmtValue
 		if len(combinatorArgs) == 0 {
@@ -183,7 +183,7 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 		varSmt := NewSmtValue(name, retDepth)
 		t.smtAsserts = append(t.smtAsserts, Assert(varSmt.Equals(combinator)))
 	} else {
-		t.smtDecls = append(t.smtDecls, DefineFun(name, combinatorArgs, combinator))
+		t.smtDecls = append(t.smtDecls, DefineFun(t.applyPrefix(name), combinatorArgs, combinator))
 	}
 
 	return nil
@@ -220,7 +220,7 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 		assertion := Assert(name.Equals(value))
 		t.smtAsserts = append(t.smtAsserts, assertion)
 	} else {
-		fun := DefineFun(name.String(), args, value)
+		fun := DefineFun(t.applyPrefix(name.String()), args, value)
 		t.smtDecls = append(t.smtDecls, fun)
 	}
 
