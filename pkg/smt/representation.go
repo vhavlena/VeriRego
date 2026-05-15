@@ -409,7 +409,7 @@ func Ite(condition *SmtProposition, thenClause *SmtValue, elseClause *SmtValue) 
 // Ite creates a SMT "let" statement, introducing a local variable to the given clause.
 func Let(localVar varDef, value *SmtValue) *SmtValue {
 	lName := localVar.name
-	lVal  := localVar.value
+	lVal := localVar.value
 	val := fmt.Sprintf("(let ((%s %s)) %s)", lName, lVal.String(), value.String())
 	return &SmtValue{value: val, depth: value.depth, atomics: value.atomics}
 }
@@ -539,9 +539,6 @@ func DeclareFun(name string, paramSorts []string, retSort string) *SmtCommand {
 // The return type is derived from the function body.
 func DefineFun(name string, args []Arg, body *SmtValue) *SmtCommand {
 	argStr := "("
-	if len(args) == 0 {
-		argStr += "()"
-	}
 	for _, a := range args {
 		argStr += fmt.Sprintf("(%s %s)", a.name, NewSmtType(uint(a.typ.depth)).String())
 	}

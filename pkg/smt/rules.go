@@ -2,6 +2,7 @@ package smt
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/open-policy-agent/opa/v1/ast"
 	verr "github.com/vhavlena/verirego/pkg/err"
@@ -30,14 +31,13 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 	return ruleVar, ruleValSmt, nil
 }
 
-// ruleToSmtString returns smt values for a rule variable and for its assignment based on the rule
-//
-// Returns:
-//
-//	*SmtValue: variable
-//	*SmtValue: assignment - value, which is conditional to the rule body
-//	error
-func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, error) {
+// ruleToSmtCore translates a rule into SMT head/value pair. The getDefault callback
+// returns the fallback SmtValue used when rule.Else is nil; it receives the rule's
+// declared name and its inferred type depth.
+func (t *Translator) ruleToSmtCore(
+	rule *ast.Rule,
+	getDefault func(name string, depth int) (*SmtValue, error),
+) (*SmtValue, *SmtValue, error) {
 	exprTrans := t.IntoExprTranslator()
 	smtHead, smtVal, err := t.ruleHeadValueSmt(rule, exprTrans)
 	if err != nil {
@@ -51,13 +51,19 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, erro
 	t.AddTransContext(exprTrans.GetTransContext())
 
 	name := rule.Head.Name.String()
-	elseVal, err := t.GetDefaultValue(name)
-	if err != nil {
-		return nil, nil, err
+	depth := 0
+	if tp, ok := t.TypeTrans.TypeInfo.Types[name]; ok {
+		depth = max(tp.TypeDepth(), 0)
 	}
-	elseSmt := elseVal
+
+	var elseSmt *SmtValue
 	if rule.Else != nil {
-		_, elseSmt, err = t.ruleToSmtString(rule.Else)
+		_, elseSmt, err = t.ruleToSmtCore(rule.Else, getDefault)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		elseSmt, err = getDefault(name, depth)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -68,6 +74,20 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, erro
 		smt = Let(localVarDefs[i], smt)
 	}
 	return smtHead, smt, nil
+}
+
+// ruleToSmtString returns smt values for a rule variable and for its assignment based on the rule.
+// Falls back to the declared default value (or OUndef when none is set).
+//
+// Returns:
+//
+//	*SmtValue: variable
+//	*SmtValue: assignment - value, which is conditional to the rule body
+//	error
+func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, error) {
+	return t.ruleToSmtCore(rule, func(name string, _ int) (*SmtValue, error) {
+		return t.GetDefaultValue(name)
+	})
 }
 
 func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
@@ -82,6 +102,91 @@ func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 		args = append(args, NewArg(name, tp))
 	}
 	return args, nil
+}
+
+// ruleOccurrenceToSmt is like ruleToSmtString but always uses OUndef as the else clause
+// (never consults defaultsMap). Used for individual incremental rule occurrences; the
+// default is applied at the combinator level by IncrementalRulesToSmt.
+func (t *Translator) ruleOccurrenceToSmt(rule *ast.Rule) (*SmtValue, *SmtValue, error) {
+	return t.ruleToSmtCore(rule, func(_ string, depth int) (*SmtValue, error) {
+		return NewSmtValue("OUndef", 0).WrapToDepth(depth), nil
+	})
+}
+
+// IncrementalRulesToSmt translates multiple Rego rules sharing the same name into SMT-LIB.
+//
+// Each rule occurrence i is emitted as a unique function `name_i`. A top-level combinator
+// then chains them with nested ite: if name_1 is not OUndef use it, else try name_2, …,
+// falling back to the declared default (or OUndef when no default is set).
+//
+// For 0-arg rules the combinator is an assertion (= name combinator); for rules with
+// arguments it is a define-fun that shadows the per-occurrence functions.
+func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	// Combinatorargs come from rule 0; all occurrences must have the same arity.
+	combinatorArgs, err := t.getArgs(rules[0])
+	if err != nil {
+		return err
+	}
+
+	occurrenceNames := make([]string, len(rules))
+	retDepth := 0
+
+	for i, rule := range rules {
+		occName := t.FreshName(name)
+		occurrenceNames[i] = occName
+
+		// Each occurrence may use different OPA-generated local names for its
+		// parameters (e.g. __local0__ vs __local1__), so fetch args per-occurrence.
+		occArgs, err := t.getArgs(rule)
+		if err != nil {
+			return err
+		}
+
+		_, smtVal, err := t.ruleOccurrenceToSmt(rule)
+		if err != nil {
+			return err
+		}
+		retDepth = smtVal.depth
+
+		t.smtDecls = append(t.smtDecls, DefineFun(occName, occArgs, smtVal))
+	}
+
+	// Build combinator from right to left: start with default (or OUndef)
+	defaultVal, err := t.GetDefaultValue(name)
+	if err != nil {
+		return err
+	}
+	combinator := defaultVal.WrapToDepth(retDepth)
+
+	for i := len(occurrenceNames) - 1; i >= 0; i-- {
+		occName := occurrenceNames[i]
+
+		var callExpr *SmtValue
+		if len(combinatorArgs) == 0 {
+			callExpr = NewSmtValue(occName, retDepth)
+		} else {
+			argNames := make([]string, len(combinatorArgs))
+			for j, arg := range combinatorArgs {
+				argNames[j] = arg.name
+			}
+			callExpr = NewSmtValue(fmt.Sprintf("(%s %s)", occName, strings.Join(argNames, " ")), retDepth)
+		}
+
+		combinator = Ite(callExpr.IsUndef().Not(), callExpr, combinator)
+	}
+
+	if len(combinatorArgs) == 0 {
+		varSmt := NewSmtValue(name, retDepth)
+		t.smtAsserts = append(t.smtAsserts, Assert(varSmt.Equals(combinator)))
+	} else {
+		t.smtDecls = append(t.smtDecls, DefineFun(name, combinatorArgs, combinator))
+	}
+
+	return nil
 }
 
 // RuleToSmt converts a Rego rule to an SMT-LIB assertion and appends it to the Translator's smtLines.

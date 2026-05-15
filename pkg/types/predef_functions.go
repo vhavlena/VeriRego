@@ -159,7 +159,22 @@ func getPredefFunctions() map[string]PredefFunction {
 		"lt": {
 			ReturnType:   NewAtomicType(AtomicBoolean),
 			CheckArity:   func(n int) bool { return n == arityBinary },
-			UpdateParams: func(_ []RegoTypeDef) {},
+			UpdateParams: makeUpdateParamsAtomic(AtomicInt),
+		},
+		"gt": {
+			ReturnType:   NewAtomicType(AtomicBoolean),
+			CheckArity:   func(n int) bool { return n == arityBinary },
+			UpdateParams: makeUpdateParamsAtomic(AtomicInt),
+		},
+		"lte": {
+			ReturnType:   NewAtomicType(AtomicBoolean),
+			CheckArity:   func(n int) bool { return n == arityBinary },
+			UpdateParams: makeUpdateParamsAtomic(AtomicInt),
+		},
+		"gte": {
+			ReturnType:   NewAtomicType(AtomicBoolean),
+			CheckArity:   func(n int) bool { return n == arityBinary },
+			UpdateParams: makeUpdateParamsAtomic(AtomicInt),
 		},
 		"contains": {
 			ReturnType:   NewAtomicType(AtomicBoolean),
