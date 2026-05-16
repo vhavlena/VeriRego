@@ -48,13 +48,16 @@ func (t *Translator) ruleToSmtCore(
 		return nil, nil, err
 	}
 
-	// For contains rules, pre-define the key variable so that body assignments
-	// to it produce comparison constraints instead of let-bindings.
-	preDefined := make(map[string]bool)
-	if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
-		if v, ok := rule.Head.Key.Value.(ast.Var); ok {
-			preDefined[removeQuotes(v.String())] = true
-		}
+	// Pre-define all rule parameters (head args for parametric rules, head key for
+	// contains rules) so that body assignments to them produce comparison constraints
+	// rather than let-bindings, matching how function parameters work in define-fun.
+	args, err := t.getArgs(rule)
+	if err != nil {
+		return nil, nil, err
+	}
+	preDefined := make(map[string]bool, len(args))
+	for _, arg := range args {
+		preDefined[arg.name] = true
 	}
 
 	bodySmt, localVarDefs, err := exprTrans.bodyToSmtWithPredefined(&rule.Body, preDefined)
