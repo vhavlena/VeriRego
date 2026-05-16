@@ -417,10 +417,39 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 		ta.analyzeParametricRule(rule)
 		return
 	}
+	if rule.Head.Key != nil {
+		ta.analyzeContainsRule(rule)
+		return
+	}
 	tp := NewUnionType([]RegoTypeDef{})
 	ta.AnalyzeRuleBody(rule, &tp)
 	tp.CanonizeUnion()
 	ta.setType(rule.Head.Name, tp)
+}
+
+// analyzeContainsRule analyzes a Rego partial-set (contains) rule.
+// Such rules have the form `name contains key if { body }` and are translated
+// as predicate functions: name(key) -> Boolean.
+func (ta *TypeAnalyzer) analyzeContainsRule(rule *ast.Rule) {
+	for _, expr := range rule.Body {
+		ta.InferExprType(expr)
+	}
+
+	var keyType RegoTypeDef
+	if v, ok := rule.Head.Key.Value.(ast.Var); ok {
+		name := string(v)
+		if t, exists := ta.Types[name]; exists {
+			keyType = t
+		} else {
+			keyType = NewUnknownType()
+		}
+	} else {
+		keyType = ta.inferAstType(rule.Head.Key.Value, nil)
+	}
+
+	returnType := NewAtomicType(AtomicBoolean)
+	funcType := NewFunctionType(string(rule.Head.Name), []RegoTypeDef{keyType}, returnType)
+	ta.setType(rule.Head.Name, funcType)
 }
 
 // analyzeParametricRule analyzes a Rego function / parametric rule and stores a
@@ -551,8 +580,8 @@ func (ta *TypeAnalyzer) AnalyzeRuleBody(rule *ast.Rule, tp *RegoTypeDef) {
 	for _, expr := range rule.Body {
 		ta.InferExprType(expr)
 	}
-	// Analyze rule head value if it exists
-	if rule.Head.Value != nil {
+	// Analyze rule head value if it exists (skip for contains rules which have no head value)
+	if rule.Head.Value != nil && rule.Head.Key == nil {
 		returnType := ta.inferAstType(rule.Head.Value.Value, nil)
 		tp.Union = append(tp.Union, returnType)
 	}

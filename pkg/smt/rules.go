@@ -23,7 +23,11 @@ func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
 	}
-	// FIXME: add `contains` support
+	// contains rule: body determines membership; return (OBoolean true) when body holds
+	if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+		ruleVal := NewSmtValueFromBoolean(true).WrapToDepth(0)
+		return ruleVar, ruleVal, nil
+	}
 	ruleValSmt, err := exprTrans.termToSmtValue(rule.Head.Value)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
@@ -44,7 +48,16 @@ func (t *Translator) ruleToSmtCore(
 		return nil, nil, err
 	}
 
-	bodySmt, localVarDefs, err := exprTrans.BodyToSmt(&rule.Body)
+	// For contains rules, pre-define the key variable so that body assignments
+	// to it produce comparison constraints instead of let-bindings.
+	preDefined := make(map[string]bool)
+	if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+		if v, ok := rule.Head.Key.Value.(ast.Var); ok {
+			preDefined[removeQuotes(v.String())] = true
+		}
+	}
+
+	bodySmt, localVarDefs, err := exprTrans.bodyToSmtWithPredefined(&rule.Body, preDefined)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -91,8 +104,21 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, erro
 }
 
 func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
-	args := make([]Arg, 0)
+	// For contains rules, the head key is the function parameter.
+	if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+		v, ok := rule.Head.Key.Value.(ast.Var)
+		if !ok {
+			return nil, fmt.Errorf("contains rule head key is not a variable")
+		}
+		name := removeQuotes(v.String())
+		tp, ok := t.TypeTrans.TypeInfo.Types[name]
+		if !ok {
+			return nil, verr.ErrTypeNotFound(name)
+		}
+		return []Arg{NewArg(name, tp)}, nil
+	}
 
+	args := make([]Arg, 0)
 	for _, arg := range rule.Head.Args {
 		name := removeQuotes(arg.String())
 		tp, ok := t.TypeTrans.TypeInfo.Types[name]

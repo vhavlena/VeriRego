@@ -73,7 +73,7 @@ func TestInputParameterVars_FromRegoPolicyString(t *testing.T) {
 	}
 	tr := &Translator{mod: mod}
 	got := tr.InputParameterVars()
-	want := []string{"b", "c", "a"}
+	want := []string{"output", "b", "c", "a"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("InputParameterVars() = %v, want %v", got, want)
 	}

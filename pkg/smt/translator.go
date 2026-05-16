@@ -223,11 +223,17 @@ func (t *Translator) InputParameterVars() []string {
 	}
 	var paramVars []string
 	for _, rule := range t.mod.Rules {
-		if rule == nil || rule.Head == nil || rule.Head.Args == nil {
+		if rule == nil || rule.Head == nil {
 			continue
 		}
 		for _, arg := range rule.Head.Args {
 			if varTerm, ok := arg.Value.(ast.Var); ok {
+				paramVars = append(paramVars, varTerm.String())
+			}
+		}
+		// contains rule key variables are function parameters, not global variables
+		if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+			if varTerm, ok := rule.Head.Key.Value.(ast.Var); ok {
 				paramVars = append(paramVars, varTerm.String())
 			}
 		}

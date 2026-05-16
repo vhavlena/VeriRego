@@ -94,8 +94,19 @@ func (et *ExprTranslator) GatherQuant(ruleBody *ast.Body) map[string]bool {
 //	[]varDef: List of definitions for local variables
 //	error
 func (et *ExprTranslator) BodyToSmt(ruleBody *ast.Body) (*SmtProposition, []varDef, error) {
+	return et.bodyToSmtWithPredefined(ruleBody, nil)
+}
+
+// bodyToSmtWithPredefined is like BodyToSmt but treats the names in preDefined
+// as already-bound variables (e.g., contains rule key parameters).  Equality
+// expressions whose LHS is a pre-defined name produce a comparison constraint
+// instead of a let-binding.
+func (et *ExprTranslator) bodyToSmtWithPredefined(ruleBody *ast.Body, preDefined map[string]bool) (*SmtProposition, []varDef, error) {
 	bodySmts := make([]SmtProposition, 0, len(*ruleBody))
-	definedVars := make(map[string]bool, 0)
+	definedVars := make(map[string]bool, len(preDefined))
+	for k, v := range preDefined {
+		definedVars[k] = v
+	}
 	localVarDefs := make([]varDef, 0)
 	for _, expr := range *ruleBody {
 		// single term
@@ -397,6 +408,26 @@ func (et *ExprTranslator) GetSmtRef(base string, tp *types.RegoTypeDef, rest *as
 			if err != nil {
 				return nil, nil, err
 			}
+		case types.KindFunction:
+			// Subscript on a contains/partial-set rule: my_rule[key] → my_rule(key)
+			if actType.FunctionDef == nil {
+				return nil, nil, fmt.Errorf("function type has no definition")
+			}
+			argSmt, err := et.termToSmtValue(term)
+			if err != nil {
+				return nil, nil, err
+			}
+			op, ok := et.funcMap[smtref.value]
+			if !ok {
+				return nil, nil, verr.ErrFunctionNotFound(smtref.value)
+			}
+			result, err := op.SmtCall([]*SmtValue{argSmt})
+			if err != nil {
+				return nil, nil, err
+			}
+			retType := actType.FunctionDef.ReturnType
+			*smtref = *result
+			*actType = retType
 		case types.KindUnion:
 			// TODO: indexation for nested arrays ends up here
 			// for example arr := [[1]] , arr[0][0]
