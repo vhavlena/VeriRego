@@ -376,8 +376,15 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 	}
 
 	tp, ok := et.TypeTrans.TypeInfo.Types[name]
-	if !ok {
-		return nil, verr.ErrTypeNotFound(name)
+	if !ok || (tp.IsFunction() && len(rest) > 0) {
+		// No type entry, OR the base is a contains function being subscripted:
+		// resolve as func(path_literal, value).
+		if sv, err := et.tryContainsFuncRef(name, rest); sv != nil || err != nil {
+			return sv, err
+		}
+		if !ok {
+			return nil, verr.ErrTypeNotFound(name)
+		}
 	}
 	smtRef, actType, err := et.GetSmtRef(name, &tp, &rest)
 	if err != nil {
@@ -391,6 +398,49 @@ func (et *ExprTranslator) refToSmtValue(ref ast.Ref) (*SmtValue, error) {
 		depth:   smtRef.depth,
 		atomics: getAtomicTypes(*actType),
 	}, nil
+}
+
+// tryContainsFuncRef resolves a ref whose base name has no type entry by checking
+// if the base name is a contains function in funcMap.  Such functions have signature
+// (path: Seq OTypeD0, value: OTypeD0) so the call is built as:
+//
+//	(func (path_literal_from_strings) last_term_as_value)
+//
+// All leading constant string terms in rest form the path literal; the final term
+// is the value argument.  Returns (nil, nil) when no match is found.
+func (et *ExprTranslator) tryContainsFuncRef(baseName string, rest ast.Ref) (*SmtValue, error) {
+	op, ok := et.funcMap[baseName]
+	if !ok || len(op.args) != 2 || op.args[0].depth != seqArgDepth {
+		return nil, nil
+	}
+	if len(rest) == 0 {
+		return nil, nil
+	}
+	// Build path from leading String elements; last element is the value.
+	pathElems := make([]string, 0, len(rest)-1)
+	for _, term := range rest[:len(rest)-1] {
+		str, ok := term.Value.(ast.String)
+		if !ok {
+			return nil, nil // non-string path element — not a simple dotted-path call
+		}
+		pathElems = append(pathElems, fmt.Sprintf("(seq.unit \"%s\")", string(str)))
+	}
+	var seqStr string
+	switch len(pathElems) {
+	case 0:
+		seqStr = "(as seq.empty (Seq String))"
+	case 1:
+		seqStr = pathElems[0]
+	default:
+		seqStr = fmt.Sprintf("(seq.++ %s)", strings.Join(pathElems, " "))
+	}
+	pathSmt := &SmtValue{value: seqStr, depth: seqArgDepth}
+	// Value: the last element of rest
+	valueSmt, err := et.termToSmtValue(rest[len(rest)-1])
+	if err != nil {
+		return nil, err
+	}
+	return op.SmtCall([]*SmtValue{pathSmt, valueSmt})
 }
 
 func (et *ExprTranslator) GetSmtRef(base string, tp *types.RegoTypeDef, rest *ast.Ref) (*SmtValue, *types.RegoTypeDef, error) {
@@ -409,7 +459,9 @@ func (et *ExprTranslator) GetSmtRef(base string, tp *types.RegoTypeDef, rest *as
 				return nil, nil, err
 			}
 		case types.KindFunction:
-			// Subscript on a contains/partial-set rule: my_rule[key] → my_rule(key)
+			// Subscript on a contains/partial-set rule: func(path, value).
+			// The path is built from any preceding constant string elements already
+			// consumed as object navigation; here we just have the value subscript.
 			if actType.FunctionDef == nil {
 				return nil, nil, fmt.Errorf("function type has no definition")
 			}
@@ -417,11 +469,15 @@ func (et *ExprTranslator) GetSmtRef(base string, tp *types.RegoTypeDef, rest *as
 			if err != nil {
 				return nil, nil, err
 			}
-			op, ok := et.funcMap[smtref.value]
+			funcName := actType.FunctionDef.Name
+			op, ok := et.funcMap[funcName]
 			if !ok {
-				return nil, nil, verr.ErrFunctionNotFound(smtref.value)
+				return nil, nil, verr.ErrFunctionNotFound(funcName)
 			}
-			result, err := op.SmtCall([]*SmtValue{argSmt})
+			// Build an empty path (all constant path elements were already consumed
+			// as object navigation) and call with (empty_path, value).
+			emptyPath := &SmtValue{value: "(as seq.empty (Seq String))", depth: seqArgDepth}
+			result, err := op.SmtCall([]*SmtValue{emptyPath, argSmt})
 			if err != nil {
 				return nil, nil, err
 			}

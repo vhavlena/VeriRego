@@ -379,6 +379,10 @@ func (sv *SmtValue) AsBool() (*SmtValue, error) {
 
 // AsArgType returns the input SmtValue intepreted as the given ArgType.
 func (sv *SmtValue) AsArgType(t ArgType) (*SmtValue, error) {
+	if t.depth == seqArgDepth {
+		// Seq OTypeD0: pass the value through without wrapping.
+		return sv, nil
+	}
 	if t.depth == -1 {
 		switch t.atomic {
 		case types.AtomicBoolean:
@@ -540,7 +544,13 @@ func DeclareFun(name string, paramSorts []string, retSort string) *SmtCommand {
 func DefineFun(name string, args []Arg, body *SmtValue) *SmtCommand {
 	argStr := "("
 	for _, a := range args {
-		argStr += fmt.Sprintf("(%s %s)", a.name, NewSmtType(uint(a.typ.depth)).String())
+		var sortStr string
+		if a.typ.depth == seqArgDepth {
+			sortStr = "(Seq String)"
+		} else {
+			sortStr = NewSmtType(uint(a.typ.depth)).String()
+		}
+		argStr += fmt.Sprintf("(%s %s)", a.name, sortStr)
 	}
 	argStr += ")"
 

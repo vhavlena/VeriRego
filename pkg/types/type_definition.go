@@ -15,6 +15,9 @@ const (
 	KindUnknown  TypeKind = "unknown"
 	KindUnion    TypeKind = "union"
 	KindFunction TypeKind = "function"
+	// KindSeq represents a sequence type (Seq OTypeD0) used as the path parameter
+	// in contains-rule predicate functions.
+	KindSeq TypeKind = "seq"
 )
 
 // AtomicType represents atomic types in Rego
@@ -215,6 +218,12 @@ func NewUnknownType() RegoTypeDef {
 	}
 }
 
+// NewSeqType creates a RegoTypeDef representing the sequence sort (Seq OTypeD0).
+// This is used as the type of the path parameter in contains-rule predicate functions.
+func NewSeqType() RegoTypeDef {
+	return RegoTypeDef{Kind: KindSeq}
+}
+
 // NewFunctionType creates a new RegoTypeDef for a function / parametric rule.
 //
 // Parameters:
@@ -285,7 +294,7 @@ func (t *RegoTypeDef) HasNoAdditionalPropertiesDeep() bool {
 	}
 
 	switch t.Kind {
-	case KindAtomic, KindUnknown, KindFunction:
+	case KindAtomic, KindUnknown, KindFunction, KindSeq:
 		return true
 	case KindArray:
 		if t.ArrayType == nil {
@@ -417,6 +426,8 @@ func (t *RegoTypeDef) IsEqual(other *RegoTypeDef) bool {
 			}
 		}
 		return t.FunctionDef.ReturnType.IsEqual(&other.FunctionDef.ReturnType)
+	case KindSeq:
+		return true // all Seq types are the same (Seq String)
 	}
 	return false
 }
@@ -806,7 +817,7 @@ func CopyTypeMap(src map[string]RegoTypeDef) map[string]RegoTypeDef {
 //	int: The depth of the type. For atomic and unknown types, the depth is 1. For arrays and objects, it is 1 plus the maximum depth of nested types.
 func (t *RegoTypeDef) TypeDepth() int {
 	switch t.Kind {
-	case KindAtomic, KindUnknown:
+	case KindAtomic, KindUnknown, KindSeq:
 		return 0
 	case KindArray:
 		if t.ArrayType == nil {

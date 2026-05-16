@@ -7,6 +7,10 @@ import (
 	types "github.com/vhavlena/verirego/pkg/types"
 )
 
+// seqArgDepth is a sentinel depth value that marks an argument as having the
+// SMT sort (Seq String) rather than one of the standard OTypeD<n> sorts.
+const seqArgDepth = -10
+
 // ArgType is a structure holding information about function arguments
 // It has depth specified separately, since for builtin functions, it should be -1
 // For user-defined functions, it is primarily 0 (may be a subject to change)
@@ -26,6 +30,11 @@ func NewArg(name string, tp types.RegoTypeDef) Arg {
 		name: name,
 		typ:  newArgTypeFromTypeDef(tp),
 	}
+}
+
+// newPathArg creates an Arg for the path parameter (sort: Seq OTypeD0).
+func newPathArg(name string) Arg {
+	return Arg{name: name, typ: ArgType{depth: seqArgDepth}}
 }
 
 // transformType maps Rego ast Type into intermediate AtomicType
@@ -199,6 +208,9 @@ func GetBuiltinFuncMap() map[string]Function {
 
 // newArgTypeFromTypeDef transforms RegoTypeDef into ArgType.
 func newArgTypeFromTypeDef(t types.RegoTypeDef) ArgType {
+	if t.Kind == types.KindSeq {
+		return ArgType{depth: seqArgDepth}
+	}
 	return ArgType{
 		depth:  t.TypeDepth(),
 		atomic: t.AtomicType,

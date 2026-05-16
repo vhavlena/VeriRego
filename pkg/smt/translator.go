@@ -231,10 +231,21 @@ func (t *Translator) InputParameterVars() []string {
 				paramVars = append(paramVars, varTerm.String())
 			}
 		}
-		// contains rule key variables are function parameters, not global variables
+		// For contains rules, only the value key is a named parameter; the path
+		// parameter (__pathP__) is synthetic and never in TypeInfo.Types.
+		// Subscript variables in Head.Ref()[1:] are now body let-bindings, not params.
 		if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
 			if varTerm, ok := rule.Head.Key.Value.(ast.Var); ok {
 				paramVars = append(paramVars, varTerm.String())
+			}
+		}
+		// For rules that generate a define-fun (parametric or contains), body-local
+		// variables become let-bindings inside the function body and must not be
+		// declared as global SMT variables (to avoid duplicate type declarations).
+		if len(rule.Head.Args) > 0 || rule.Head.Key != nil {
+			vc := types.ClassifyVarsBranch(rule)
+			for name := range vc.Local {
+				paramVars = append(paramVars, name)
 			}
 		}
 	}
@@ -345,7 +356,17 @@ func (t *Translator) TranslateModuleToSmt() error {
 		if rule.Default {
 			continue
 		}
-		name := rule.Head.Name.String()
+		// Dotted-path assignment rules (rule.a.b := v) group by full ref path so
+		// that different field paths of the same base object generate independent
+		// assertions rather than being incorrectly combined as incremental rules.
+		// Contains rules (including dotted-path ones) group by base name since they
+		// all share the same rule(path, value) function signature.
+		var name string
+		if rule.Head.Key == nil && len(rule.Head.Args) == 0 && len(rule.Head.Ref()) > 1 {
+			name = rule.Head.Ref().String()
+		} else {
+			name = ruleHeadName(rule).String()
+		}
 		if idx, ok := seen[name]; ok {
 			groups[idx].rules = append(groups[idx].rules, rule)
 		} else {

@@ -161,6 +161,155 @@ allow if {
 		}
 	})
 
+	// Subscripted contains rule: reasons[item.id] contains message if { ... }
+	// translates as a two-parameter predicate reasons(subscript_key, contains_val).
+	t.Run("SubscriptedContainsRule_SmtOutput", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package test
+
+reasons[item.id] contains message if {
+    item := input.item
+    message := item.label
+}
+`
+		schema := []byte(`{
+			"type": "object",
+			"properties": {
+				"item": {
+					"type": "object",
+					"properties": {
+						"id":    {"type": "integer"},
+						"label": {"type": "string"}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		// The generated SMT must define a two-parameter function for reasons.
+		if !strings.Contains(result.SmtContent, "define-fun reasons") {
+			t.Errorf("expected define-fun for reasons in SMT output:\n%s", result.SmtContent)
+		}
+	})
+
+	// Dotted-path contains rule: rule.a.b contains value if { ... }
+	// Constant string path elements are encoded in the function name (rule_a_b),
+	// only the contains key variable is a parameter.
+	t.Run("DottedPathContains_SmtOutput", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package test
+
+rule.a.b contains value if {
+    value := input.role
+}
+`
+		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"}},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		// The SMT must define a function named rule (path encoded as Seq String parameter).
+		if !strings.Contains(result.SmtContent, "define-fun rule") {
+			t.Errorf("expected define-fun rule in SMT output:\n%s", result.SmtContent)
+		}
+		// The function signature must include the Seq String path parameter.
+		if !strings.Contains(result.SmtContent, "(Seq String)") {
+			t.Errorf("expected (Seq String) path parameter in SMT output:\n%s", result.SmtContent)
+		}
+	})
+
+	// Dotted-path contains used in a body: allow if { rule.a.b[input.role] }
+	t.Run("DottedPathContains_UsedInBody", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package test
+
+rule.a.b contains value if {
+    value := input.role
+}
+
+allow if {
+    rule.a.b[input.role]
+}
+`
+		schema := []byte(`{"type":"object","properties":{"role":{"type":"string"}},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if _, ok := result.Vars["allow"]; !ok {
+			t.Errorf("expected 'allow' in model vars, got: %v", varKeys(result.Vars))
+		}
+	})
+
+	// Dotted-path rule: rule.a.b := v if { body }.  The generated assertion constrains
+	// the nested field rule["a"]["b"] rather than the base object itself.
+	t.Run("DottedPathRule_SmtOutput", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package test
+
+rule.a.b := v if {
+    v := 1
+}
+`
+		schema := []byte(`{"type":"object","additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		// The SMT must assert something about the field, not the whole object.
+		if !strings.Contains(result.SmtContent, `"a"`) || !strings.Contains(result.SmtContent, `"b"`) {
+			t.Errorf("expected field path \"a\"/\"b\" in SMT output:\n%s", result.SmtContent)
+		}
+	})
+
+	// Dotted-path rule with body constraint; Z3 must find a satisfying model.
+	t.Run("DottedPathRule_BodyConstraint", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package test
+
+rule.status := v if {
+    v := input.active
+}
+`
+		schema := []byte(`{"type":"object","properties":{"active":{"type":"boolean"}},"additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if !strings.Contains(result.SmtContent, `"status"`) {
+			t.Errorf("expected field path \"status\" in SMT output:\n%s", result.SmtContent)
+		}
+	})
+
+	// Two dotted-path rules defining different fields of the same base object are
+	// translated as independent field assertions, not combined as incremental rules.
+	t.Run("DottedPathRule_MultipleFields", func(t *testing.T) {
+		t.Parallel()
+		rego := `
+package test
+
+rule.x := v1 if { v1 := 1 }
+rule.y := v2 if { v2 := 2 }
+`
+		schema := []byte(`{"type":"object","additionalProperties":false}`)
+		result, err := RunPolicyToModel(rego, schema, nil)
+		if err != nil {
+			t.Fatalf("RunPolicyToModel error: %v", err)
+		}
+		if !strings.Contains(result.SmtContent, `"x"`) || !strings.Contains(result.SmtContent, `"y"`) {
+			t.Errorf("expected both field paths \"x\" and \"y\" in SMT output:\n%s", result.SmtContent)
+		}
+	})
+
 	// Contains rule where the satisfying model must fix input.role.
 	// Since allow requires allowed_roles[input.role], and allowed_roles(v) is true iff
 	// v == input.role (both from the same field), Z3 must assign input.role some string.

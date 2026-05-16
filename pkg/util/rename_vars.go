@@ -132,6 +132,17 @@ func (w *renameWalker) inHead(head *ast.Head) *ast.Head {
 		}
 		newHead.Args = newArgs
 	}
+	// Rename subscript variables in the head reference (e.g. reasons[key] contains msg).
+	// head.Reference is the underlying storage for the Ref() method; subscript elements
+	// start at index 1 (index 0 is the base rule name and is never renamed).
+	if len(head.Reference) > 1 {
+		newRef := make(ast.Ref, len(head.Reference))
+		copy(newRef, head.Reference)
+		for i := 1; i < len(head.Reference); i++ {
+			newRef[i] = w.inTerm(head.Reference[i])
+		}
+		newHead.Reference = newRef
+	}
 	return &newHead
 }
 
