@@ -21,32 +21,38 @@ type PolicyModel struct {
 	SmtContent string
 }
 
-// RunPolicyToModel is a test helper that executes the complete pipeline on a
-// Rego policy string, mirroring the cmd/smt binary:
+// RunPolicyToModel is a shorthand for RunPolicyToModelWithMeta with no metadata.
+func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byte) (*PolicyModel, error) {
+	return RunPolicyToModelWithMeta(regoPolicy, jsonSchema, dataJsonSchema, TranslatorMetadata{})
+}
+
+// RunPolicyToModelWithMeta executes the complete pipeline on a Rego policy string,
+// mirroring the cmd/smt binary:
 //
 //  1. Parse the Rego source (Rego v1).
 //  2. Compile with OPA's compiler.
 //  3. Rename local variables to unique names.
 //  4. Inline predicate definitions.
 //  5. Infer types, optionally guided by a JSON Schema document.
-//  6. Translate to SMT-LIB.
+//  6. Translate to SMT-LIB, applying meta (e.g. NamePrefix, EntryPoint).
 //  7. Assert the SMT-LIB in Z3 and check satisfiability.
 //  8. Extract and return a model for all declared global variables.
 //
 // The returned PolicyModel includes the raw SMT-LIB2 string (SmtContent) for
-// debugging and testing purposes, regardless of satisfiability.
+// debugging, regardless of satisfiability.
 //
 // Parameters:
 //
 //	regoPolicy     - Rego v1 policy source code (not a file path).
 //	jsonSchema     - Raw JSON Schema bytes for input type inference; pass nil for no schema.
 //	dataJsonSchema - Raw JSON Schema bytes for data type inference; pass nil for no schema.
+//	meta           - Translator metadata (EntryPoint, NamePrefix); use TranslatorMetadata{} for defaults.
 //
 // Returns:
 //
 //	*PolicyModel - Satisfying model with variable values and SMT content (only when SAT).
 //	error        - Non-nil on any pipeline failure or when the formula is UNSAT.
-func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byte) (*PolicyModel, error) {
+func RunPolicyToModelWithMeta(regoPolicy string, jsonSchema []byte, dataJsonSchema []byte, meta TranslatorMetadata) (*PolicyModel, error) {
 	// 1. Parse the Rego policy (Rego v1).
 	mod, err := ast.ParseModuleWithOpts("policy.rego", regoPolicy, ast.ParserOptions{
 		RegoVersion: ast.RegoV1,
@@ -57,9 +63,7 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 
 	// 2. Compile with OPA's compiler.
 	compiler := ast.NewCompiler()
-	compiler.Compile(map[string]*ast.Module{
-		mod.Package.Path.String(): mod,
-	})
+	compiler.Compile(map[string]*ast.Module{mod.Package.Path.String(): mod})
 	if compiler.Failed() {
 		return nil, fmt.Errorf("compile: %v", compiler.Errors)
 	}
@@ -78,9 +82,8 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	compiledModule = types.RestoreEqualityOperators(mod, compiledModule)
 
 	// 5. Build input schema from the JSON Schema document.
-	// GenerateSmtContent always declares input, which requires a
-	// typed schema to generate constraints. Fall back to an empty object schema
-	// when no JSON Schema is provided so the pipeline succeeds.
+	// GenerateSmtContent always declares input, which requires a typed schema to
+	// generate constraints. Fall back to an empty object schema when none is provided.
 	inputSchema := types.InputSchemaAPI(types.NewInputJsonSchema())
 	if len(jsonSchema) > 0 {
 		js := types.NewInputJsonSchema()
@@ -106,14 +109,13 @@ func RunPolicyToModel(regoPolicy string, jsonSchema []byte, dataJsonSchema []byt
 	typeAnalyzer.AnalyzeModule(compiledModule)
 
 	// 7. Generate SMT-LIB content.
-	translator := NewTranslator(typeAnalyzer, compiledModule)
+	translator := NewTranslatorWithMetadata(typeAnalyzer, compiledModule, meta)
 	if err := translator.GenerateSmtContent(); err != nil {
 		return nil, fmt.Errorf("smt generation: %w", err)
 	}
 	smtContent := strings.Join(translator.SmtLines(), "\n")
 
 	// 8. Assert the SMT-LIB in Z3 and check satisfiability.
-	// smtContent is also stored in the returned PolicyModel for debugging.
 	ctx := z3.NewContext(nil)
 	defer ctx.Close()
 	solver := ctx.NewSolver()
