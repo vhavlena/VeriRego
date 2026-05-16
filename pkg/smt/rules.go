@@ -152,7 +152,9 @@ func (t *Translator) IncrementalRulesToSmt(name string, rules []*ast.Rule) error
 		}
 		retDepth = smtVal.depth
 
-		t.smtDecls = append(t.smtDecls, DefineFun(t.applyPrefix(occName), occArgs, smtVal))
+		smtName := t.applyPrefix(occName)
+		t.smtDecls = append(t.smtDecls, DefineFun(smtName, occArgs, smtVal))
+		t.Metadata.RuleGroups[t.applyPrefix(name)] = append(t.Metadata.RuleGroups[t.applyPrefix(name)], smtName)
 	}
 
 	// Build combinator from right to left: start with default (or OUndef)
@@ -217,11 +219,11 @@ func (t *Translator) RuleToSmt(rule *ast.Rule) error {
 	}
 
 	if len(args) == 0 {
-		assertion := Assert(name.Equals(value))
-		t.smtAsserts = append(t.smtAsserts, assertion)
+		t.smtAsserts = append(t.smtAsserts, Assert(name.Equals(value)))
 	} else {
-		fun := DefineFun(t.applyPrefix(name.String()), args, value)
-		t.smtDecls = append(t.smtDecls, fun)
+		smtName := t.applyPrefix(name.String())
+		t.smtDecls = append(t.smtDecls, DefineFun(smtName, args, value))
+		t.Metadata.RuleGroups[smtName] = []string{smtName}
 	}
 
 	return nil

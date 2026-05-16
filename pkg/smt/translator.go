@@ -32,7 +32,7 @@ func NewTransContextWithVarMap(varMap map[string]string) *TransContext {
 
 //-------------------------------------------------------------
 
-// TranslatorMetadata holds optional configuration that affects SMT output naming.
+// TranslatorMetadata holds configuration and derived information about a translation run.
 type TranslatorMetadata struct {
 	// EntryPoint is the name of the main rule to verify. When set, it can be
 	// used by callers to identify which rule acts as the top-level entry point.
@@ -41,6 +41,13 @@ type TranslatorMetadata struct {
 	// output. Use this when merging multiple Rego modules into one SMT file to
 	// avoid name collisions between modules.
 	NamePrefix string
+	// RuleGroups maps each non-default rule name to the ordered list of SMT
+	// define-fun names that represent its individual rule bodies. For a single
+	// parametric rule "foo(x)" this is ["pfx_foo"]; for incremental occurrences
+	// it is the per-occurrence helpers ["pfx_foo_1", "pfx_foo_2", …].
+	// Zero-argument (non-parametric) single rules produce only an assertion and
+	// are not recorded here. Populated automatically during TranslateModuleToSmt.
+	RuleGroups map[string][]string
 }
 
 // Translator is responsible for translating Rego terms to SMT expressions.
@@ -66,6 +73,7 @@ func NewTranslator(typeInfo *types.TypeAnalyzer, mod *ast.Module) *Translator {
 // Metadata (e.g. NamePrefix) is applied during construction so that user-defined function
 // call sites in the generated SMT already carry the correct prefix.
 func NewTranslatorWithMetadata(typeInfo *types.TypeAnalyzer, mod *ast.Module, meta TranslatorMetadata) *Translator {
+	meta.RuleGroups = make(map[string][]string)
 	t := &Translator{
 		TypeTrans:    NewTypeDefs(typeInfo),
 		VarMap:       make(map[string]string),
