@@ -208,9 +208,6 @@ func GetBuiltinFuncMap() map[string]Function {
 
 // newArgTypeFromTypeDef transforms RegoTypeDef into ArgType.
 func newArgTypeFromTypeDef(t types.RegoTypeDef) ArgType {
-	if t.Kind == types.KindSeq {
-		return ArgType{depth: seqArgDepth}
-	}
 	return ArgType{
 		depth:  t.TypeDepth(),
 		atomic: t.AtomicType,
@@ -225,6 +222,22 @@ func NewFunction(name string, tp types.RegoTypeDef) Function {
 	args := make([]ArgType, len(tp.FunctionDef.ParamTypes))
 	for i, p := range tp.FunctionDef.ParamTypes {
 		args[i] = newArgTypeFromTypeDef(p)
+	}
+	res := newArgTypeFromTypeDef(tp.FunctionDef.ReturnType)
+	call := mkSmtFunction(name)
+	return Function{name: name, args: args, result: res, call: call}
+}
+
+// newContainsFunction builds a Function for a contains rule, prepending the
+// (Seq String) path parameter before the key parameters from the type definition.
+func newContainsFunction(name string, tp types.RegoTypeDef) Function {
+	if tp.FunctionDef == nil {
+		panic("function type expected")
+	}
+	args := make([]ArgType, 1+len(tp.FunctionDef.ParamTypes))
+	args[0] = ArgType{depth: seqArgDepth}
+	for i, p := range tp.FunctionDef.ParamTypes {
+		args[i+1] = newArgTypeFromTypeDef(p)
 	}
 	res := newArgTypeFromTypeDef(tp.FunctionDef.ReturnType)
 	call := mkSmtFunction(name)

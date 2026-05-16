@@ -135,6 +135,13 @@ func (t *Translator) AppendBucket(bucket *Bucket) {
 // The funcMap key stays as the unqualified Rego name so call-site lookups work; the SMT
 // function name inside each entry uses applyPrefix so emitted calls carry the right name.
 func (t *Translator) generateFunctions() {
+	containsNames := make(map[string]bool)
+	for _, rule := range t.mod.Rules {
+		if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+			containsNames[containsRuleSmtName(rule)] = true
+		}
+	}
+
 	for op, ft := range t.TypeTrans.TypeInfo.Types {
 		if !ft.IsFunction() {
 			continue
@@ -145,7 +152,11 @@ func (t *Translator) generateFunctions() {
 			// e.g. defining `plus` would redefine builtin `+` operator
 			// this is in accordance with Rego functionality
 		}
-		t.funcMap[op] = NewFunction(t.applyPrefix(op), ft)
+		if containsNames[op] {
+			t.funcMap[op] = newContainsFunction(t.applyPrefix(op), ft)
+		} else {
+			t.funcMap[op] = NewFunction(t.applyPrefix(op), ft)
+		}
 	}
 }
 

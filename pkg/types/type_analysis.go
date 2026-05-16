@@ -495,13 +495,7 @@ func (ta *TypeAnalyzer) analyzeContainsRule(rule *ast.Rule) {
 		keyType = ta.inferAstType(rule.Head.Key.Value, nil)
 	}
 
-	// All contains rules get a two-parameter signature:
-	//   rule(path: Seq OTypeD0, value: OTypeD0) -> Boolean
-	// The path encodes the navigation steps (constant strings and variable subscripts
-	// from Head.Ref()[1:]) so that multiple rules on the same base object can share
-	// one function and be discriminated at call time.
-	pathType := NewSeqType()
-	paramTypes := []RegoTypeDef{pathType, keyType}
+	paramTypes := []RegoTypeDef{keyType}
 
 	// Use the base name (ref[0]) as the SMT function name.
 	headName := rule.Head.Name
