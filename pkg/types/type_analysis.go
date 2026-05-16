@@ -417,10 +417,100 @@ func (ta *TypeAnalyzer) AnalyzeRule(rule *ast.Rule) {
 		ta.analyzeParametricRule(rule)
 		return
 	}
+	if rule.Head.Key != nil {
+		ta.analyzeContainsRule(rule)
+		return
+	}
+	// Dotted-path rule: e.g. rule.a.b := v or rule.status := v
+	// (Ref has more than one element; Key is nil, distinguishing from contains rules).
+	if len(rule.Head.Ref()) > 1 {
+		ta.analyzeDottedPathRule(rule)
+		return
+	}
 	tp := NewUnionType([]RegoTypeDef{})
 	ta.AnalyzeRuleBody(rule, &tp)
 	tp.CanonizeUnion()
 	ta.setType(rule.Head.Name, tp)
+}
+
+// analyzeDottedPathRule analyzes a rule with a nested reference head such as
+// rule.a.b := v if { body }.  The type of the base variable (rule) is inferred
+// bottom-up from the path elements and the head value type.
+func (ta *TypeAnalyzer) analyzeDottedPathRule(rule *ast.Rule) {
+	for _, expr := range rule.Body {
+		ta.InferExprType(expr)
+	}
+
+	// Infer leaf type from the head value.
+	var leafType RegoTypeDef
+	if rule.Head.Value != nil {
+		if v, ok := rule.Head.Value.Value.(ast.Var); ok {
+			if t, exists := ta.Types[string(v)]; exists {
+				leafType = t
+			} else {
+				leafType = NewUnknownType()
+			}
+		} else {
+			leafType = ta.inferAstType(rule.Head.Value.Value, nil)
+		}
+	}
+
+	// Build the nested object type bottom-up along the path (skip ref[0] = base name).
+	ref := rule.Head.Ref()
+	resultType := leafType
+	for i := len(ref) - 1; i >= 1; i-- {
+		term := ref[i]
+		switch v := term.Value.(type) {
+		case ast.String:
+			resultType = NewObjectType(map[string]RegoTypeDef{string(v): resultType})
+		default:
+			// Variable subscript — not yet supported for constant-path rules; use unknown.
+			resultType = NewUnknownType()
+		}
+	}
+
+	// Store the inferred object type under the base rule name.
+	if baseName, ok := ref[0].Value.(ast.Var); ok {
+		ta.setType(baseName, resultType)
+	}
+}
+
+// analyzeContainsRule analyzes a Rego partial-set (contains) rule.
+// Simple form: `name contains key if { body }` → name(key) -> Boolean.
+// Subscripted form: `name[subscript] contains key if { body }` → name(subscript, key) -> Boolean.
+func (ta *TypeAnalyzer) analyzeContainsRule(rule *ast.Rule) {
+	for _, expr := range rule.Body {
+		ta.InferExprType(expr)
+	}
+
+	// Infer the contains key (value) type.
+	var keyType RegoTypeDef
+	if v, ok := rule.Head.Key.Value.(ast.Var); ok {
+		if existing, exists := ta.Types[string(v)]; exists {
+			keyType = existing
+		} else {
+			keyType = NewUnknownType()
+		}
+	} else {
+		keyType = ta.inferAstType(rule.Head.Key.Value, nil)
+	}
+
+	paramTypes := []RegoTypeDef{keyType}
+
+	// Use the base name (ref[0]) as the SMT function name.
+	headName := rule.Head.Name
+	if headName == "" {
+		ref := rule.Head.Ref()
+		if len(ref) > 0 {
+			if v, ok := ref[0].Value.(ast.Var); ok {
+				headName = v
+			}
+		}
+	}
+
+	returnType := NewAtomicType(AtomicBoolean)
+	funcType := NewFunctionType(string(headName), paramTypes, returnType)
+	ta.setType(headName, funcType)
 }
 
 // analyzeParametricRule analyzes a Rego function / parametric rule and stores a
@@ -551,8 +641,8 @@ func (ta *TypeAnalyzer) AnalyzeRuleBody(rule *ast.Rule, tp *RegoTypeDef) {
 	for _, expr := range rule.Body {
 		ta.InferExprType(expr)
 	}
-	// Analyze rule head value if it exists
-	if rule.Head.Value != nil {
+	// Analyze rule head value if it exists (skip for contains rules which have no head value)
+	if rule.Head.Value != nil && rule.Head.Key == nil {
 		returnType := ta.inferAstType(rule.Head.Value.Value, nil)
 		tp.Union = append(tp.Union, returnType)
 	}

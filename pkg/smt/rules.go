@@ -6,24 +6,83 @@ import (
 
 	"github.com/open-policy-agent/opa/v1/ast"
 	verr "github.com/vhavlena/verirego/pkg/err"
+	"github.com/vhavlena/verirego/pkg/types"
 )
+
+// pathParamName is the synthetic parameter name used for the path argument
+// (Seq OTypeD0) in every contains-rule predicate function.
+const pathParamName = "__pathP__"
+
+// ruleHeadName returns the base variable name for a rule.
+// For most rules this is rule.Head.Name. For subscripted or dotted-path rules
+// (e.g. reasons[key] contains msg, rule.a.b := v) rule.Head.Name is empty and
+// the name must be read from the first element of rule.Head.Ref().
+func ruleHeadName(rule *ast.Rule) ast.Var {
+	if rule.Head.Name != "" {
+		return rule.Head.Name
+	}
+	ref := rule.Head.Ref()
+	if len(ref) > 0 {
+		if v, ok := ref[0].Value.(ast.Var); ok {
+			return v
+		}
+	}
+	return rule.Head.Name
+}
+
+// containsRuleSmtName returns the SMT function name for a contains rule.
+// All contains rules use the base variable name (ref[0]); the path elements
+// are encoded as the first (Seq OTypeD0) parameter at call time, not in the name.
+func containsRuleSmtName(rule *ast.Rule) string {
+	return ruleHeadName(rule).String()
+}
 
 // ruleHeadValueSmt returns smt values for a rule variable and its corresponding value
 //
 // Returns:
 //
-//	*SmtValue: variable
+//	*SmtValue: variable (or field-select expression for dotted-path rules)
 //	*SmtValue: value
 //	error
 func (t *Translator) ruleHeadValueSmt(rule *ast.Rule, exprTrans *ExprTranslator) (*SmtValue, *SmtValue, error) {
 	if rule == nil || rule.Head == nil {
 		return nil, nil, fmt.Errorf("invalid rule: nil head")
 	}
-	ruleVar, err := NewSmtValueFromVar(rule.Head.Name, exprTrans)
+	// For contains rules the SMT name may encode a dotted path (e.g. rule_a_b).
+	// Look it up via the compound name so the correct FunctionType is found.
+	var ruleVar *SmtValue
+	var err error
+	if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+		smtName := containsRuleSmtName(rule)
+		ruleVar, err = NewSmtValueFromVar(ast.Var(smtName), exprTrans)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to convert contains rule head: %w", err)
+		}
+		ruleVal := NewSmtValueFromBoolean(true).WrapToDepth(0)
+		return ruleVar, ruleVal, nil
+	}
+	ruleVar, err = NewSmtValueFromVar(ruleHeadName(rule), exprTrans)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
 	}
-	// FIXME: add `contains` support
+	// dotted-path rule (e.g. rule.a.b := v or rule.status := v): navigate constant string
+	// path elements so the returned head SmtValue is the field-select expression.
+	if len(rule.Head.Ref()) > 1 && rule.Head.Key == nil && len(rule.Head.Args) == 0 {
+		pathVal := ruleVar
+		for _, term := range rule.Head.Ref()[1:] {
+			str, ok := term.Value.(ast.String)
+			if !ok {
+				return nil, nil, fmt.Errorf("unsupported non-constant path element in dotted-path rule")
+			}
+			key := fmt.Sprintf("%q", string(str))
+			pathVal = pathVal.SelectObj(key)
+		}
+		ruleValSmt, err := exprTrans.termToSmtValue(rule.Head.Value)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to convert dotted-path rule head value: %w", err)
+		}
+		return pathVal, ruleValSmt, nil
+	}
 	ruleValSmt, err := exprTrans.termToSmtValue(rule.Head.Value)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to convert rule head value: %w", err)
@@ -44,16 +103,65 @@ func (t *Translator) ruleToSmtCore(
 		return nil, nil, err
 	}
 
-	bodySmt, localVarDefs, err := exprTrans.BodyToSmt(&rule.Body)
+	// Compute pre-defined parameters for body translation.
+	// For contains rules: only pre-define the value key (not the path param or subscript vars).
+	//   - pathParamName (__pathP__) never appears in the body → no need to pre-define.
+	//   - subscript variables in Head.Ref()[1:] become let-bindings; they appear in the
+	//     path constraint added after body translation.
+	//   - the value key (Head.Key) is a function parameter → pre-define so assignments
+	//     to it produce comparison constraints.
+	// For parametric rules: pre-define all args (existing behaviour).
+	args, err := t.getArgs(rule)
 	if err != nil {
 		return nil, nil, err
 	}
+	preDefined := make(map[string]bool, len(args))
+	for _, arg := range args {
+		if arg.typ.depth != seqArgDepth { // skip the Seq path parameter
+			preDefined[arg.name] = true
+		}
+	}
+
+	bodySmt, localVarDefs, err := exprTrans.bodyToSmtWithPredefined(&rule.Body, preDefined)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// For contains rules, add the path constraint so the function body discriminates
+	// by path: (= __pathP__ path_literal_from_ref).
+	if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+		pathSmt, err := buildPathSmtValue(rule, exprTrans)
+		if err != nil {
+			return nil, nil, err
+		}
+		pathConstraint := RawProposition(fmt.Sprintf("(= %s %s)", pathParamName, pathSmt.String()))
+		bodySmt = AndPtrs([]*SmtProposition{pathConstraint, bodySmt})
+	}
 	t.AddTransContext(exprTrans.GetTransContext())
 
-	name := rule.Head.Name.String()
+	// For contains rules with dotted paths, use the compound SMT name (e.g. "rule_a_b")
+	// so that GetDefaultValue finds the correct FunctionType entry.
+	var name string
+	if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+		name = containsRuleSmtName(rule)
+	} else {
+		name = ruleHeadName(rule).String()
+	}
 	depth := 0
 	if tp, ok := t.TypeTrans.TypeInfo.Types[name]; ok {
 		depth = max(tp.TypeDepth(), 0)
+	}
+	// For dotted-path rules the default value is for the leaf field, not the base object.
+	// Use the head value variable's type depth so OUndef is generated at the correct sort.
+	defaultName := name
+	if len(rule.Head.Ref()) > 1 && rule.Head.Key == nil && len(rule.Head.Args) == 0 && rule.Head.Value != nil {
+		if v, ok := rule.Head.Value.Value.(ast.Var); ok {
+			leafName := removeQuotes(v.String())
+			if tp, ok := t.TypeTrans.TypeInfo.Types[leafName]; ok {
+				depth = tp.TypeDepth()
+				defaultName = leafName
+			}
+		}
 	}
 
 	var elseSmt *SmtValue
@@ -63,7 +171,7 @@ func (t *Translator) ruleToSmtCore(
 			return nil, nil, err
 		}
 	} else {
-		elseSmt, err = getDefault(name, depth)
+		elseSmt, err = getDefault(defaultName, depth)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -91,8 +199,22 @@ func (t *Translator) ruleToSmtString(rule *ast.Rule) (*SmtValue, *SmtValue, erro
 }
 
 func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
-	args := make([]Arg, 0)
+	// For contains rules: rule(path: Seq OTypeD0, value: OTypeD0) -> Boolean.
+	// The path encodes the navigation steps at call time; the value is the Head.Key.
+	if rule.Head.Key != nil && len(rule.Head.Args) == 0 {
+		v, ok := rule.Head.Key.Value.(ast.Var)
+		if !ok {
+			return nil, fmt.Errorf("contains rule head key is not a variable")
+		}
+		keyName := removeQuotes(v.String())
+		tp, ok := t.TypeTrans.TypeInfo.Types[keyName]
+		if !ok {
+			return nil, verr.ErrTypeNotFound(keyName)
+		}
+		return []Arg{newPathArg(pathParamName), NewArg(keyName, tp)}, nil
+	}
 
+	args := make([]Arg, 0)
 	for _, arg := range rule.Head.Args {
 		name := removeQuotes(arg.String())
 		tp, ok := t.TypeTrans.TypeInfo.Types[name]
@@ -102,6 +224,61 @@ func (t *Translator) getArgs(rule *ast.Rule) ([]Arg, error) {
 		args = append(args, NewArg(name, tp))
 	}
 	return args, nil
+}
+
+// buildPathSmtValue constructs the SMT (Seq String) literal from the path elements
+// in rule.Head.Ref()[1:].  Constant string elements are used directly as SMT string
+// literals; variable elements are converted to String using type-aware extractors.
+func buildPathSmtValue(rule *ast.Rule, exprTrans *ExprTranslator) (*SmtValue, error) {
+	elems := make([]string, 0)
+	for _, term := range rule.Head.Ref()[1:] {
+		var elemStr string
+		switch v := term.Value.(type) {
+		case ast.String:
+			// Constant string: use directly as a SMT string literal.
+			elemStr = fmt.Sprintf("(seq.unit \"%s\")", string(v))
+		case ast.Var:
+			name := removeQuotes(v.String())
+			tp, ok := exprTrans.TypeTrans.TypeInfo.Types[name]
+			if !ok {
+				return nil, verr.ErrTypeNotFound(name)
+			}
+			sv, err := exprTrans.termToSmtValue(term)
+			if err != nil {
+				return nil, err
+			}
+			// Convert OTypeD0 value to a String for (Seq String).
+			var strPart string
+			if tp.IsAtomic() && tp.AtomicType == types.AtomicString {
+				strVal, err := sv.AsString()
+				if err != nil {
+					return nil, err
+				}
+				strPart = strVal.String()
+			} else {
+				intVal, err := sv.AsInt()
+				if err != nil {
+					return nil, fmt.Errorf("path element %s has unsupported type for Seq String", name)
+				}
+				strPart = fmt.Sprintf("(str.from_int %s)", intVal.String())
+			}
+			elemStr = fmt.Sprintf("(seq.unit %s)", strPart)
+		default:
+			return nil, fmt.Errorf("unsupported path element type %T in contains rule", term.Value)
+		}
+		elems = append(elems, elemStr)
+	}
+
+	var seqStr string
+	switch len(elems) {
+	case 0:
+		seqStr = "(as seq.empty (Seq String))"
+	case 1:
+		seqStr = elems[0]
+	default:
+		seqStr = fmt.Sprintf("(seq.++ %s)", strings.Join(elems, " "))
+	}
+	return &SmtValue{value: seqStr, depth: seqArgDepth}, nil
 }
 
 // ruleOccurrenceToSmt is like ruleToSmtString but always uses OUndef as the else clause

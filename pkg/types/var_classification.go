@@ -137,9 +137,12 @@ func ClassifyVarsBranch(rule *ast.Rule) VarClassification {
 	if rule.Head.Value != nil {
 		collectVarsLocal(rule.Head.Value, &vc)
 	}
-	// Head key of a partial-set / partial-object rule is quantified.
+	// Head key and subscript variables of a partial-set / partial-object rule are quantified.
 	if rule.Head.Key != nil {
 		collectVarsQuantified(rule.Head.Key, &vc)
+	}
+	for _, term := range rule.Head.Ref()[1:] {
+		collectVarsQuantified(term, &vc)
 	}
 	// Classify body expressions (no else recursion).
 	for _, expr := range rule.Body {
@@ -177,9 +180,12 @@ func ClassifyVars(rule *ast.Rule) VarClassification {
 
 // classifyRule processes a rule (and any else branch) into vc.
 func classifyRule(rule *ast.Rule, vc *VarClassification) {
-	// Head key of a partial-set / partial-object rule is always quantified.
+	// Head key and subscript variables of a partial-set / partial-object rule are always quantified.
 	if rule.Head.Key != nil {
 		collectVarsQuantified(rule.Head.Key, vc)
+	}
+	for _, term := range rule.Head.Ref()[1:] {
+		collectVarsQuantified(term, vc)
 	}
 	for _, expr := range rule.Body {
 		classifyExpr(expr, vc)

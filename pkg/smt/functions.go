@@ -7,6 +7,10 @@ import (
 	types "github.com/vhavlena/verirego/pkg/types"
 )
 
+// seqArgDepth is a sentinel depth value that marks an argument as having the
+// SMT sort (Seq String) rather than one of the standard OTypeD<n> sorts.
+const seqArgDepth = -10
+
 // ArgType is a structure holding information about function arguments
 // It has depth specified separately, since for builtin functions, it should be -1
 // For user-defined functions, it is primarily 0 (may be a subject to change)
@@ -26,6 +30,11 @@ func NewArg(name string, tp types.RegoTypeDef) Arg {
 		name: name,
 		typ:  newArgTypeFromTypeDef(tp),
 	}
+}
+
+// newPathArg creates an Arg for the path parameter (sort: Seq OTypeD0).
+func newPathArg(name string) Arg {
+	return Arg{name: name, typ: ArgType{depth: seqArgDepth}}
 }
 
 // transformType maps Rego ast Type into intermediate AtomicType
@@ -213,6 +222,22 @@ func NewFunction(name string, tp types.RegoTypeDef) Function {
 	args := make([]ArgType, len(tp.FunctionDef.ParamTypes))
 	for i, p := range tp.FunctionDef.ParamTypes {
 		args[i] = newArgTypeFromTypeDef(p)
+	}
+	res := newArgTypeFromTypeDef(tp.FunctionDef.ReturnType)
+	call := mkSmtFunction(name)
+	return Function{name: name, args: args, result: res, call: call}
+}
+
+// newContainsFunction builds a Function for a contains rule, prepending the
+// (Seq String) path parameter before the key parameters from the type definition.
+func newContainsFunction(name string, tp types.RegoTypeDef) Function {
+	if tp.FunctionDef == nil {
+		panic("function type expected")
+	}
+	args := make([]ArgType, 1+len(tp.FunctionDef.ParamTypes))
+	args[0] = ArgType{depth: seqArgDepth}
+	for i, p := range tp.FunctionDef.ParamTypes {
+		args[i+1] = newArgTypeFromTypeDef(p)
 	}
 	res := newArgTypeFromTypeDef(tp.FunctionDef.ReturnType)
 	call := mkSmtFunction(name)
