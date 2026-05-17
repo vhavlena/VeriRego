@@ -135,7 +135,97 @@ func (td *TypeTranslator) GenerateTypeDecls(usedVars map[string]any) (*Bucket, e
 
 	datatypesBucket := td.getDatatypesDeclaration(maxDepth)
 	bucket.Append(datatypesBucket)
+
+	compareBucket := td.generateComparisonFunctions(maxDepth)
+	bucket.Append(compareBucket)
+
 	return bucket, nil
+}
+
+// OTypeCompareName returns the SMT-LIB name for the Compare_N_K comparison function.
+func OTypeCompareName(n, k int) string {
+	return fmt.Sprintf("Compare_%d_%d", n, k)
+}
+
+// generateCompareFunction generates one Compare_N_K define-fun as an SMT-LIB string.
+//
+// Compare_N_K(x: OTypeDN, y: OTypeDK) → Bool implements equality modulo Wrap:
+//   - Wrap constructors on either side are stripped transparently.
+//   - Atom constructors at any depth all carry OTypeD0, so two Atoms are equal
+//     when their OTypeD0 payloads are equal.
+//   - Same-depth OObj / OArray values are compared with SMT array / sequence `=`.
+//   - Cross-depth OObj fields are compared recursively via Compare_{N-1}_{K-1}
+//     under a universal quantifier over string keys.
+//   - OArray cross-depth returns false (sequences of different element sorts).
+func (td *TypeTranslator) generateCompareFunction(n, k int) string {
+	xSort := fmt.Sprintf("OTypeD%d", n)
+	ySort := fmt.Sprintf("OTypeD%d", k)
+	name := OTypeCompareName(n, k)
+
+	var body string
+	switch {
+	case n == 0 && k == 0:
+		body = "(= x y)"
+
+	case k == 0:
+		// n > 0: strip Atom<n> or Wrap<n> from x, then compare with y : OTypeD0.
+		inner := OTypeCompareName(n-1, 0)
+		body = fmt.Sprintf(
+			"(ite (is-Atom%d x) (= (atom%d x) y)\n"+
+				"  (ite (is-Wrap%d x) (%s (wrap%d x) y)\n"+
+				"  false))",
+			n, n, n, inner, n)
+
+	case n == k:
+		// n == k > 0: unwrap from either side then compare same-constructor values.
+		wrapCmp := OTypeCompareName(n, n-1)
+		body = fmt.Sprintf(
+			"(ite (is-Wrap%[1]d x) (%[2]s y (wrap%[1]d x))\n"+
+				"  (ite (is-Wrap%[1]d y) (%[2]s x (wrap%[1]d y))\n"+
+				"  (ite (is-Atom%[1]d x) (ite (is-Atom%[1]d y) (= (atom%[1]d x) (atom%[1]d y)) false)\n"+
+				"  (ite (is-OObj%[1]d x) (ite (is-OObj%[1]d y) (= (obj%[1]d x) (obj%[1]d y)) false)\n"+
+				"  (ite (is-OArray%[1]d x) (ite (is-OArray%[1]d y) (= (arr%[1]d x) (arr%[1]d y)) false)\n"+
+				"  false)))))",
+			n, wrapCmp)
+
+	default:
+		// n > k > 0: strip wraps, compare atoms by OTypeD0 payload, recurse into obj fields.
+		innerWrapX := OTypeCompareName(n-1, k) // n-1 >= k since n > k
+		innerWrapY := OTypeCompareName(n, k-1) // n >= k-1
+		innerObj := OTypeCompareName(n-1, k-1) // element depths, n-1 >= k-1
+		kVar := "ks"
+		body = fmt.Sprintf(
+			"(ite (is-Wrap%d x) (%s (wrap%d x) y)\n"+
+				"  (ite (is-Wrap%d y) (%s x (wrap%d y))\n"+
+				"  (ite (is-Atom%d x)\n"+
+				"    (ite (is-Atom%d y) (= (atom%d x) (atom%d y)) false)\n"+
+				"  (ite (is-OObj%d x)\n"+
+				"    (ite (is-OObj%d y)\n"+
+				"      (forall ((%s String)) (%s (select (obj%d x) %s) (select (obj%d y) %s)))\n"+
+				"    false)\n"+
+				"  false))))",
+			n, innerWrapX, n,
+			k, innerWrapY, k,
+			n,
+			k, n, k,
+			n,
+			k,
+			kVar, innerObj, n, kVar, k, kVar)
+	}
+
+	return fmt.Sprintf("(define-fun %s ((x %s) (y %s)) Bool\n  %s)", name, xSort, ySort, body)
+}
+
+// generateComparisonFunctions generates all Compare_N_K define-fun commands for
+// 0 ≤ K ≤ N ≤ maxDepth, in dependency order (smaller pairs first).
+func (td *TypeTranslator) generateComparisonFunctions(maxDepth int) *Bucket {
+	bucket := NewBucket()
+	for n := 0; n <= maxDepth; n++ {
+		for k := 0; k <= n; k++ {
+			bucket.TypeDecls = append(bucket.TypeDecls, RawCommand(td.generateCompareFunction(n, k)))
+		}
+	}
+	return bucket
 }
 
 // GenerateVarDecl generates the SMT-LIB declaration and constraint assertion for `varName`.

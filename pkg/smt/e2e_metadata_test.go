@@ -38,7 +38,9 @@ p := foo(5)
 		t.Fatalf("expected p == 2 (second occurrence fires), got: %v", num)
 	}
 
-	// Structural check: all define-fun names must carry the prefix.
+	// Structural check: all module-level define-fun names must carry the prefix.
+	// Compare_N_K functions are global type infrastructure (like declare-datatypes)
+	// and are intentionally not prefixed.
 	for _, line := range strings.Split(result.SmtContent, "\n") {
 		if !strings.HasPrefix(line, "(define-fun ") {
 			continue
@@ -46,6 +48,9 @@ p := foo(5)
 		// Extract the function name (token after "(define-fun ").
 		rest := strings.TrimPrefix(line, "(define-fun ")
 		name := strings.SplitN(rest, " ", 2)[0]
+		if strings.HasPrefix(name, "Compare_") {
+			continue
+		}
 		if !strings.HasPrefix(name, prefix) {
 			t.Errorf("define-fun %q is missing prefix %q", name, prefix)
 		}

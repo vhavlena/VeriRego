@@ -181,11 +181,28 @@ func (sv *SmtValue) SelectArr(at string) *SmtValue {
 	return NewSmtValue(concat, sv.depth-1)
 }
 
-// Equals returns a proposition corresponding to equality of the two given SmtValues.
-// It automatically aligns the two values to the same depth.
+// Equals returns a proposition for equality modulo Wrap of two SmtValues.
+//
+// Uses Compare_N_K where N = max depth, K = min depth (N >= K >= 0).
+// Literals (depth -1) are treated as depth 0 and converted to OTypeD0 atoms
+// via WrapToDepth(0) before the call.
 func (sv *SmtValue) Equals(other *SmtValue) *SmtProposition {
-	d := max(sv.depth, other.depth)
-	value := fmt.Sprintf("(= %s %s)", sv.WrapToDepth(d).String(), other.WrapToDepth(d).String())
+	svDepth := max(sv.depth, 0)
+	otherDepth := max(other.depth, 0)
+
+	// Compare_N_K requires first arg at depth N >= second arg depth K.
+	highSv, lowSv := sv, other
+	highD, lowD := svDepth, otherDepth
+	if otherDepth > svDepth {
+		highSv, lowSv = other, sv
+		highD, lowD = otherDepth, svDepth
+	}
+
+	// WrapToDepth converts literals (depth -1) to OTypeD0 atoms; no-op otherwise.
+	highExpr := highSv.WrapToDepth(highD).String()
+	lowExpr := lowSv.WrapToDepth(lowD).String()
+
+	value := fmt.Sprintf("(%s %s %s)", OTypeCompareName(highD, lowD), highExpr, lowExpr)
 	return &SmtProposition{value: value}
 }
 
